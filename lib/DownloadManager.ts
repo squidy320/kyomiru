@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
-import Constants from 'expo-constants';
 
 export type DownloadRegistryRecord = {
   id: string;
@@ -26,16 +25,19 @@ type StartDownloadParams = {
   shouldCancel?: () => boolean;
 };
 
+type ParsedHls = {
+  playlistText: string;
+  segmentUrls: string[];
+  keyUrls: string[];
+};
+
 const DOWNLOAD_CANCELLED_ERROR = 'Download cancelled';
 const DB_NAME = 'downloads.db';
 const DOWNLOADS_DIR = `${(FileSystem as any).documentDirectory ?? ''}downloads/`;
-const FFMPEG_UNAVAILABLE_MESSAGE =
-  'FFmpeg is unavailable in this build. Rebuild a development client or production app after installing ffmpeg-kit-react-native.';
+const HLS_CONCURRENCY = 3;
+const MAX_HLS_SEGMENTS = 3000;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
-let ffmpegLoadAttempted = false;
-let ffmpegLoadError: string | null = null;
-let ffmpegKitCached: any | null = null;
 
 const sanitizeFileName = (name: string) =>
   name
@@ -160,147 +162,274 @@ function isHlsLike(params: StartDownloadParams) {
   return byFormat === 'm3u8' || byFormat === 'hls' || byUrl.includes('.m3u8') || byUrl.includes('.ts');
 }
 
-function stripFileScheme(uri: string) {
-  return String(uri ?? '').replace(/^file:\/\//i, '');
+function getExtensionFromUrl(url: string, fallback: string) {
+  const clean = String(url ?? '').split('?')[0].split('#')[0];
+  const idx = clean.lastIndexOf('.');
+  if (idx <= 0 || idx >= clean.length - 1) return fallback;
+  const ext = clean.slice(idx + 1).toLowerCase();
+  if (!/^[a-z0-9]{1,8}$/i.test(ext)) return fallback;
+  return ext;
 }
 
-function buildHeaderBlob(headers: Record<string, string>) {
-  const lines = Object.entries(headers)
-    .filter(([k, v]) => String(k).trim() && String(v).trim())
-    .map(([k, v]) => `${k}: ${v}`);
-  if (!lines.length) return '';
-  return `${lines.join('\r\n')}\r\n`;
+function normalizeM3u8Line(line: string) {
+  return String(line ?? '').trim();
 }
 
-async function loadFFmpegKit() {
-  if (ffmpegLoadAttempted) return ffmpegKitCached;
-  const executionEnvironment = String((Constants as any)?.executionEnvironment ?? '').toLowerCase();
-  const isExpoGo =
-    executionEnvironment === 'storeclient' ||
-    String((Constants as any)?.appOwnership ?? '').toLowerCase() === 'expo';
-  if (isExpoGo) {
-    ffmpegLoadAttempted = true;
-    ffmpegLoadError = 'Running in Expo Go (native FFmpeg modules are unavailable there).';
-    ffmpegKitCached = null;
-    return null;
-  }
-  try {
-    const mod: any = require('ffmpeg-kit-react-native');
-    const FFmpegKit = mod?.FFmpegKit ?? mod?.default?.FFmpegKit;
-    if (!FFmpegKit || typeof FFmpegKit.executeAsync !== 'function') {
-      ffmpegLoadAttempted = true;
-      ffmpegLoadError = 'ffmpeg-kit-react-native module loaded, but FFmpegKit export is missing.';
-      ffmpegKitCached = null;
-      return null;
-    }
-    ffmpegLoadAttempted = true;
-    ffmpegLoadError = null;
-    ffmpegKitCached = FFmpegKit;
-    return FFmpegKit;
-  } catch (e: any) {
-    ffmpegLoadAttempted = true;
-    ffmpegLoadError = String(e?.message ?? e ?? 'Unknown FFmpeg load error');
-    ffmpegKitCached = null;
-    return null;
-  }
-}
-
-export async function getFFmpegRuntimeStatus() {
-  const executionEnvironment = String((Constants as any)?.executionEnvironment ?? '');
-  const appOwnership = String((Constants as any)?.appOwnership ?? '');
-  const ffmpeg = await loadFFmpegKit();
-  return {
-    available: !!ffmpeg,
-    executionEnvironment,
-    appOwnership,
-    reason: ffmpeg ? null : ffmpegLoadError ?? FFMPEG_UNAVAILABLE_MESSAGE,
-  };
-}
-
-async function buildLocalHlsPlaylist(
-  entryUrl: string,
-  headers: Record<string, string>,
-  playlistUri: string
-) {
-  const res = await fetch(entryUrl, { headers });
+async function fetchText(url: string, headers: Record<string, string>) {
+  const res = await fetch(url, { headers });
   if (!res.ok) {
     throw new Error(`Failed to fetch playlist (HTTP ${res.status})`);
   }
-  const text = await res.text();
+  return await res.text();
+}
+
+function parseVariantCandidates(playlistText: string, entryUrl: string) {
+  const lines = playlistText.split(/\r?\n/);
+  const out: { url: string; bandwidth: number }[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = normalizeM3u8Line(lines[i]);
+    if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
+    const next = normalizeM3u8Line(lines[i + 1] ?? '');
+    if (!next || next.startsWith('#')) continue;
+    let resolved = '';
+    try {
+      resolved = new URL(next, entryUrl).toString();
+    } catch {
+      continue;
+    }
+    const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
+    out.push({ url: resolved, bandwidth: Number(bwMatch?.[1] ?? 0) });
+  }
+  return out;
+}
+
+async function resolveMediaPlaylist(entryUrl: string, headers: Record<string, string>) {
+  const text = await fetchText(entryUrl, headers);
   if (!text || !/#EXTM3U/i.test(text)) {
     throw new Error('Invalid HLS playlist payload');
   }
-  const rewritten = text
-    .split(/\r?\n/)
-    .map((line) => {
-      const raw = String(line ?? '');
-      const trimmed = raw.trim();
-      if (!trimmed || trimmed.startsWith('#')) return raw;
-      try {
-        return new URL(trimmed, entryUrl).toString();
-      } catch {
-        return trimmed;
+
+  const variants = parseVariantCandidates(text, entryUrl);
+  if (!variants.length) {
+    return { mediaUrl: entryUrl, playlistText: text };
+  }
+
+  variants.sort((a, b) => b.bandwidth - a.bandwidth);
+  for (const v of variants) {
+    try {
+      const variantText = await fetchText(v.url, headers);
+      if (/#EXTINF/i.test(variantText)) {
+        return { mediaUrl: v.url, playlistText: variantText };
       }
-    })
-    .join('\n');
-  await FileSystem.writeAsStringAsync(playlistUri, rewritten, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+    } catch {
+      // try next variant
+    }
+  }
+
+  // fallback: first variant text (if none had EXTINF detection)
+  const first = variants[0];
+  return { mediaUrl: first.url, playlistText: await fetchText(first.url, headers) };
 }
 
-async function convertHlsToMp4WithFFmpeg(params: {
+function parseHlsResources(playlistText: string, mediaUrl: string): ParsedHls {
+  const lines = playlistText.split(/\r?\n/);
+  const segmentUrls: string[] = [];
+  const keyUrls: string[] = [];
+
+  for (const lineRaw of lines) {
+    const line = normalizeM3u8Line(lineRaw);
+    if (!line) continue;
+
+    if (line.startsWith('#EXT-X-KEY')) {
+      const m = line.match(/URI="([^"]+)"/i);
+      if (m?.[1]) {
+        try {
+          keyUrls.push(new URL(m[1], mediaUrl).toString());
+        } catch {}
+      }
+      continue;
+    }
+
+    if (line.startsWith('#')) continue;
+
+    try {
+      segmentUrls.push(new URL(line, mediaUrl).toString());
+    } catch {}
+  }
+
+  return {
+    playlistText,
+    segmentUrls,
+    keyUrls,
+  };
+}
+
+async function mapWithConcurrency<T>(
+  values: T[],
+  limit: number,
+  worker: (value: T, index: number) => Promise<void>
+) {
+  if (!values.length) return;
+  let cursor = 0;
+  const runners = Array.from({ length: Math.max(1, Math.min(limit, values.length)) }, () =>
+    (async () => {
+      while (true) {
+        const idx = cursor;
+        cursor += 1;
+        if (idx >= values.length) return;
+        await worker(values[idx], idx);
+      }
+    })()
+  );
+  await Promise.all(runners);
+}
+
+async function downloadHlsToLocal(params: {
   entryUrl: string;
-  playlistUri: string;
-  outputUri: string;
   headers: Record<string, string>;
+  outputPlaylistUri: string;
+  outputFolderUri: string;
   shouldCancel?: () => boolean;
   onProgress?: (progress: number, totalSize: number, downloadedBytes: number) => void;
 }) {
-  const FFmpegKit = await loadFFmpegKit();
-  if (!FFmpegKit) {
-    const status = await getFFmpegRuntimeStatus();
-    throw new Error(status.reason ?? FFMPEG_UNAVAILABLE_MESSAGE);
-  }
   if (params.shouldCancel?.()) throw new Error(DOWNLOAD_CANCELLED_ERROR);
 
-  await buildLocalHlsPlaylist(params.entryUrl, params.headers, params.playlistUri);
+  const { mediaUrl, playlistText } = await resolveMediaPlaylist(params.entryUrl, params.headers);
+  const parsed = parseHlsResources(playlistText, mediaUrl);
 
-  const headerBlob = buildHeaderBlob(params.headers);
-  const inPath = stripFileScheme(params.playlistUri);
-  const outPath = stripFileScheme(params.outputUri);
-  const cmd =
-    `-y ` +
-    `-allowed_extensions ALL ` +
-    `-protocol_whitelist file,http,https,tcp,tls,crypto ` +
-    (headerBlob ? `-headers "${headerBlob.replace(/"/g, '\\"')}" ` : '') +
-    `-i "${inPath}" ` +
-    `-c copy -bsf:a aac_adtstoasc "${outPath}"`;
+  if (!parsed.segmentUrls.length) {
+    throw new Error('Download Incomplete - Segments Missing');
+  }
+  if (parsed.segmentUrls.length > MAX_HLS_SEGMENTS) {
+    throw new Error(`Playlist has too many segments (${parsed.segmentUrls.length}).`);
+  }
 
-  await new Promise<void>((resolve, reject) => {
-    FFmpegKit.executeAsync(cmd, async (session: any) => {
-      try {
-        const rc = await session?.getReturnCode?.();
-        const codeValue =
-          typeof rc?.getValue === 'function' ? Number(rc.getValue()) : Number(String(rc ?? NaN));
-        const isOk = Number.isFinite(codeValue) ? codeValue === 0 : !!rc?.isValueSuccess?.();
-        if (!isOk) {
-          const failLog = (await session?.getFailStackTrace?.()) || (await session?.getOutput?.()) || '';
-          reject(new Error(`FFmpeg convert failed${failLog ? `: ${String(failLog).slice(0, 260)}` : ''}`));
-          return;
-        }
-        resolve();
-      } catch (e) {
-        reject(e);
-      }
+  await ensureDirectory(params.outputFolderUri);
+
+  const resourceUrls = [...parsed.keyUrls, ...parsed.segmentUrls];
+  const fileMap = new Map<string, string>();
+
+  parsed.keyUrls.forEach((url, idx) => {
+    const ext = getExtensionFromUrl(url, 'key');
+    fileMap.set(url, `key_${idx + 1}.${ext}`);
+  });
+  parsed.segmentUrls.forEach((url, idx) => {
+    const ext = getExtensionFromUrl(url, 'ts');
+    fileMap.set(url, `segment_${idx + 1}.${ext}`);
+  });
+
+  let downloadedBytes = 0;
+  let totalSize = 0;
+
+  await mapWithConcurrency(resourceUrls, HLS_CONCURRENCY, async (resourceUrl) => {
+    if (params.shouldCancel?.()) throw new Error(DOWNLOAD_CANCELLED_ERROR);
+
+    const localName = fileMap.get(resourceUrl);
+    if (!localName) return;
+    const localUri = `${params.outputFolderUri}${localName}`;
+
+    const resumable = FileSystem.createDownloadResumable(resourceUrl, localUri, {
+      headers: params.headers,
     });
+
+    const result = await resumable.downloadAsync();
+    if (!result?.uri) {
+      throw new Error(`Failed to download segment: ${resourceUrl}`);
+    }
+
+    const status = Number((result as any)?.status ?? 0);
+    if (status >= 400) {
+      throw new Error(`Segment HTTP ${status}: ${resourceUrl}`);
+    }
+
+    const info = await FileSystem.getInfoAsync(result.uri);
+    const size = Number((info as any)?.size ?? 0);
+    downloadedBytes += Math.max(0, size);
+    totalSize = Math.max(totalSize, downloadedBytes);
+
+    params.onProgress?.(
+      Math.min(0.98, downloadedBytes / Math.max(1, totalSize)),
+      totalSize,
+      downloadedBytes
+    );
   });
 
   if (params.shouldCancel?.()) throw new Error(DOWNLOAD_CANCELLED_ERROR);
-  const info = await FileSystem.getInfoAsync(params.outputUri);
-  if (!(info as any)?.exists || Number((info as any)?.size ?? 0) <= 0) {
-    throw new Error('FFmpeg finished but output MP4 is missing');
+
+  // Verify every resource exists before marking complete.
+  for (const resourceUrl of resourceUrls) {
+    const localName = fileMap.get(resourceUrl);
+    const localUri = `${params.outputFolderUri}${localName}`;
+    const info = await FileSystem.getInfoAsync(localUri);
+    if (!(info as any)?.exists || Number((info as any)?.size ?? 0) <= 0) {
+      throw new Error('Download Incomplete - Segments Missing');
+    }
   }
-  params.onProgress?.(1, Number((info as any)?.size ?? 0), Number((info as any)?.size ?? 0));
+
+  // Rewrite playlist with local relative paths.
+  let rewritten = parsed.playlistText;
+  for (const [remote, localName] of fileMap.entries()) {
+    const escaped = remote.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    rewritten = rewritten.replace(new RegExp(escaped, 'g'), localName);
+
+    try {
+      const pathOnly = new URL(remote).pathname;
+      const escapedPath = pathOnly.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      rewritten = rewritten.replace(new RegExp(escapedPath, 'g'), localName);
+    } catch {}
+  }
+
+  const lines = rewritten.split(/\r?\n/).map((lineRaw) => {
+    const line = normalizeM3u8Line(lineRaw);
+    if (!line) return lineRaw;
+
+    if (line.startsWith('#EXT-X-KEY')) {
+      const keyMatch = line.match(/URI="([^"]+)"/i);
+      if (keyMatch?.[1]) {
+        try {
+          const keyAbs = new URL(keyMatch[1], mediaUrl).toString();
+          const keyLocal = fileMap.get(keyAbs);
+          if (keyLocal) {
+            return lineRaw.replace(keyMatch[1], keyLocal);
+          }
+        } catch {}
+      }
+      return lineRaw;
+    }
+
+    if (line.startsWith('#')) return lineRaw;
+
+    try {
+      const absolute = new URL(line, mediaUrl).toString();
+      const mapped = fileMap.get(absolute);
+      if (mapped) return mapped;
+    } catch {}
+
+    return lineRaw;
+  });
+
+  await FileSystem.writeAsStringAsync(params.outputPlaylistUri, lines.join('\n'), {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+
+  const playlistInfo = await FileSystem.getInfoAsync(params.outputPlaylistUri);
+  downloadedBytes += Number((playlistInfo as any)?.size ?? 0);
+  totalSize = Math.max(totalSize, downloadedBytes);
+
+  params.onProgress?.(1, totalSize, downloadedBytes);
+  return {
+    totalSize,
+    downloadedBytes,
+  };
+}
+
+export async function getFFmpegRuntimeStatus() {
+  return {
+    available: false,
+    executionEnvironment: 'native-hls-local',
+    appOwnership: 'n/a',
+    reason: 'FFmpeg removed. Using native HLS local playlist + segments download.',
+  };
 }
 
 export async function getDownloadedPath(episodeId: string): Promise<string | null> {
@@ -421,7 +550,7 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
   const isHlsDownload = isHlsLike(params);
   const sourceFormat = String(params.format ?? '').toLowerCase();
   const inferredExt = (() => {
-    if (isHlsDownload) return '.mp4';
+    if (isHlsDownload) return '.m3u8';
     if (sourceFormat === 'webm') return '.webm';
     if (sourceFormat === 'mp4') return '.mp4';
     const u = String(params.url ?? '').toLowerCase();
@@ -431,14 +560,14 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
   const animeFolderName = sanitizeFolderName(String(params.animeTitle ?? '').trim() || 'Unknown Anime');
   const animeFolderUri = `${DOWNLOADS_DIR}${animeFolderName}/`;
   await ensureDirectory(animeFolderUri);
-  const resolvedFileName = sanitizeFileName(`Episode${Math.max(1, Math.trunc(Number(params.episodeNumber) || 1))}${inferredExt}`);
+  const episodeBaseName = sanitizeFileName(`Episode${Math.max(1, Math.trunc(Number(params.episodeNumber) || 1))}`);
+  const resolvedFileName = `${episodeBaseName}${inferredExt}`;
   const fileUri = `${animeFolderUri}${resolvedFileName}`;
-  const hlsPlaylistUri = `${animeFolderUri}${resolvedFileName.replace(/\.(mp4|m4v|webm)$/i, '')}.m3u8`;
 
   // Smart reuse: if user already moved/imported a matching episode file into this folder, use it directly.
-  // Example: Documents/downloads/<Anime Name>/Episode2.mp4
-  const existingPreferredMp4 = `${animeFolderUri}${sanitizeFileName(`Episode${Math.max(1, Math.trunc(Number(params.episodeNumber) || 1))}.mp4`)}`;
-  const existingCheckList = [existingPreferredMp4, fileUri];
+  const existingPreferredMp4 = `${animeFolderUri}${episodeBaseName}.mp4`;
+  const existingPreferredM3u8 = `${animeFolderUri}${episodeBaseName}.m3u8`;
+  const existingCheckList = [existingPreferredMp4, existingPreferredM3u8, fileUri];
   for (const existingUri of existingCheckList) {
     const info = await FileSystem.getInfoAsync(existingUri);
     if ((info as any)?.exists && Number((info as any)?.size ?? 0) > 0) {
@@ -478,7 +607,7 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
 
   console.log('[DownloadManager] Starting private download:', {
     id,
-    engine: isHlsDownload ? 'hls-ffmpeg' : 'mp4-direct',
+    engine: isHlsDownload ? 'hls-local' : 'mp4-direct',
     format: params.format ?? 'auto',
     url: String(params.url ?? '').slice(0, 160),
     fileName: resolvedFileName,
@@ -487,15 +616,17 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
   let cancelRequested = false;
   let finalUri = fileUri;
   if (isHlsDownload) {
-    await convertHlsToMp4WithFFmpeg({
+    const result = await downloadHlsToLocal({
       entryUrl: params.url,
-      playlistUri: hlsPlaylistUri,
-      outputUri: fileUri,
       headers,
+      outputPlaylistUri: fileUri,
+      outputFolderUri: animeFolderUri,
       shouldCancel: params.shouldCancel,
       onProgress: params.onProgress,
     });
+    latestTotalSize = result.totalSize;
     latestProgress = 1;
+    finalUri = fileUri;
   } else {
     const resumable = FileSystem.createDownloadResumable(
       params.url,
@@ -586,3 +717,4 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
     totalSize: finalSize,
   };
 }
+

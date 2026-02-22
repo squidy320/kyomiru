@@ -1,4 +1,5 @@
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname, useRouter } from 'expo-router';
+import * as Network from 'expo-network';
 import React from 'react';
 import { Platform } from 'react-native';
 
@@ -10,6 +11,28 @@ import { useUIAppearance } from '@/lib/uiAppearance';
 import { useThemePresetColors } from '@/lib/themePresets';
 
 export default function TabLayout() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const launchOfflineCheckDone = React.useRef(false);
+
+  React.useEffect(() => {
+    if (launchOfflineCheckDone.current) return;
+    launchOfflineCheckDone.current = true;
+
+    const checkConnectivity = async () => {
+      try {
+        const state = await Network.getNetworkStateAsync();
+        const offline = state.isConnected === false || state.isInternetReachable === false;
+        if (offline && pathname !== '/downloads' && pathname !== '/(tabs)/downloads') {
+          router.replace('/(tabs)/downloads');
+        }
+      } catch {
+        // If network check fails, keep current tab.
+      }
+    };
+
+    void checkConnectivity();
+  }, [pathname, router]);
   const { compactTabBar, glassIntensity, liquidGlassActive } = useUIAppearance();
   const themed = useThemePresetColors();
   const { unreadDot } = useAniListNotifications();
@@ -132,5 +155,6 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
 
 

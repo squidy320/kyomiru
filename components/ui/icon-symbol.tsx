@@ -16,6 +16,7 @@ const MAPPING = {
   'house.fill': 'home',
   'books.vertical.fill': 'library-books',
   sparkles: 'auto-awesome',
+  'bell.fill': 'notifications',
   'arrow.down.circle.fill': 'download',
   'gearshape.fill': 'settings',
   'paperplane.fill': 'send',
@@ -43,3 +44,4 @@ export function IconSymbol({
   const mapped = MAPPING[name] ?? 'help-outline';
   return <MaterialIcons color={color} size={size} name={mapped} style={style} />;
 }
+

@@ -108,13 +108,7 @@ export function AniListAuthProvider({ children }: ProviderProps) {
 
       const executionEnvironment = String((Constants as any)?.executionEnvironment ?? '').toLowerCase();
       const isExpoGo = executionEnvironment === 'storeclient';
-      if (!ANILIST_CLIENT_SECRET) {
-        Alert.alert(
-          'AniList Login',
-          'Missing EXPO_PUBLIC_ANILIST_CLIENT_SECRET. Code flow requires client secret.'
-        );
-        return;
-      }
+      const useCodeFlow = !!ANILIST_CLIENT_SECRET;
       const redirectCandidates = ['kyomiru://auth'];
       const tryLoginWithRedirect = async (redirectUri: string) => {
         let callbackUrl: string | null = null;
@@ -134,7 +128,7 @@ export function AniListAuthProvider({ children }: ProviderProps) {
 
         const authParams = new URLSearchParams();
         authParams.set('client_id', ANILIST_CLIENT_ID);
-        authParams.set('response_type', 'code');
+        authParams.set('response_type', useCodeFlow ? 'code' : 'token');
         authParams.set('state', state);
         authParams.set('redirect_uri', redirectUri);
         const authUrl = `${ANILIST_AUTH_ENDPOINT}?${authParams.toString()}`;
@@ -207,6 +201,21 @@ export function AniListAuthProvider({ children }: ProviderProps) {
               error: errorMessage || errorCode || 'Login failed.',
             };
           }
+          if (!useCodeFlow) {
+            const token = String(params.get('access_token') ?? '').trim();
+            if (!token) {
+              return {
+                ok: false as const,
+                canceled: false as const,
+                error:
+                  isExpoGo
+                    ? `No access token was returned in Expo Go. Confirm AniList redirect URI is exactly ${redirectUri}.`
+                    : `No access token was returned. Confirm AniList redirect URI is exactly ${redirectUri}.`,
+              };
+            }
+            return { ok: true as const, token };
+          }
+
           const code = String(params.get('code') ?? '').trim();
           if (!code) {
             return {
@@ -309,3 +318,6 @@ export function useAniListAuth() {
   }
   return ctx;
 }
+
+
+
