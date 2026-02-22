@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
+import GlassSurface from '@/components/ui/glass-surface';
 import { colors, glassButton, glassCardElevated, shadow } from '@/lib/theme';
 import { useUIAppearance } from '@/lib/uiAppearance';
 import { useThemePresetColors } from '@/lib/themePresets';
@@ -35,7 +36,7 @@ export default function AppearanceSettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Theme</Text>
         <Text style={styles.cardSub}>Pick the accent and tone that matches your style.</Text>
         <View style={styles.paletteRow}>
@@ -53,9 +54,9 @@ export default function AppearanceSettingsScreen() {
         <View style={[styles.preview, { borderColor: themed.accent }]}>
           <Text style={[styles.previewText, { color: themed.accent }]}>Accent preview</Text>
         </View>
-      </View>
+      </GlassSurface>
 
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Display</Text>
         <View style={styles.row}>
           <View style={styles.rowText}>
@@ -93,12 +94,12 @@ export default function AppearanceSettingsScreen() {
             thumbColor="#ffffff"
           />
         </View>
-      </View>
+      </GlassSurface>
 
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Glass Effects</Text>
         <Text style={styles.cardSub}>
-          Support: {supportsLiquidGlass ? 'Yes' : 'No'}{supportsLiquidGlass ? ` â€¢ Transparency: ${isReduceTransparencyEnabled ? 'Reduced' : 'Enabled'}` : ''}
+          Support: {supportsLiquidGlass ? 'Yes' : 'No'}{supportsLiquidGlass ? ` • Transparency: ${isReduceTransparencyEnabled ? 'Reduced' : 'Enabled'}` : ''}
         </Text>
         <View style={styles.rowButtons}>
           <TouchableOpacity
@@ -126,7 +127,7 @@ export default function AppearanceSettingsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </GlassSurface>
 
       <TouchableOpacity style={[styles.resetButton, glassButton]} onPress={resetAppearanceSettings}>
         <Text style={styles.resetButtonText}>Reset All Customizations</Text>

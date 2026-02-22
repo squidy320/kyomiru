@@ -1,8 +1,10 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import GlassSurface from '@/components/ui/glass-surface';
+import GlassTouchable from '@/components/ui/glass-touchable';
 import { colors, glassCardElevated, shadow } from '@/lib/theme';
 
 const ITEMS = [
@@ -22,21 +24,22 @@ export default function SettingsEntryScreen() {
 
       <View style={styles.list}>
         {ITEMS.map((item) => (
-          <TouchableOpacity
-            key={item.key}
-            style={[styles.card, glassCardElevated, shadow]}
-            activeOpacity={0.88}
-            onPress={() => router.push(`/settings/${item.key}` as any)}
-          >
-            <View style={styles.iconWrap}>
-              <MaterialIcons name={item.icon} size={20} color={colors.text} />
-            </View>
-            <View style={styles.textWrap}>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={22} color={colors.textMuted} />
-          </TouchableOpacity>
+          <GlassSurface key={item.key} style={[styles.card, glassCardElevated, shadow]}>
+            <GlassTouchable
+              activeOpacity={0.88}
+              onPress={() => router.push(`/settings/${item.key}` as any)}
+              style={styles.cardPressable}
+            >
+              <View style={styles.iconWrap}>
+                <MaterialIcons name={item.icon} size={20} color={colors.text} />
+              </View>
+              <View style={styles.textWrap}>
+                <Text style={styles.cardTitle}>{item.title}</Text>
+                <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={22} color={colors.textMuted} />
+            </GlassTouchable>
+          </GlassSurface>
         ))}
       </View>
     </ScrollView>
@@ -71,6 +74,9 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: 16,
+    overflow: 'hidden',
+  },
+  cardPressable: {
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import GlassSurface from '@/components/ui/glass-surface';
 
 import { cancelDownload, clearFinishedDownloads, DownloadItem, subscribeDownloads } from '@/lib/soraDownloader';
 import { colors, glassButton, glassCardElevated, shadow } from '@/lib/theme';
@@ -76,7 +77,7 @@ export default function DownloadsScreen() {
       <Text style={styles.title}>Downloads</Text>
       <Text style={styles.subtitle}>{activeCount} active</Text>
 
-      <View style={[styles.modeSwitch, glassCardElevated]}>
+      <GlassSurface style={[styles.modeSwitch, glassCardElevated]}>
         <TouchableOpacity
           style={[styles.modeButton, mode === 'queue' && styles.modeButtonActive]}
           onPress={() => setMode('queue')}
@@ -91,7 +92,7 @@ export default function DownloadsScreen() {
         >
           <Text style={[styles.modeButtonText, mode === 'library' && styles.modeButtonTextActive]}>Library</Text>
         </TouchableOpacity>
-      </View>
+      </GlassSurface>
 
       {mode === 'queue' && (
         <>
@@ -104,9 +105,9 @@ export default function DownloadsScreen() {
           </TouchableOpacity>
 
           {items.length === 0 ? (
-            <View style={[styles.card, glassCardElevated, shadow]}>
+            <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
               <Text style={styles.empty}>No downloads yet.</Text>
-            </View>
+            </GlassSurface>
           ) : (
             items.map((item) => {
               const pct = Math.round((item.progress ?? 0) * 100);
@@ -123,7 +124,7 @@ export default function DownloadsScreen() {
                           ? 'Cancelled'
                           : item.status;
               return (
-                <View key={item.id} style={[styles.card, glassCardElevated, shadow]}>
+                <GlassSurface key={item.id} style={[styles.card, glassCardElevated, shadow]}>
                   <Text style={styles.itemTitle} numberOfLines={1}>
                     {item.animeTitle} - EP {item.episodeNumber}
                   </Text>
@@ -146,7 +147,7 @@ export default function DownloadsScreen() {
                       <Text style={styles.cancelButtonText}>Cancel</Text>
                     </TouchableOpacity>
                   )}
-                </View>
+                </GlassSurface>
               );
             })
           )}
@@ -156,9 +157,9 @@ export default function DownloadsScreen() {
       {mode === 'library' && (
         <>
           {libraryGroups.length === 0 ? (
-            <View style={[styles.card, glassCardElevated, shadow]}>
+            <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
               <Text style={styles.empty}>No completed downloads yet.</Text>
-            </View>
+            </GlassSurface>
           ) : (
             libraryGroups.map((group) => (
               <TouchableOpacity
@@ -329,3 +330,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
 });
+
+
+
+

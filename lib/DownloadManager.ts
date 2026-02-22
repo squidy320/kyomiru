@@ -162,6 +162,15 @@ function isHlsLike(params: StartDownloadParams) {
   return byFormat === 'm3u8' || byFormat === 'hls' || byUrl.includes('.m3u8') || byUrl.includes('.ts');
 }
 
+function createDownloadOptions(headers: Record<string, string>) {
+  const options: any = { headers };
+  const sessionType = (FileSystem as any)?.FileSystemSessionType?.BACKGROUND;
+  if (sessionType != null) {
+    options.sessionType = sessionType;
+  }
+  return options;
+}
+
 function getExtensionFromUrl(url: string, fallback: string) {
   const clean = String(url ?? '').split('?')[0].split('#')[0];
   const idx = clean.lastIndexOf('.');
@@ -328,9 +337,7 @@ async function downloadHlsToLocal(params: {
     if (!localName) return;
     const localUri = `${params.outputFolderUri}${localName}`;
 
-    const resumable = FileSystem.createDownloadResumable(resourceUrl, localUri, {
-      headers: params.headers,
-    });
+    const resumable = FileSystem.createDownloadResumable(resourceUrl, localUri, createDownloadOptions(params.headers));
 
     const result = await resumable.downloadAsync();
     if (!result?.uri) {
@@ -631,7 +638,7 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
     const resumable = FileSystem.createDownloadResumable(
       params.url,
       fileUri,
-      { headers },
+      createDownloadOptions(headers),
       (event: any) => {
         if (!cancelRequested && params.shouldCancel?.()) {
           cancelRequested = true;
@@ -717,4 +724,7 @@ export async function startPrivateDownload(params: StartDownloadParams): Promise
     totalSize: finalSize,
   };
 }
+
+
+
 

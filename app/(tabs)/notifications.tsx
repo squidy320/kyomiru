@@ -14,6 +14,7 @@ import {
 import { AniListNotification, fetchAniListNotifications } from '@/lib/anilist';
 import { useAniListAuth } from '@/lib/anilistAuth';
 import { useAniListNotifications } from '@/lib/anilistNotifications';
+import GlassSurface from '@/components/ui/glass-surface';
 import { colors, glassButton, glassCardElevated, shadow } from '@/lib/theme';
 
 function titleFromMedia(notification: AniListNotification) {
@@ -137,7 +138,7 @@ export default function NotificationsScreen() {
         renderItem={({ item }) => {
           const cover = item.media?.coverImage?.large ?? item.user?.avatar?.large ?? null;
           return (
-            <View style={[styles.card, glassCardElevated, shadow]}>
+            <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
               {cover ? <Image source={{ uri: cover }} style={styles.thumb} /> : <View style={styles.thumbFallback} />}
               <View style={styles.cardBody}>
                 <Text style={styles.cardText}>{summaryText(item)}</Text>
@@ -145,7 +146,7 @@ export default function NotificationsScreen() {
                   {String(item.type || '').toLowerCase()} • {toRelativeTime(item.createdAt)}
                 </Text>
               </View>
-            </View>
+            </GlassSurface>
           );
         }}
       />
@@ -239,3 +240,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+
+

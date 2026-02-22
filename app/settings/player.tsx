@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
+import GlassSurface from '@/components/ui/glass-surface';
 import { colors, glassButton, glassCardElevated, shadow } from '@/lib/theme';
 import { useUIAppearance } from '@/lib/uiAppearance';
 import { useThemePresetColors } from '@/lib/themePresets';
@@ -22,7 +23,7 @@ export default function PlayerSettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Video Fit</Text>
         <Text style={styles.cardSub}>Contain preserves full frame. Cover fills the screen.</Text>
         <View style={styles.rowButtons}>
@@ -39,9 +40,9 @@ export default function PlayerSettingsScreen() {
             <Text style={styles.optionText}>Cover</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </GlassSurface>
 
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Controls</Text>
         <Text style={styles.rowTitle}>Control Style</Text>
         <View style={styles.rowButtons}>
@@ -97,7 +98,7 @@ export default function PlayerSettingsScreen() {
             thumbColor="#ffffff"
           />
         </View>
-      </View>
+      </GlassSurface>
     </ScrollView>
   );
 }

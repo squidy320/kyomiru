@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import GlassSurface from '@/components/ui/glass-surface';
 import { colors, glassButton, glassCardElevated, shadow } from '@/lib/theme';
 import { useUIAppearance } from '@/lib/uiAppearance';
 
@@ -20,7 +21,7 @@ export default function LibrarySettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Library Layout</Text>
         <View style={styles.rowButtons}>
           {([
@@ -37,9 +38,9 @@ export default function LibrarySettingsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </GlassSurface>
 
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Library Sorting</Text>
         <View style={styles.rowButtons}>
           {([
@@ -56,9 +57,9 @@ export default function LibrarySettingsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </GlassSurface>
 
-      <View style={[styles.card, glassCardElevated, shadow]}>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
         <Text style={styles.cardTitle}>Stream Defaults</Text>
         <Text style={styles.rowTitle}>Selection Mode</Text>
         <View style={styles.rowButtons}>
@@ -101,7 +102,7 @@ export default function LibrarySettingsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </GlassSurface>
     </ScrollView>
   );
 }

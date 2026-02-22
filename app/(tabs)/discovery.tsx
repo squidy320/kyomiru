@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import GlassSurface from '@/components/ui/glass-surface';
 import { AniListAnime, fetchDiscoveryAniListData, DiscoveryAniListData, searchAnime } from '@/lib/anilist';
 import { colors, glassCardElevated, glassInput, shadow } from '@/lib/theme';
 
@@ -106,22 +107,20 @@ export default function DiscoveryScreen() {
     const score = item.averageScore ?? null;
 
     return (
-      <TouchableOpacity
-        style={[styles.card, glassCardElevated, shadow]}
-        activeOpacity={0.9}
-        onPress={() => openDetails(item)}
-      >
-        <ImageBackground source={{ uri: cover }} style={styles.poster} imageStyle={styles.posterImage}>
-          <View style={styles.scoreBadge}>
-            <Text style={styles.scoreText}>{score ?? 'NR'}</Text>
-          </View>
-          <View style={styles.bottomOverlay}>
-            <Text style={styles.cardTitle} numberOfLines={2}>
-              {title}
-            </Text>
-          </View>
-        </ImageBackground>
-      </TouchableOpacity>
+      <GlassSurface style={[styles.card, glassCardElevated, shadow]}>
+        <TouchableOpacity style={styles.cardPressable} activeOpacity={0.9} onPress={() => openDetails(item)}>
+          <ImageBackground source={{ uri: cover }} style={styles.poster} imageStyle={styles.posterImage}>
+            <View style={styles.scoreBadge}>
+              <Text style={styles.scoreText}>{score ?? 'NR'}</Text>
+            </View>
+            <View style={styles.bottomOverlay}>
+              <Text style={styles.cardTitle} numberOfLines={2}>
+                {title}
+              </Text>
+            </View>
+          </ImageBackground>
+        </TouchableOpacity>
+      </GlassSurface>
     );
   };
 
@@ -152,7 +151,7 @@ export default function DiscoveryScreen() {
             returnKeyType="search"
           />
           {query.trim().length > 0 && (searchFocused || searchLoading || searchResults.length > 0) && (
-            <View style={[styles.suggestPanel, glassCardElevated, shadow]}>
+            <GlassSurface style={[styles.suggestPanel, glassCardElevated, shadow]}>
               {searchLoading ? (
                 <View style={styles.suggestLoadingRow}>
                   <ActivityIndicator color={colors.accent} />
@@ -182,7 +181,7 @@ export default function DiscoveryScreen() {
                   );
                 })
               )}
-            </View>
+            </GlassSurface>
           )}
         </View>
       }
@@ -361,6 +360,10 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 20,
     overflow: 'hidden',
+    minHeight: H_CARD,
+  },
+  cardPressable: {
+    width: '100%',
     minHeight: H_CARD,
   },
   poster: {
