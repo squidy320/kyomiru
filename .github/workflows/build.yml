@@ -1,32 +1,80 @@
-name: Build Android and iOS
+name: Flutter CI Build
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
 
 jobs:
   android:
+    name: Android Release Build
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          node-version: 18
-      - run: npm install
-      - run: npm install -g eas-cli
-      - run: eas build --platform android --profile preview --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.2'
+          channel: stable
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Ensure Android Platform Folder
+        run: flutter create --platforms=android .
+
+      - name: Build Android AppBundle
+        run: flutter build appbundle --release
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-appbundle
+          path: build/app/outputs/bundle/release/app-release.aab
 
   ios:
-    runs-on: ubuntu-latest
+    name: iOS Unsigned Build
+    runs-on: macos-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          node-version: 18
-      - run: npm install
-      - run: npm install -g eas-cli
-      - run: npm install -g eas-cli
-      - run: eas build --platform ios --profile preview --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          flutter-version: '3.41.2'
+          channel: stable
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Ensure iOS Platform Folder
+        run: flutter create --platforms=ios .
+
+      - name: Update Pod Repo
+        working-directory: ios
+        run: pod repo update
+
+      - name: Pod Install
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Upload iOS Build Folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-build
+          path: build/ios/iphoneos
