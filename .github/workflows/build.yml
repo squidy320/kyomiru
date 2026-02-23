@@ -8,7 +8,7 @@ on:
 
 jobs:
   android:
-    name: Android Release Build
+    name: Android Sideload Build
     runs-on: ubuntu-latest
 
     steps:
@@ -33,17 +33,26 @@ jobs:
       - name: Ensure Android Platform Folder
         run: flutter create --platforms=android .
 
-      - name: Build Android AppBundle
+      - name: Build Android APK (release)
+        run: flutter build apk --release
+
+      - name: Build Android AppBundle (release)
         run: flutter build appbundle --release
 
-      - name: Upload Android Artifact
+      - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-appbundle
+          name: android-apk-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload Android AppBundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-appbundle-release
           path: build/app/outputs/bundle/release/app-release.aab
 
   ios:
-    name: iOS Unsigned Build
+    name: iOS Sideload Build
     runs-on: macos-latest
 
     steps:
@@ -70,11 +79,23 @@ jobs:
         working-directory: ios
         run: pod install --repo-update
 
-      - name: Build iOS (no codesign)
+      - name: Build iOS App (no codesign)
         run: flutter build ios --release --no-codesign
 
-      - name: Upload iOS Build Folder
+      - name: Pack unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          /usr/bin/zip -r unsigned.ipa Payload
+
+      - name: Upload iOS Unsigned IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-build
-          path: build/ios/iphoneos
+          name: ios-unsigned-ipa
+          path: unsigned.ipa
+
+      - name: Upload iOS App Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-runner-app
+          path: build/ios/iphoneos/Runner.app
