@@ -1,0 +1,23 @@
+﻿{
+  "sourceName": "AnimePahe",
+  "iconUrl": "https://files.catbox.moe/fu5sq7.png",
+  "author": {
+    "name": "50/50",
+    "icon": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ3122kQwublLkZ6rf1fEpUP79BxZOFmH9BSA&s"
+  },
+  "version": "1.0.1",
+  "language": "English",
+  "streamType": "HLS",
+  "quality": "1080p",
+  "baseUrl": "https://animepahe.si/",
+  "searchBaseUrl": "https://animepahe.si/",
+  "scriptUrl": "https://git.luna-app.eu/50n50/sources/raw/branch/main/animepahe/animepahe.js",
+  "type": "anime",
+  "asyncJS": true,
+  "softsub": true,
+  "downloadSupport": true,
+  "supportsSora": true,
+  "supportsLuna": true,
+  "supportsMojuru": true
+}
+
