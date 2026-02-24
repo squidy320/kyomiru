@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../core/app_logger.dart';
 import '../../state/auth_state.dart';
 
 class AniListLoginWebViewScreen extends ConsumerStatefulWidget {
@@ -40,6 +41,9 @@ class _AniListLoginWebViewScreenState
       useCodeFlow: false,
     );
 
+    AppLogger.i('AniListAuth', 'Opening AniList login WebView');
+    AppLogger.d('AniListAuth', 'Auth URL: $authUrl');
+
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
@@ -47,16 +51,21 @@ class _AniListLoginWebViewScreenState
           onUrlChange: (change) async {
             final url = change.url ?? '';
             if (_isCallback(url)) {
+              AppLogger.i('AniListAuth', 'Callback detected via onUrlChange');
               await _completeLogin(url);
             }
           },
           onNavigationRequest: (request) async {
             final url = request.url;
             if (_isCallback(url)) {
+              AppLogger.i(
+                  'AniListAuth', 'Callback detected via navigation request');
               await _completeLogin(url);
               return NavigationDecision.prevent;
             }
             if (url.startsWith('https://anilist.co/api/v2/oauth/token')) {
+              AppLogger.w('AniListAuth',
+                  'WebView navigated to AniList token endpoint (redirect misconfiguration likely)');
               setState(() {
                 _error =
                     'AniList redirect is misconfigured. Set AniList Redirect URL to: kyomiru://auth';
@@ -99,6 +108,8 @@ class _AniListLoginWebViewScreenState
       final token =
           (fragment['access_token'] ?? query['access_token'] ?? '').trim();
       if (token.isNotEmpty) {
+        AppLogger.i(
+            'AniListAuth', 'Received implicit access_token from callback');
         await ref.read(authControllerProvider.notifier).setToken(token);
         if (mounted) Navigator.of(context).pop(true);
         return;
@@ -106,6 +117,8 @@ class _AniListLoginWebViewScreenState
 
       final code = (query['code'] ?? fragment['code'] ?? '').trim();
       if (code.isNotEmpty) {
+        AppLogger.i('AniListAuth',
+            'Received auth code from callback; exchanging token');
         final exchanged = await _exchangeCodeForToken(code);
         await ref.read(authControllerProvider.notifier).setToken(exchanged);
         if (mounted) Navigator.of(context).pop(true);
@@ -117,12 +130,16 @@ class _AniListLoginWebViewScreenState
           (query['error_description'] ?? fragment['error_description'] ?? '')
               .trim();
       if (err.isNotEmpty) {
+        AppLogger.w('AniListAuth',
+            'AniList callback error: $err${errDesc.isNotEmpty ? ' - $errDesc' : ''}');
         throw Exception(
             'AniList auth error: $err${errDesc.isNotEmpty ? ' - $errDesc' : ''}');
       }
 
       throw Exception('AniList callback did not contain access token/code.');
-    } catch (e) {
+    } catch (e, st) {
+      AppLogger.e('AniListAuth', 'Login callback handling failed',
+          error: e, stackTrace: st);
       setState(() => _error = e.toString());
     }
   }

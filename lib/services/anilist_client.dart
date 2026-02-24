@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../core/app_logger.dart';
 import '../models/anilist_models.dart';
 
 class AniListClient {
@@ -25,7 +26,12 @@ class AniListClient {
       'state': state,
       'redirect_uri': redirectUri,
     });
-    return uri.toString();
+    final url = uri.toString();
+    AppLogger.i(
+      'AniList',
+      'Built auth URL (flow=${useCodeFlow ? 'code' : 'token'}, redirect=$redirectUri)',
+    );
+    return url;
   }
 
   Future<String> exchangeCodeForToken({
@@ -34,30 +40,39 @@ class AniListClient {
     required String code,
     required String redirectUri,
   }) async {
-    final response = await _dio.post(
-      tokenEndpoint,
-      data: {
-        'grant_type': 'authorization_code',
-        'client_id': clientId,
-        'client_secret': clientSecret,
-        'redirect_uri': redirectUri,
-        'code': code,
-      },
-      options: Options(
-        contentType: Headers.formUrlEncodedContentType,
-        headers: const {'Accept': 'application/json'},
-      ),
-    );
+    try {
+      AppLogger.i('AniList', 'Starting code->token exchange');
+      final response = await _dio.post(
+        tokenEndpoint,
+        data: {
+          'grant_type': 'authorization_code',
+          'client_id': clientId,
+          'client_secret': clientSecret,
+          'redirect_uri': redirectUri,
+          'code': code,
+        },
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          headers: const {'Accept': 'application/json'},
+        ),
+      );
 
-    final data = response.data is Map<String, dynamic>
-        ? response.data as Map<String, dynamic>
-        : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+      final data = response.data is Map<String, dynamic>
+          ? response.data as Map<String, dynamic>
+          : jsonDecode(response.data.toString()) as Map<String, dynamic>;
 
-    final token = (data['access_token'] ?? '').toString();
-    if (token.isEmpty) {
-      throw Exception('AniList token exchange returned no access token.');
+      final token = (data['access_token'] ?? '').toString();
+      if (token.isEmpty) {
+        AppLogger.e('AniList', 'Token exchange returned empty access_token',
+            error: data);
+        throw Exception('AniList token exchange returned no access token.');
+      }
+      AppLogger.i('AniList', 'Token exchange succeeded');
+      return token;
+    } catch (e, st) {
+      AppLogger.e('AniList', 'Token exchange failed', error: e, stackTrace: st);
+      rethrow;
     }
-    return token;
   }
 
   static const _pornKeywords = <String>[
@@ -79,7 +94,8 @@ class AniListClient {
         .toLowerCase();
     if (_pornKeywords.any((k) => title.contains(k))) return true;
     final genres = media.genres.map((e) => e.toLowerCase()).toList();
-    return genres.any((g) => g.contains('hentai') || g.contains('pornographic'));
+    return genres
+        .any((g) => g.contains('hentai') || g.contains('pornographic'));
   }
 
   List<AniListMedia> _sanitizeMediaList(List<AniListMedia> items) {
@@ -91,34 +107,47 @@ class AniListClient {
     Map<String, dynamic>? variables,
     String? token,
   }) async {
-    final response = await _dio.post(
-      graphqlEndpoint,
-      data: {
-        'query': query,
-        'variables': variables ?? <String, dynamic>{},
-      },
-      options: Options(
-        headers: {
-          if (token != null && token.isNotEmpty)
-            'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
+    try {
+      final operation = RegExp(r'\b(query|mutation)\s+([A-Za-z0-9_]+)')
+              .firstMatch(query)
+              ?.group(2) ??
+          'anonymous';
+      AppLogger.d('AniList',
+          'GraphQL request op=$operation hasToken=${token != null && token.isNotEmpty}');
+
+      final response = await _dio.post(
+        graphqlEndpoint,
+        data: {
+          'query': query,
+          'variables': variables ?? <String, dynamic>{},
         },
-      ),
-    );
-
-    final body = response.data is Map<String, dynamic>
-        ? response.data as Map<String, dynamic>
-        : jsonDecode(response.data.toString()) as Map<String, dynamic>;
-
-    if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
-      final first = (body['errors'] as List).first;
-      throw Exception(
-        'AniList GraphQL error: ${first is Map ? (first['message'] ?? first) : first}',
+        options: Options(
+          headers: {
+            if (token != null && token.isNotEmpty)
+              'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        ),
       );
-    }
 
-    return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
+      final body = response.data is Map<String, dynamic>
+          ? response.data as Map<String, dynamic>
+          : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+
+      if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
+        final first = (body['errors'] as List).first;
+        final message = first is Map ? (first['message'] ?? first) : first;
+        AppLogger.e('AniList', 'GraphQL error op=$operation', error: message);
+        throw Exception('AniList GraphQL error: $message');
+      }
+
+      return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    } catch (e, st) {
+      AppLogger.e('AniList', 'GraphQL request failed',
+          error: e, stackTrace: st);
+      rethrow;
+    }
   }
 
   Future<AniListUser> me(String token) async {

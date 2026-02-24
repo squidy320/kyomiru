@@ -51,8 +51,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _init();
   }
 
-  String _normalizeHlsUrl(String url) {
+  String _sanitizeUrl(String url) {
     return url
+        .trim()
+        .replaceAll(r'\/', '/')
+        .replaceAll(r'\u002F', '/')
+        .replaceAll('"', '')
+        .replaceAll("'", '')
+        .replaceAll(RegExp(r'\\+$'), '');
+  }
+
+  String _normalizeHlsUrl(String url) {
+    return _sanitizeUrl(url)
         .replaceAll('/stream/', '/hls/')
         .replaceAll('uwu.m3u8', 'owo.m3u8');
   }
@@ -62,11 +72,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final seen = <String>{};
 
     void add(String u, Map<String, String> h) {
-      if (u.trim().isEmpty) return;
-      final key = '$u|${h.entries.map((e) => '${e.key}=${e.value}').join(';')}';
+      final normalized = _sanitizeUrl(u);
+      if (normalized.trim().isEmpty) return;
+      final key =
+          '$normalized|${h.entries.map((e) => '${e.key}=${e.value}').join(';')}';
       if (seen.contains(key)) return;
       seen.add(key);
-      out.add(_PlayerCandidate(url: u, headers: h));
+      out.add(_PlayerCandidate(url: normalized, headers: h));
     }
 
     final normalized = _normalizeHlsUrl(url);
@@ -97,7 +109,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _init() async {
-    final url = widget.sourceUrl;
+    final url =
+        widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
     if (url == null || url.isEmpty) {
       AppLogger.w('Player',
           'Missing source URL for media ${widget.mediaId} ep ${widget.episodeNumber}');
@@ -330,3 +343,4 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 }
+

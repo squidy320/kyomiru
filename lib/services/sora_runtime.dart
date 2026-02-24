@@ -272,7 +272,7 @@ class SoraRuntime {
     final uri = Uri.tryParse(playUrl);
     final segments = uri?.pathSegments ?? const <String>[];
     if (segments.length < 3) {
-      AppLogger.w('SoraRuntime', 'Invalid playUrl: ');
+      AppLogger.w('SoraRuntime', 'Invalid playUrl: $playUrl');
       return const [];
     }
     final session = segments[segments.length - 2];
@@ -286,7 +286,8 @@ class SoraRuntime {
             (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
         .toList());
     if (jormClean.isNotEmpty) {
-      AppLogger.i('SoraRuntime', 'Jorm extracted  source(s) for /');
+      AppLogger.i('SoraRuntime',
+          'Jorm extracted ${jormClean.length} source(s) for $session/$episodeSession');
       return jormClean;
     }
 
@@ -297,7 +298,8 @@ class SoraRuntime {
             (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
         .toList());
     if (localClean.isNotEmpty) {
-      AppLogger.i('SoraRuntime', 'Local fallback extracted  source(s) for /');
+      AppLogger.i('SoraRuntime',
+          'Local fallback extracted ${localClean.length} source(s) for $session/$episodeSession');
       return localClean;
     }
 
@@ -311,7 +313,8 @@ class SoraRuntime {
           .toList());
     }
 
-    AppLogger.w('SoraRuntime', 'No sources extracted for /');
+    AppLogger.w(
+        'SoraRuntime', 'No sources extracted for $session/$episodeSession');
     return const [];
   }
 
@@ -366,9 +369,10 @@ class SoraRuntime {
 
       final out = <SoraSource>[];
       for (final item in streams.whereType<Map<String, dynamic>>()) {
-        final streamUrl =
-            (item['streamUrl'] ?? item['stream_url'] ?? item['url'] ?? '')
-                .toString();
+        final streamUrl = _sanitizeStreamUrl(
+          (item['streamUrl'] ?? item['stream_url'] ?? item['url'] ?? '')
+              .toString(),
+        );
         if (streamUrl.isEmpty || !streamUrl.contains('.m3u8')) continue;
 
         final title = (item['title'] ?? '').toString().toLowerCase();
@@ -385,7 +389,11 @@ class SoraRuntime {
             subOrDub: subOrDub,
             format: 'm3u8',
             headers: {
-              'Referer': 'https://kwik.cx/',
+              'Referer':
+                  ((item['referer'] ?? item['Referer'])?.toString() ?? '')
+                          .isNotEmpty
+                      ? (item['referer'] ?? item['Referer']).toString()
+                      : 'https://kwik.cx/',
               'Origin': _originFrom(streamUrl) ?? 'https://kwik.cx',
               'User-Agent': _ua,
               if (_cookieHeader != null) 'Cookie': _cookieHeader!,
@@ -448,7 +456,7 @@ class SoraRuntime {
         RegExp(r'https://[^"\s]+\.m3u8[^"\s]*', caseSensitive: false);
     final out = <SoraSource>[];
     for (final m in inlineM3u8Regex.allMatches(html)) {
-      final url = (m.group(0) ?? '').replaceAll(r'\/', '/');
+      final url = _sanitizeStreamUrl(m.group(0) ?? '');
       if (url.isEmpty) continue;
       final q = RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1);
       out.add(
@@ -458,7 +466,7 @@ class SoraRuntime {
           subOrDub: 'sub',
           format: 'm3u8',
           headers: {
-            'Referer': 'https://kwik.cx/',
+            'Referer': episodeUrl,
             'Origin': _originFrom(url) ?? 'https://kwik.cx',
             'User-Agent': _ua,
             if (_cookieHeader != null) 'Cookie': _cookieHeader!,
@@ -473,7 +481,7 @@ class SoraRuntime {
       seen.add(c.kwik);
       String? hls;
       if (c.kwik.contains('.m3u8')) {
-        hls = c.kwik;
+        hls = _sanitizeStreamUrl(c.kwik);
       } else {
         hls = await _extractKwikHls(c.kwik);
       }
@@ -486,7 +494,7 @@ class SoraRuntime {
           subOrDub: c.audio.contains('eng') ? 'dub' : 'sub',
           format: 'm3u8',
           headers: {
-            'Referer': 'https://kwik.cx/',
+            'Referer': c.kwik,
             'Origin': _originFrom(hls) ?? 'https://kwik.cx',
             'User-Agent': _ua,
             if (_cookieHeader != null) 'Cookie': _cookieHeader!,
@@ -532,12 +540,22 @@ class SoraRuntime {
 
       if (sourceUrl == null || sourceUrl.isEmpty) return null;
 
-      return sourceUrl
+      return _sanitizeStreamUrl(sourceUrl)
           .replaceAll('/stream/', '/hls/')
           .replaceAll('uwu.m3u8', 'owo.m3u8');
     } catch (_) {
       return null;
     }
+  }
+
+  String _sanitizeStreamUrl(String url) {
+    return url
+        .trim()
+        .replaceAll(r'\\/', '/')
+        .replaceAll(r'\\u002F', '/')
+        .replaceAll('\\"', '')
+        .replaceAll("'", '')
+        .replaceAll(RegExp(r'\\+$'), '');
   }
 
   String _resolveMaybeRelative(String base, String url) {
