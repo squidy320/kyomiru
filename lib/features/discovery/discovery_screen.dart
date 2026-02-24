@@ -171,42 +171,49 @@ class _HorizontalSection extends StatelessWidget {
                         builder: (_) => DetailsScreen(mediaId: item.id)),
                   ),
                   child: GlassCard(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    padding: const EdgeInsets.all(6),
+                    child: Stack(
                       children: [
-                        Expanded(
+                        Positioned.fill(
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                image: item.cover.best != null
-                                    ? DecorationImage(
-                                        image: NetworkImage(item.cover.best!),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : null,
-                                color: const Color(0x22111111),
-                              ),
+                            child: item.cover.best == null
+                                ? Container(color: const Color(0x22111111))
+                                : Image.network(item.cover.best!,
+                                    fit: BoxFit.cover),
+                          ),
+                        ),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xAA2A3248),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              item.averageScore?.toString() ?? 'NR',
+                              style: const TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          item.title.best,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 12.5, fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          item.averageScore == null
-                              ? 'N/A'
-                              : '${item.averageScore}%',
-                          style: const TextStyle(
-                            color: Color(0xFF8FD4FF),
-                            fontSize: 12,
+                        Positioned(
+                          left: 8,
+                          right: 8,
+                          bottom: 8,
+                          child: Text(
+                            item.title.best,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              shadows: [
+                                Shadow(color: Colors.black87, blurRadius: 6)
+                              ],
+                            ),
                           ),
                         ),
                       ],

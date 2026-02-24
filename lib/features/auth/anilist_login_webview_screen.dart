@@ -21,9 +21,6 @@ class _AniListLoginWebViewScreenState
 
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
-  static const _clientSecret =
-      String.fromEnvironment('ANILIST_CLIENT_SECRET', defaultValue: '');
-
   // Keep this fixed to avoid broken builds from wrong env values.
   static const _redirectUri = 'kyomiru://auth';
 
@@ -33,18 +30,23 @@ class _AniListLoginWebViewScreenState
     final client = ref.read(anilistClientProvider);
     final state = _randomState();
 
-    final useCodeFlow = _clientSecret.isNotEmpty;
     final authUrl = client.buildAuthUrl(
       clientId: _clientId,
       redirectUri: _redirectUri,
       state: state,
-      useCodeFlow: useCodeFlow,
+      useCodeFlow: false,
     );
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onUrlChange: (change) async {
+            final url = change.url ?? '';
+            if (url.startsWith('kyomiru://') || url.startsWith('kyomiru:/')) {
+              await _completeLogin(url);
+            }
+          },
           onNavigationRequest: (request) async {
             final url = request.url;
 
@@ -88,24 +90,6 @@ class _AniListLoginWebViewScreenState
           (fragment['access_token'] ?? query['access_token'] ?? '').trim();
       if (token.isNotEmpty) {
         await ref.read(authControllerProvider.notifier).setToken(token);
-        if (mounted) Navigator.of(context).pop(true);
-        return;
-      }
-
-      final code = (query['code'] ?? fragment['code'] ?? '').trim();
-      if (code.isNotEmpty) {
-        if (_clientSecret.isEmpty) {
-          throw Exception(
-              'AniList returned code flow but client secret is missing.');
-        }
-        final exchanged =
-            await ref.read(anilistClientProvider).exchangeCodeForToken(
-                  clientId: _clientId,
-                  clientSecret: _clientSecret,
-                  code: code,
-                  redirectUri: _redirectUri,
-                );
-        await ref.read(authControllerProvider.notifier).setToken(exchanged);
         if (mounted) Navigator.of(context).pop(true);
         return;
       }

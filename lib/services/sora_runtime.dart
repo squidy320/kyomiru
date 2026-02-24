@@ -115,7 +115,7 @@ class SoraRuntime {
           (d['data'] as List? ?? const []).whereType<Map<String, dynamic>>());
     }
 
-    final episodes = allData
+    var episodes = allData
         .map((item) {
           final session = (item['session'] ?? '').toString();
           final number = (item['episode'] as num?)?.toInt() ?? 0;
@@ -127,6 +127,39 @@ class SoraRuntime {
         })
         .where((e) => e.number > 0 && e.session.isNotEmpty)
         .toList();
+
+    if (episodes.isEmpty) {
+      final fallback = await _withRetry(() => _dio.get(
+            _animePaheApi,
+            queryParameters: {
+              'm': 'release',
+              'id': animeSession,
+              'page': 1,
+            },
+            options: Options(
+              headers: {'Accept': 'application/json'},
+              sendTimeout: const Duration(seconds: 12),
+              receiveTimeout: const Duration(seconds: 12),
+            ),
+          ));
+      final fbData = fallback.data is Map<String, dynamic>
+          ? fallback.data as Map<String, dynamic>
+          : jsonDecode(fallback.data.toString()) as Map<String, dynamic>;
+      final fbRows = (fbData['data'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>();
+      episodes = fbRows
+          .map((item) {
+            final session = (item['session'] ?? '').toString();
+            final number = (item['episode'] as num?)?.toInt() ?? 0;
+            return SoraEpisode(
+              number: number,
+              session: session,
+              playUrl: 'https://animepahe.si/play/$animeSession/$session',
+            );
+          })
+          .where((e) => e.number > 0 && e.session.isNotEmpty)
+          .toList();
+    }
 
     episodes.sort((a, b) => a.number.compareTo(b.number));
     return episodes;

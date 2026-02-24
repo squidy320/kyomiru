@@ -134,8 +134,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                   ),
                   TextField(
                     controller: controller,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Search AnimePahe title',
+                      suffixIcon: IconButton(
+                        onPressed: () async {
+                          final r =
+                              await _sora.searchAnime(controller.text.trim());
+                          setModalState(() => results = r);
+                        },
+                        icon: const Icon(Icons.search),
+                      ),
                     ),
                     onSubmitted: (value) async {
                       final r = await _sora.searchAnime(value.trim());
