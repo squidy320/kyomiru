@@ -160,6 +160,13 @@ class AniListNotificationItem {
       );
 }
 
+class AniListDiscoverySection {
+  const AniListDiscoverySection({required this.title, required this.items});
+
+  final String title;
+  final List<AniListMedia> items;
+}
+
 class SoraExtensionManifest {
   final String id;
   final String? name;
@@ -174,7 +181,7 @@ class SoraExtensionManifest {
         json['sources'] != null;
     return SoraExtensionManifest(
       id: (json['id'] ?? '').toString(),
-      name: json['name']?.toString(),
+      name: json['name']?.toString() ?? json['sourceName']?.toString(),
       hasGetSources: hasSources,
     );
   }

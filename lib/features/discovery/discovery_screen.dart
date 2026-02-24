@@ -30,7 +30,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () async {
+    _debounce = Timer(const Duration(milliseconds: 320), () async {
       if (!mounted) return;
       if (value.trim().isEmpty) {
         setState(() {
@@ -62,39 +62,45 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         children: [
           const Text('Discovery',
               style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
           const SizedBox(height: 12),
-          TextField(
-            controller: _search,
-            onChanged: _onSearchChanged,
-            decoration: InputDecoration(
-              hintText: 'Search AniList anime...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _search.text.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        _search.clear();
-                        setState(() => _searchResults = const []);
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
+          GlassCard(
+            padding: const EdgeInsets.all(10),
+            child: TextField(
+              controller: _search,
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                hintText: 'Search AniList anime...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _search.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _search.clear();
+                          setState(() => _searchResults = const []);
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+              ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           if (showingSearch) ...[
             if (_searching)
               const Center(child: CircularProgressIndicator())
             else if (_searchResults.isEmpty)
               const GlassCard(child: Text('No results.'))
             else
-              _Grid(items: _searchResults),
+              _HorizontalSection(
+                title: 'SEARCH RESULTS',
+                items: _searchResults,
+              ),
           ] else
-            FutureBuilder<List<AniListMedia>>(
-              future: client.discoveryTrending(),
+            FutureBuilder<List<AniListDiscoverySection>>(
+              future: client.discoverySections(),
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -103,7 +109,19 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                   return GlassCard(
                       child: Text('Discovery load failed: ${snap.error}'));
                 }
-                return _Grid(items: snap.data ?? const []);
+                final sections = snap.data ?? const [];
+                return Column(
+                  children: [
+                    for (final section in sections)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _HorizontalSection(
+                          title: section.title,
+                          items: section.items,
+                        ),
+                      ),
+                  ],
+                );
               },
             ),
         ],
@@ -112,57 +130,93 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   }
 }
 
-class _Grid extends StatelessWidget {
-  const _Grid({required this.items});
+class _HorizontalSection extends StatelessWidget {
+  const _HorizontalSection({required this.title, required this.items});
 
+  final String title;
   final List<AniListMedia> items;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final item in items)
-          SizedBox(
-            width: 160,
-            child: GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => DetailsScreen(mediaId: item.id)),
-              ),
-              child: GlassCard(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      height: 190,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        image: item.cover.best != null
-                            ? DecorationImage(
-                                image: NetworkImage(item.cover.best!),
-                                fit: BoxFit.cover,
-                              )
-                            : null,
-                        color: const Color(0x22111111),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      item.title.best,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 2),
-                    Text('Score ${item.averageScore ?? 'N/A'}'),
-                  ],
-                ),
-              ),
+        Row(
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
             ),
-          )
+            const Spacer(),
+            TextButton(onPressed: () {}, child: const Text('View All')),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 250,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return SizedBox(
+                width: 148,
+                child: GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => DetailsScreen(mediaId: item.id)),
+                  ),
+                  child: GlassCard(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                image: item.cover.best != null
+                                    ? DecorationImage(
+                                        image: NetworkImage(item.cover.best!),
+                                        fit: BoxFit.cover,
+                                      )
+                                    : null,
+                                color: const Color(0x22111111),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          item.title.best,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          item.averageScore == null
+                              ? 'N/A'
+                              : '${item.averageScore}%',
+                          style: const TextStyle(
+                            color: Color(0xFF8FD4FF),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ],
     );
   }

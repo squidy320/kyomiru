@@ -10,7 +10,7 @@ class SoraExtensionLoader {
   final Dio _dio;
 
   static const officialAnimePaheUrl =
-      'https://git.luna-app.eu/50n50/sources/raw/branch/main/animepahe/animepahe.json';
+      'https://jormungandr.ofchaos.com/releases/sora/animepahe/Jorm.json';
 
   Future<SoraExtensionManifest> loadOfficialAnimePahe() async {
     final response = await _dio.get(officialAnimePaheUrl);
@@ -19,8 +19,8 @@ class SoraExtensionLoader {
         : jsonDecode(response.data.toString()) as Map<String, dynamic>;
 
     final manifest = SoraExtensionManifest.fromJson(json);
-    if (manifest.id.isEmpty) {
-      throw Exception('Invalid Sora extension manifest: missing id.');
+    if (manifest.id.isEmpty && (manifest.name ?? '').isEmpty) {
+      throw Exception('Invalid Sora extension manifest.');
     }
     return manifest;
   }

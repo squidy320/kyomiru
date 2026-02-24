@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/glass_widgets.dart';
 import '../core/theme/app_theme.dart';
 import '../features/alerts/alerts_screen.dart';
 import '../features/discovery/discovery_screen.dart';
@@ -78,26 +79,28 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
 
     return Scaffold(
-      body: _pages[_index],
+      extendBody: true,
+      body: GlassScaffoldBackground(child: _pages[_index]),
       bottomNavigationBar: NavigationBar(
+        height: 74,
         selectedIndex: _index,
         destinations: [
           const NavigationDestination(
-              icon: Icon(Icons.library_books), label: 'Library'),
+              icon: Icon(Icons.library_books_outlined), label: 'Library'),
           const NavigationDestination(
-              icon: Icon(Icons.auto_awesome), label: 'Discovery'),
+              icon: Icon(Icons.auto_awesome_outlined), label: 'Discover'),
           NavigationDestination(
             icon: Badge(
               isLabelVisible: unread > 0,
               smallSize: 8,
-              child: const Icon(Icons.notifications),
+              child: const Icon(Icons.notifications_none),
             ),
             label: 'Alerts',
           ),
           const NavigationDestination(
-              icon: Icon(Icons.download), label: 'Downloads'),
+              icon: Icon(Icons.download_outlined), label: 'Downloads'),
           const NavigationDestination(
-              icon: Icon(Icons.settings), label: 'Settings'),
+              icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
         onDestinationSelected: (value) => setState(() => _index = value),
       ),

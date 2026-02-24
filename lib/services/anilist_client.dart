@@ -17,11 +17,10 @@ class AniListClient {
     required String clientId,
     required String redirectUri,
     required String state,
-    bool useCodeFlow = false,
   }) {
     final uri = Uri.parse(authEndpoint).replace(queryParameters: {
       'client_id': clientId,
-      'response_type': useCodeFlow ? 'code' : 'token',
+      'response_type': 'token',
       'state': state,
       'redirect_uri': redirectUri,
     });
@@ -185,6 +184,94 @@ class AniListClient {
         .toList();
   }
 
+  Future<List<AniListDiscoverySection>> discoverySections() async {
+    final now = DateTime.now();
+    final currentSeason = _season(now.month);
+    final currentYear = now.year;
+    final nextDate = DateTime(now.year, now.month + 3, 1);
+    final nextSeason = _season(nextDate.month);
+    final nextYear = nextDate.year;
+
+    const q = r'''
+      query ($currentSeason: MediaSeason, $currentYear: Int, $nextSeason: MediaSeason, $nextYear: Int) {
+        trending: Page(page: 1, perPage: 20) {
+          media(type: ANIME, sort: TRENDING_DESC) {
+            id
+            episodes
+            averageScore
+            title { romaji english native }
+            coverImage { large extraLarge }
+            siteUrl
+            bannerImage
+            status
+          }
+        }
+        seasonPopular: Page(page: 1, perPage: 20) {
+          media(type: ANIME, season: $currentSeason, seasonYear: $currentYear, sort: POPULARITY_DESC) {
+            id
+            episodes
+            averageScore
+            title { romaji english native }
+            coverImage { large extraLarge }
+            siteUrl
+            bannerImage
+            status
+          }
+        }
+        nextSeason: Page(page: 1, perPage: 20) {
+          media(type: ANIME, season: $nextSeason, seasonYear: $nextYear, sort: POPULARITY_DESC) {
+            id
+            episodes
+            averageScore
+            title { romaji english native }
+            coverImage { large extraLarge }
+            siteUrl
+            bannerImage
+            status
+          }
+        }
+        allTime: Page(page: 1, perPage: 20) {
+          media(type: ANIME, sort: FAVOURITES_DESC) {
+            id
+            episodes
+            averageScore
+            title { romaji english native }
+            coverImage { large extraLarge }
+            siteUrl
+            bannerImage
+            status
+          }
+        }
+      }
+    ''';
+
+    final data = await _graphql(query: q, variables: {
+      'currentSeason': currentSeason,
+      'currentYear': currentYear,
+      'nextSeason': nextSeason,
+      'nextYear': nextYear,
+    });
+
+    List<AniListMedia> listFrom(String key) {
+      final raw = (data[key]?['media'] as List? ?? const []);
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(AniListMedia.fromJson)
+          .toList();
+    }
+
+    return [
+      AniListDiscoverySection(
+          title: 'TRENDING NOW', items: listFrom('trending')),
+      AniListDiscoverySection(
+          title: 'POPULAR THIS SEASON', items: listFrom('seasonPopular')),
+      AniListDiscoverySection(
+          title: 'UPCOMING NEXT SEASON', items: listFrom('nextSeason')),
+      AniListDiscoverySection(
+          title: 'ALL TIME POPULAR', items: listFrom('allTime')),
+    ];
+  }
+
   Future<List<AniListMedia>> searchAnime(String query) async {
     if (query.trim().isEmpty) return const [];
     const q = r'''
@@ -268,5 +355,12 @@ class AniListClient {
         .whereType<Map<String, dynamic>>()
         .map(AniListNotificationItem.fromJson)
         .toList();
+  }
+
+  String _season(int month) {
+    if (month <= 2 || month == 12) return 'WINTER';
+    if (month <= 5) return 'SPRING';
+    if (month <= 8) return 'SUMMER';
+    return 'FALL';
   }
 }

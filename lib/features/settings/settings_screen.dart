@@ -17,15 +17,26 @@ class SettingsScreen extends ConsumerWidget {
       child: FutureBuilder(
         future: loader.loadOfficialAnimePahe(),
         builder: (context, snap) {
+          final connected = auth.token != null && auth.token!.isNotEmpty;
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             children: [
               const Text('Settings',
                   style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
               const SizedBox(height: 12),
               GlassCard(
-                child: Text(
-                    'AniList: ${auth.token == null || auth.token!.isEmpty ? 'Disconnected' : 'Connected'}'),
+                child: Row(
+                  children: [
+                    Icon(
+                      connected ? Icons.check_circle_outline : Icons.link_off,
+                      color:
+                          connected ? Colors.greenAccent : Colors.orangeAccent,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                        'AniList: ${connected ? 'Connected' : 'Disconnected'}'),
+                  ],
+                ),
               ),
               const SizedBox(height: 8),
               GlassCard(
@@ -34,20 +45,22 @@ class SettingsScreen extends ConsumerWidget {
                     : snap.hasError
                         ? Text('Sora loader error: ${snap.error}')
                         : Text(
-                            'Sora extension loaded: ${(snap.data as dynamic).id}'),
+                            'AnimePahe source: ${(snap.data as dynamic).name ?? (snap.data as dynamic).id}'),
               ),
               const SizedBox(height: 8),
               const GlassCard(
                 child: Text(
-                  'Player + download engine parity with the old app is in migration.\n'
-                  'This Flutter base already has AniList auth, discovery search, alerts, details tabs, and episode progress persistence.',
+                  'Theme: Liquid glass surfaces enabled.\n'
+                  'Discovery: vertical sections with horizontal cards.\n'
+                  'AniList auth: token flow only for reliability.',
                 ),
               ),
-              const SizedBox(height: 8),
-              ElevatedButton(
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
                 onPressed: () =>
                     ref.read(authControllerProvider.notifier).logout(),
-                child: const Text('Logout AniList'),
+                icon: const Icon(Icons.logout),
+                label: const Text('Logout AniList'),
               ),
             ],
           );

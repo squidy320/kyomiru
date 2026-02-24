@@ -21,8 +21,6 @@ class _AniListLoginWebViewScreenState
 
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
-  static const _clientSecret =
-      String.fromEnvironment('ANILIST_CLIENT_SECRET', defaultValue: '');
   static const _redirectUri = String.fromEnvironment('ANILIST_REDIRECT_URI',
       defaultValue: 'kyomiru://auth');
 
@@ -35,7 +33,6 @@ class _AniListLoginWebViewScreenState
       clientId: _clientId,
       redirectUri: _redirectUri,
       state: state,
-      useCodeFlow: _clientSecret.isNotEmpty,
     );
 
     _controller = WebViewController()
@@ -68,30 +65,13 @@ class _AniListLoginWebViewScreenState
           Uri.splitQueryString(uri.fragment.isEmpty ? '' : uri.fragment);
       final query = uri.queryParameters;
 
-      if (_clientSecret.isEmpty) {
-        final token =
-            (fragment['access_token'] ?? query['access_token'] ?? '').trim();
-        if (token.isEmpty) {
-          throw Exception('AniList did not return access_token.');
-        }
-        await ref.read(authControllerProvider.notifier).setToken(token);
-        if (mounted) {
-          Navigator.of(context).pop(true);
-        }
-        return;
+      final token =
+          (fragment['access_token'] ?? query['access_token'] ?? '').trim();
+      if (token.isEmpty) {
+        throw Exception(
+            'AniList login failed. No access token in callback URL.');
       }
 
-      final code = (query['code'] ?? '').trim();
-      if (code.isEmpty) {
-        throw Exception('AniList did not return authorization code.');
-      }
-
-      final token = await ref.read(anilistClientProvider).exchangeCodeForToken(
-            clientId: _clientId,
-            clientSecret: _clientSecret,
-            code: code,
-            redirectUri: _redirectUri,
-          );
       await ref.read(authControllerProvider.notifier).setToken(token);
       if (mounted) {
         Navigator.of(context).pop(true);
