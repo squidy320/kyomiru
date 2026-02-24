@@ -6,6 +6,7 @@ import '../../services/sora_extension_loader.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import 'appearance_settings_screen.dart';
+import 'debug_logs_screen.dart';
 import 'streams_settings_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -65,6 +66,15 @@ class SettingsScreen extends ConsumerWidget {
                     ? 'AniList connected'
                     : 'Auth and cleanup controls',
                 onTap: () => _openComingSoon(context, 'Account & Data'),
+              ),
+              const SizedBox(height: 8),
+              _SettingsTile(
+                icon: Icons.bug_report_outlined,
+                title: 'Debug Logs',
+                subtitle: 'View, copy, and share runtime logs',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DebugLogsScreen()),
+                ),
               ),
               const SizedBox(height: 12),
               GlassCard(

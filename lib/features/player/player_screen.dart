@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/app_logger.dart';
 import '../../state/auth_state.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -87,8 +88,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     try {
       await controller.initialize();
       return controller;
-    } catch (e) {
-      debugPrint('[Player] init failed for ${c.url}: $e');
+    } catch (e, st) {
+      AppLogger.w('Player', 'Init attempt failed for ${c.url}',
+          error: e, stackTrace: st);
       await controller.dispose();
       return null;
     }
@@ -97,6 +99,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _init() async {
     final url = widget.sourceUrl;
     if (url == null || url.isEmpty) {
+      AppLogger.w('Player',
+          'Missing source URL for media ${widget.mediaId} ep ${widget.episodeNumber}');
       if (mounted) {
         setState(() {
           _initError = 'Missing source URL.';
@@ -113,8 +117,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       controller = VideoPlayerController.file(file);
       try {
         await controller.initialize();
-      } catch (e) {
-        debugPrint('[Player] local init failed for ${file.path}: $e');
+      } catch (e, st) {
+        AppLogger.w('Player', 'Local source init failed for ${file.path}',
+            error: e, stackTrace: st);
         await controller.dispose();
         controller = null;
       }
@@ -127,6 +132,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
 
     if (controller == null) {
+      AppLogger.e('Player',
+          'All source init attempts failed for media ${widget.mediaId} ep ${widget.episodeNumber}',
+          error: url);
       if (mounted) {
         setState(() {
           _ready = false;
@@ -138,6 +146,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
 
     _controller = controller;
+    AppLogger.i('Player',
+        'Playback initialized for media ${widget.mediaId} ep ${widget.episodeNumber}');
 
     final store = ref.read(progressStoreProvider);
     final saved = store.read(widget.mediaId, widget.episodeNumber);

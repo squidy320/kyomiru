@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../core/app_logger.dart';
 import '../models/sora_models.dart';
 
 class SoraRuntime {
@@ -262,11 +263,18 @@ class SoraRuntime {
     int? anilistId,
     int? episodeNumber,
   }) async {
-    if (playUrl.isEmpty) return const [];
+    if (playUrl.isEmpty) {
+      AppLogger.w(
+          'SoraRuntime', 'getSourcesForEpisode called with empty playUrl');
+      return const [];
+    }
 
     final uri = Uri.tryParse(playUrl);
     final segments = uri?.pathSegments ?? const <String>[];
-    if (segments.length < 3) return const [];
+    if (segments.length < 3) {
+      AppLogger.w('SoraRuntime', 'Invalid playUrl: ');
+      return const [];
+    }
     final session = segments[segments.length - 2];
     final episodeSession = segments.last;
 
@@ -277,7 +285,10 @@ class SoraRuntime {
         .where(
             (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
         .toList());
-    if (jormClean.isNotEmpty) return jormClean;
+    if (jormClean.isNotEmpty) {
+      AppLogger.i('SoraRuntime', 'Jorm extracted  source(s) for /');
+      return jormClean;
+    }
 
     final local = await _extractViaLocalFallback(session, episodeSession);
     final localClean = _dedupSources(local
@@ -285,7 +296,10 @@ class SoraRuntime {
         .where(
             (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
         .toList());
-    if (localClean.isNotEmpty) return localClean;
+    if (localClean.isNotEmpty) {
+      AppLogger.i('SoraRuntime', 'Local fallback extracted  source(s) for /');
+      return localClean;
+    }
 
     // Last-resort retry without AniList context for unstable extractors.
     if (anilistId != null || episodeNumber != null) {
@@ -297,6 +311,7 @@ class SoraRuntime {
           .toList());
     }
 
+    AppLogger.w('SoraRuntime', 'No sources extracted for /');
     return const [];
   }
 

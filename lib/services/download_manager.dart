@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../core/app_logger.dart';
 import '../models/sora_models.dart';
 
 class DownloadItem {
@@ -127,10 +128,14 @@ class DownloadController extends StateNotifier<DownloadState> {
     required SoraSource source,
   }) async {
     final key = '$mediaId:$episode';
-    if (_cancelTokens.containsKey(key)) return;
+    if (_cancelTokens.containsKey(key)) {
+      AppLogger.w('Download', 'Download already active');
+      return;
+    }
 
     final existingPath = await localManifestPath(mediaId, episode);
     if (existingPath != null) {
+      AppLogger.i('Download', 'Using existing local episode file');
       await _saveItem(DownloadItem(
         mediaId: mediaId,
         episode: episode,
@@ -142,6 +147,7 @@ class DownloadController extends StateNotifier<DownloadState> {
       return;
     }
 
+    AppLogger.i('Download', 'Starting HLS download');
     final cancel = CancelToken();
     _cancelTokens[key] = cancel;
 
@@ -179,6 +185,7 @@ class DownloadController extends StateNotifier<DownloadState> {
       }
 
       if (segmentLines.isEmpty) {
+        AppLogger.w('Download', 'No segments found in manifest');
         throw Exception('No HLS segments found.');
       }
 
@@ -241,7 +248,8 @@ class DownloadController extends StateNotifier<DownloadState> {
         progress: 1,
         localManifestPath: manifestPath,
       ));
-    } catch (e) {
+    } catch (e, st) {
+      AppLogger.e('Download', 'Download failed', error: e, stackTrace: st);
       final cancelled = e is DioException && e.type == DioExceptionType.cancel;
       await _saveItem(DownloadItem(
         mediaId: mediaId,
