@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../state/auth_state.dart';
 
@@ -30,18 +30,11 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
-  Player? _player;
-  VideoController? _videoController;
+  VideoPlayerController? _controller;
   Timer? _persistTimer;
   bool _controlsVisible = true;
   bool _ready = false;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
   bool _isPlaying = false;
-
-  StreamSubscription<Duration>? _posSub;
-  StreamSubscription<Duration>? _durSub;
-  StreamSubscription<bool>? _playSub;
 
   @override
   void initState() {
@@ -56,88 +49,100 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
 
-    final player = Player(
-      configuration: const PlayerConfiguration(
-        bufferSize: 64 * 1024 * 1024,
-      ),
-    );
-    final videoController = VideoController(player);
+    VideoPlayerController controller;
+    if (widget.isLocal) {
+      final uri = Uri.parse(url);
+      final file = uri.isScheme('file') ? File.fromUri(uri) : File(url);
+      controller = VideoPlayerController.file(file);
+    } else {
+      controller = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        httpHeaders: widget.headers,
+      );
+    }
 
-    _player = player;
-    _videoController = videoController;
+    _controller = controller;
 
-    _posSub = player.stream.position.listen((p) {
-      if (!mounted) return;
-      setState(() => _position = p);
-    });
-    _durSub = player.stream.duration.listen((d) {
-      if (!mounted) return;
-      setState(() => _duration = d);
-    });
-    _playSub = player.stream.playing.listen((v) {
-      if (!mounted) return;
-      setState(() => _isPlaying = v);
-    });
-
-    await player.open(
-      Media(
-        url,
-        httpHeaders: widget.isLocal ? null : widget.headers,
-      ),
-      play: false,
-    );
+    try {
+      await controller.initialize();
+    } catch (_) {
+      if (mounted) setState(() => _ready = false);
+      return;
+    }
 
     final store = ref.read(progressStoreProvider);
     final saved = store.read(widget.mediaId, widget.episodeNumber);
     if (saved != null && saved.positionMs > 0) {
-      await player.seek(Duration(milliseconds: saved.positionMs));
+      final maxMs = controller.value.duration.inMilliseconds;
+      if (maxMs > 0) {
+        final seekMs = saved.positionMs.clamp(0, maxMs);
+        await controller.seekTo(Duration(milliseconds: seekMs));
+      }
     }
 
-    await player.play();
+    controller.addListener(_onPlayerUpdate);
+    await controller.play();
 
     _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      final durationMs = _duration.inMilliseconds;
+      final c = _controller;
+      if (c == null || !c.value.isInitialized) return;
+      final durationMs = c.value.duration.inMilliseconds;
       if (durationMs <= 0) return;
       await store.write(
         mediaId: widget.mediaId,
         episode: widget.episodeNumber,
-        positionMs: _position.inMilliseconds,
+        positionMs: c.value.position.inMilliseconds,
         durationMs: durationMs,
       );
     });
 
-    if (mounted) setState(() => _ready = true);
+    if (mounted) {
+      setState(() {
+        _ready = true;
+        _isPlaying = controller.value.isPlaying;
+      });
+    }
+  }
+
+  void _onPlayerUpdate() {
+    final c = _controller;
+    if (c == null || !mounted) return;
+    final playing = c.value.isPlaying;
+    if (_isPlaying != playing) {
+      setState(() => _isPlaying = playing);
+    }
   }
 
   Future<void> _seekRelative(Duration delta) async {
-    final p = _player;
-    if (p == null) return;
-    final target = _position + delta;
-    final max = _duration.inMilliseconds <= 0 ? null : _duration;
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    final target = c.value.position + delta;
+    final max = c.value.duration;
     Duration clamped = target;
-    if (target < Duration.zero) clamped = Duration.zero;
-    if (max != null && target > max) clamped = max;
-    await p.seek(clamped);
+    if (clamped < Duration.zero) clamped = Duration.zero;
+    if (clamped > max) clamped = max;
+    await c.seekTo(clamped);
   }
 
   @override
   void dispose() {
     _persistTimer?.cancel();
-    _posSub?.cancel();
-    _durSub?.cancel();
-    _playSub?.cancel();
-    _player?.dispose();
+    _controller?.removeListener(_onPlayerUpdate);
+    _controller?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final player = _player;
-    final ready = player != null && _videoController != null && _ready;
+    final controller = _controller;
+    final ready =
+        controller != null && _ready && controller.value.isInitialized;
 
-    final durationMs = _duration.inMilliseconds;
-    final positionMs =
-        _position.inMilliseconds.clamp(0, durationMs <= 0 ? 0 : durationMs);
+    final durationMs = ready ? controller.value.duration.inMilliseconds : 0;
+    final positionMs = ready
+        ? controller.value.position.inMilliseconds
+            .clamp(0, durationMs <= 0 ? 0 : durationMs)
+        : 0;
     final sliderMax = durationMs <= 0 ? 1.0 : durationMs.toDouble();
 
     return Scaffold(
@@ -159,17 +164,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 },
                 child: Center(
                   child: ready
-                      ? FittedBox(
-                          fit: BoxFit.contain,
-                          child: SizedBox(
-                            width: _videoController!.player.state.width
-                                    ?.toDouble() ??
-                                1280,
-                            height: _videoController!.player.state.height
-                                    ?.toDouble() ??
-                                720,
-                            child: Video(controller: _videoController!),
-                          ),
+                      ? AspectRatio(
+                          aspectRatio: controller.value.aspectRatio <= 0
+                              ? (16 / 9)
+                              : controller.value.aspectRatio,
+                          child: VideoPlayer(controller),
                         )
                       : const Text(
                           'No playable source for this episode yet.',
@@ -208,7 +207,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       min: 0,
                       max: sliderMax,
                       onChanged: (v) async {
-                        await player.seek(Duration(milliseconds: v.round()));
+                        await controller
+                            .seekTo(Duration(milliseconds: v.round()));
                       },
                     ),
                     Row(
@@ -221,10 +221,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         ),
                         IconButton(
                           onPressed: () async {
-                            if (_isPlaying) {
-                              await player.pause();
+                            if (controller.value.isPlaying) {
+                              await controller.pause();
                             } else {
-                              await player.play();
+                              await controller.play();
                             }
                           },
                           icon: Icon(
