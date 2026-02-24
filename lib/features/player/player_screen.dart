@@ -29,12 +29,20 @@ class PlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
+class _PlayerCandidate {
+  const _PlayerCandidate({required this.url, required this.headers});
+
+  final String url;
+  final Map<String, String> headers;
+}
+
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   VideoPlayerController? _controller;
   Timer? _persistTimer;
   bool _controlsVisible = true;
   bool _ready = false;
   bool _isPlaying = false;
+  String? _initError;
 
   @override
   void initState() {
@@ -42,33 +50,94 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _init();
   }
 
+  String _normalizeHlsUrl(String url) {
+    return url
+        .replaceAll('/stream/', '/hls/')
+        .replaceAll('uwu.m3u8', 'owo.m3u8');
+  }
+
+  List<_PlayerCandidate> _buildCandidates(String url) {
+    final out = <_PlayerCandidate>[];
+    final seen = <String>{};
+
+    void add(String u, Map<String, String> h) {
+      if (u.trim().isEmpty) return;
+      final key = '$u|${h.entries.map((e) => '${e.key}=${e.value}').join(';')}';
+      if (seen.contains(key)) return;
+      seen.add(key);
+      out.add(_PlayerCandidate(url: u, headers: h));
+    }
+
+    final normalized = _normalizeHlsUrl(url);
+    final baseHeaders = Map<String, String>.from(widget.headers);
+
+    add(url, baseHeaders);
+    add(normalized, baseHeaders);
+    add(url, const {});
+    add(normalized, const {});
+
+    return out;
+  }
+
+  Future<VideoPlayerController?> _createController(_PlayerCandidate c) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(c.url),
+      httpHeaders: c.headers,
+    );
+    try {
+      await controller.initialize();
+      return controller;
+    } catch (e) {
+      debugPrint('[Player] init failed for ${c.url}: $e');
+      await controller.dispose();
+      return null;
+    }
+  }
+
   Future<void> _init() async {
     final url = widget.sourceUrl;
     if (url == null || url.isEmpty) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          _initError = 'Missing source URL.';
+        });
+      }
       return;
     }
 
-    VideoPlayerController controller;
+    VideoPlayerController? controller;
+
     if (widget.isLocal) {
       final uri = Uri.parse(url);
       final file = uri.isScheme('file') ? File.fromUri(uri) : File(url);
       controller = VideoPlayerController.file(file);
+      try {
+        await controller.initialize();
+      } catch (e) {
+        debugPrint('[Player] local init failed for ${file.path}: $e');
+        await controller.dispose();
+        controller = null;
+      }
     } else {
-      controller = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        httpHeaders: widget.headers,
-      );
+      final candidates = _buildCandidates(url);
+      for (final c in candidates) {
+        controller = await _createController(c);
+        if (controller != null) break;
+      }
+    }
+
+    if (controller == null) {
+      if (mounted) {
+        setState(() {
+          _ready = false;
+          _initError =
+              'No playable source for this episode yet. Try another quality/source.';
+        });
+      }
+      return;
     }
 
     _controller = controller;
-
-    try {
-      await controller.initialize();
-    } catch (_) {
-      if (mounted) setState(() => _ready = false);
-      return;
-    }
 
     final store = ref.read(progressStoreProvider);
     final saved = store.read(widget.mediaId, widget.episodeNumber);
@@ -99,7 +168,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (mounted) {
       setState(() {
         _ready = true;
-        _isPlaying = controller.value.isPlaying;
+        _isPlaying = controller!.value.isPlaying;
+        _initError = null;
       });
     }
   }
@@ -170,9 +240,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                               : controller.value.aspectRatio,
                           child: VideoPlayer(controller),
                         )
-                      : const Text(
-                          'No playable source for this episode yet.',
-                          style: TextStyle(color: Colors.white70),
+                      : Text(
+                          _initError ?? 'Loading source...',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white70),
                         ),
                 ),
               ),
