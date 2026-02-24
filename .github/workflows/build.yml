@@ -68,9 +68,6 @@ jobs:
       - name: Flutter Pub Get
         run: flutter pub get
 
-      - name: Ensure iOS Platform Folder
-        run: flutter create --platforms=ios .
-
       - name: Update Pod Repo
         working-directory: ios
         run: pod repo update
@@ -82,11 +79,27 @@ jobs:
       - name: Build iOS App (no codesign)
         run: flutter build ios --release --no-codesign
 
-      - name: Pack unsigned IPA
+      - name: Validate Runner.app exists
         run: |
+          test -d build/ios/iphoneos/Runner.app
+          test -f build/ios/iphoneos/Runner.app/Runner
+          test -d build/ios/iphoneos/Runner.app/Frameworks
+
+      - name: Pack unsigned IPA (preserve app structure)
+        run: |
+          rm -rf Payload unsigned.ipa
           mkdir -p Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/
-          /usr/bin/zip -r unsigned.ipa Payload
+          ditto build/ios/iphoneos/Runner.app Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent Payload unsigned.ipa
+
+      - name: Validate IPA structure
+        run: |
+          rm -rf ipa_check
+          mkdir -p ipa_check
+          unzip -q unsigned.ipa -d ipa_check
+          test -d ipa_check/Payload/Runner.app
+          test -f ipa_check/Payload/Runner.app/Runner
+          test -d ipa_check/Payload/Runner.app/Frameworks
 
       - name: Upload iOS Unsigned IPA Artifact
         uses: actions/upload-artifact@v4
