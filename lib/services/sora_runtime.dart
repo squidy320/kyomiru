@@ -272,9 +272,32 @@ class SoraRuntime {
 
     final fromJorm = await _extractViaJorm(session, episodeSession,
         anilistId: anilistId, episodeNumber: episodeNumber);
-    if (fromJorm.isNotEmpty) return fromJorm;
+    final jormClean = _dedupSources(fromJorm
+        .where((s) => s.url.trim().isNotEmpty)
+        .where(
+            (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
+        .toList());
+    if (jormClean.isNotEmpty) return jormClean;
 
-    return _extractViaLocalFallback(session, episodeSession);
+    final local = await _extractViaLocalFallback(session, episodeSession);
+    final localClean = _dedupSources(local
+        .where((s) => s.url.trim().isNotEmpty)
+        .where(
+            (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
+        .toList());
+    if (localClean.isNotEmpty) return localClean;
+
+    // Last-resort retry without AniList context for unstable extractors.
+    if (anilistId != null || episodeNumber != null) {
+      final retry = await _extractViaJorm(session, episodeSession);
+      return _dedupSources(retry
+          .where((s) => s.url.trim().isNotEmpty)
+          .where((s) =>
+              s.url.startsWith('http://') || s.url.startsWith('https://'))
+          .toList());
+    }
+
+    return const [];
   }
 
   Future<List<SoraSource>> _extractViaJorm(

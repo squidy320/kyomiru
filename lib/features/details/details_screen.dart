@@ -473,7 +473,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
                                             final sources = await _sora
                                                 .getSourcesForEpisode(
-                                                    ep.playUrl);
+                                              ep.playUrl,
+                                              anilistId: media.id,
+                                              episodeNumber: ep.number,
+                                            );
                                             if (sources.isEmpty) {
                                               if (!context.mounted) return;
                                               ScaffoldMessenger.of(context)
@@ -532,7 +535,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             onPressed: () async {
                                               final sources = await _sora
                                                   .getSourcesForEpisode(
-                                                      ep.playUrl);
+                                                ep.playUrl,
+                                                anilistId: media.id,
+                                                episodeNumber: ep.number,
+                                              );
                                               if (sources.isEmpty) return;
                                               final settings =
                                                   ref.read(appSettingsProvider);
