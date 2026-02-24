@@ -13,6 +13,8 @@ class SoraRuntime {
   static const _jormExtractUrl =
       'https://jormungandr.ofchaos.com/api/animepahe/extract';
 
+  static String? _cookieHeader;
+
   Future<T> _withRetry<T>(Future<T> Function() task, {int attempts = 3}) async {
     Object? lastError;
     for (var i = 0; i < attempts; i++) {
@@ -26,6 +28,99 @@ class SoraRuntime {
     throw lastError ?? Exception('Request failed');
   }
 
+  Map<String, String> _cookieMap(String? cookieHeader) {
+    final out = <String, String>{};
+    if (cookieHeader == null || cookieHeader.trim().isEmpty) return out;
+    for (final part in cookieHeader.split(';')) {
+      final p = part.trim();
+      if (p.isEmpty || !p.contains('=')) continue;
+      final idx = p.indexOf('=');
+      final k = p.substring(0, idx).trim();
+      final v = p.substring(idx + 1).trim();
+      if (k.isEmpty || v.isEmpty) continue;
+      out[k] = v;
+    }
+    return out;
+  }
+
+  void _mergeSetCookie(Headers headers) {
+    final raw = headers['set-cookie'];
+    if (raw == null || raw.isEmpty) return;
+
+    final merged = _cookieMap(_cookieHeader);
+    for (final cookieLine in raw) {
+      final first = cookieLine.split(';').first.trim();
+      if (!first.contains('=')) continue;
+      final idx = first.indexOf('=');
+      final k = first.substring(0, idx).trim();
+      final v = first.substring(idx + 1).trim();
+      if (k.isEmpty || v.isEmpty) continue;
+      merged[k] = v;
+    }
+
+    if (merged.isEmpty) return;
+    _cookieHeader = merged.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
+
+  bool _looksLikeDdosGuard(String body, int statusCode) {
+    if (statusCode != 200) return true;
+    final lower = body.toLowerCase();
+    return lower.contains('ddos-guard') ||
+        lower.contains('check.ddos-guard.net/check.js') ||
+        lower.contains('just a moment');
+  }
+
+  Future<String?> _tryDdosBypass(String url) async {
+    try {
+      final origin = '${Uri.parse(url).scheme}://${Uri.parse(url).host}';
+
+      final checkJs = await _dio.get(
+        'https://check.ddos-guard.net/check.js',
+        options: Options(
+          headers: {'User-Agent': 'DDG-Bypass', 'Accept': '*/*'},
+          validateStatus: (code) => (code ?? 500) < 500,
+        ),
+      );
+      _mergeSetCookie(checkJs.headers);
+
+      final jsBody = checkJs.data?.toString() ?? '';
+      final imgPath = RegExp(r"new Image\(\)\.src\s*=\s*'([^']+)';")
+          .firstMatch(jsBody)
+          ?.group(1);
+      if (imgPath != null && imgPath.isNotEmpty) {
+        final step2 = await _dio.get(
+          '$origin$imgPath',
+          options: Options(
+            headers: {
+              'User-Agent': 'DDG-Bypass',
+              if (_cookieHeader != null) 'Cookie': _cookieHeader!,
+            },
+            validateStatus: (code) => (code ?? 500) < 500,
+          ),
+        );
+        _mergeSetCookie(step2.headers);
+      }
+
+      final finalRes = await _dio.get(
+        url,
+        options: Options(
+          headers: {
+            'User-Agent': _ua,
+            'Accept': 'application/json,text/html,*/*',
+            if (_cookieHeader != null) 'Cookie': _cookieHeader!,
+          },
+          validateStatus: (code) => (code ?? 500) < 500,
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
+      _mergeSetCookie(finalRes.headers);
+      return finalRes.data?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<dynamic> _fetchJsonOrHtml(String url,
       {Map<String, String>? headers}) async {
     final response = await _withRetry(
@@ -35,6 +130,7 @@ class SoraRuntime {
           headers: {
             'User-Agent': _ua,
             'Accept': 'application/json,text/html,*/*',
+            if (_cookieHeader != null) 'Cookie': _cookieHeader!,
             if (headers != null) ...headers,
           },
           sendTimeout: const Duration(seconds: 15),
@@ -44,17 +140,32 @@ class SoraRuntime {
       ),
     );
 
-    final bodyText = response.data?.toString() ?? '';
+    _mergeSetCookie(response.headers);
+
+    var bodyText = response.data?.toString() ?? '';
+    final status = response.statusCode ?? 500;
+
+    if (_looksLikeDdosGuard(bodyText, status)) {
+      final bypassed = await _tryDdosBypass(url);
+      if (bypassed != null && bypassed.isNotEmpty) {
+        bodyText = bypassed;
+      }
+    }
+
     final contentType =
         response.headers.value('content-type')?.toLowerCase() ?? '';
 
     if (contentType.contains('application/json')) {
-      if (response.data is Map<String, dynamic>) return response.data;
-      return jsonDecode(bodyText);
+      try {
+        if (response.data is Map<String, dynamic>) return response.data;
+        return jsonDecode(bodyText);
+      } catch (_) {
+        // fall through to raw body
+      }
     }
 
-    if (bodyText.trimLeft().startsWith('{') ||
-        bodyText.trimLeft().startsWith('[')) {
+    final trimmed = bodyText.trimLeft();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
         return jsonDecode(bodyText);
       } catch (_) {}
@@ -195,6 +306,7 @@ class SoraRuntime {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
               'User-Agent': _ua,
+              if (_cookieHeader != null) 'Cookie': _cookieHeader!,
             },
             sendTimeout: const Duration(seconds: 15),
             receiveTimeout: const Duration(seconds: 20),
@@ -202,6 +314,8 @@ class SoraRuntime {
           ),
         ),
       );
+
+      _mergeSetCookie(response.headers);
 
       if ((response.statusCode ?? 500) != 200) return const [];
       final data = response.data is Map<String, dynamic>
@@ -232,6 +346,7 @@ class SoraRuntime {
               'Referer': 'https://kwik.cx/',
               'Origin': _originFrom(streamUrl) ?? 'https://kwik.cx',
               'User-Agent': _ua,
+              if (_cookieHeader != null) 'Cookie': _cookieHeader!,
             },
           ),
         );
@@ -253,7 +368,7 @@ class SoraRuntime {
 
     final normalizedHtml = html.replaceAll("'", '"');
     final sourceRegex = RegExp(
-      r'data-src="(https://kwik\.cx/e/[^"]+)"[\s\S]*?data-resolution="([0-9]+)"\s*data-audio="([^"]+)"',
+      r'data-src="(https://kwik\.[^/]+/e/[^"]+)"[\s\S]*?data-resolution="([0-9]+)"\s*data-audio="([^"]+)"',
       caseSensitive: false,
     );
 
@@ -285,6 +400,7 @@ class SoraRuntime {
             'Referer': 'https://kwik.cx/',
             'Origin': _originFrom(hls) ?? 'https://kwik.cx',
             'User-Agent': _ua,
+            if (_cookieHeader != null) 'Cookie': _cookieHeader!,
           },
         ),
       );
@@ -316,9 +432,15 @@ class SoraRuntime {
       }
 
       final normalizedScript = scriptSource.replaceAll("'", '"');
-      final sourceUrl = RegExp(r'source\s*=\s*"([^"]+)"', caseSensitive: false)
+      String? sourceUrl =
+          RegExp(r'source\s*=\s*"([^"]+)"', caseSensitive: false)
+              .firstMatch(normalizedScript)
+              ?.group(1);
+
+      sourceUrl ??= RegExp(r'https://[^"\s]+\.m3u8[^"\s]*')
           .firstMatch(normalizedScript)
-          ?.group(1);
+          ?.group(0);
+
       if (sourceUrl == null || sourceUrl.isEmpty) return null;
 
       return sourceUrl
