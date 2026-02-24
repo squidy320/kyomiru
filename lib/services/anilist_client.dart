@@ -60,6 +60,32 @@ class AniListClient {
     return token;
   }
 
+  static const _pornKeywords = <String>[
+    'hentai',
+    'porn',
+    'pornography',
+    'xxx',
+    'rule34',
+    'sex tape',
+    'sex video',
+    'nude',
+  ];
+
+  bool _isPorn(AniListMedia media) {
+    if (media.isAdult) return true;
+    final title = [media.title.english, media.title.romaji, media.title.native]
+        .whereType<String>()
+        .join(' ')
+        .toLowerCase();
+    if (_pornKeywords.any((k) => title.contains(k))) return true;
+    final genres = media.genres.map((e) => e.toLowerCase()).toList();
+    return genres.any((g) => g.contains('hentai') || g.contains('pornographic'));
+  }
+
+  List<AniListMedia> _sanitizeMediaList(List<AniListMedia> items) {
+    return items.where((m) => !_isPorn(m)).toList();
+  }
+
   Future<Map<String, dynamic>> _graphql({
     required String query,
     Map<String, dynamic>? variables,
@@ -137,6 +163,8 @@ class AniListClient {
                 siteUrl
                 bannerImage
                 status
+            isAdult
+            genres
               }
             }
           }
@@ -178,6 +206,8 @@ class AniListClient {
                 siteUrl
                 bannerImage
                 status
+            isAdult
+            genres
               }
             }
           }
@@ -229,6 +259,8 @@ class AniListClient {
             siteUrl
             bannerImage
             status
+            isAdult
+            genres
           }
         }
       }
@@ -236,10 +268,10 @@ class AniListClient {
 
     final data = await _graphql(query: q);
     final media = (data['Page']?['media'] as List? ?? const []);
-    return media
+    return _sanitizeMediaList(media
         .whereType<Map<String, dynamic>>()
         .map(AniListMedia.fromJson)
-        .toList();
+        .toList());
   }
 
   Future<List<AniListDiscoverySection>> discoverySections() async {
@@ -259,6 +291,8 @@ class AniListClient {
             siteUrl
             bannerImage
             status
+            isAdult
+            genres
           }
         }
         newReleases: Page(page: 1, perPage: 20) {
@@ -271,6 +305,8 @@ class AniListClient {
             siteUrl
             bannerImage
             status
+            isAdult
+            genres
           }
         }
         hotNow: Page(page: 1, perPage: 20) {
@@ -283,6 +319,8 @@ class AniListClient {
             siteUrl
             bannerImage
             status
+            isAdult
+            genres
           }
         }
       }
@@ -295,10 +333,10 @@ class AniListClient {
 
     List<AniListMedia> listFrom(String key) {
       final raw = (data[key]?['media'] as List? ?? const []);
-      return raw
+      return _sanitizeMediaList(raw
           .whereType<Map<String, dynamic>>()
           .map(AniListMedia.fromJson)
-          .toList();
+          .toList());
     }
 
     return [
@@ -323,16 +361,18 @@ class AniListClient {
             siteUrl
             bannerImage
             status
+            isAdult
+            genres
           }
         }
       }
     ''';
     final data = await _graphql(query: q, variables: {'search': query});
     final media = (data['Page']?['media'] as List? ?? const []);
-    return media
+    return _sanitizeMediaList(media
         .whereType<Map<String, dynamic>>()
         .map(AniListMedia.fromJson)
-        .toList();
+        .toList());
   }
 
   Future<AniListMedia> mediaDetails(int mediaId) async {
@@ -347,6 +387,8 @@ class AniListClient {
           siteUrl
           bannerImage
           status
+            isAdult
+            genres
           description(asHtml: false)
           streamingEpisodes {
             title
@@ -379,6 +421,8 @@ class AniListClient {
                 coverImage { large extraLarge }
                 siteUrl
                 status
+            isAdult
+            genres
               }
             }
           }

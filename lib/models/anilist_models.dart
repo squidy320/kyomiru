@@ -82,6 +82,8 @@ class AniListMedia {
   final String? bannerImage;
   final String? siteUrl;
   final String? status;
+  final bool isAdult;
+  final List<String> genres;
   final List<AniListStreamingEpisode> streamingEpisodes;
 
   AniListMedia({
@@ -94,6 +96,8 @@ class AniListMedia {
     this.bannerImage,
     this.siteUrl,
     this.status,
+    this.isAdult = false,
+    this.genres = const [],
     this.streamingEpisodes = const [],
   });
 
@@ -109,6 +113,11 @@ class AniListMedia {
         bannerImage: json['bannerImage']?.toString(),
         siteUrl: json['siteUrl']?.toString(),
         status: json['status']?.toString(),
+        isAdult: json['isAdult'] == true,
+        genres: ((json['genres'] as List?) ?? const [])
+            .map((e) => e.toString())
+            .where((e) => e.isNotEmpty)
+            .toList(),
         streamingEpisodes: ((json['streamingEpisodes'] as List?) ?? const [])
             .whereType<Map<String, dynamic>>()
             .map(AniListStreamingEpisode.fromJson)

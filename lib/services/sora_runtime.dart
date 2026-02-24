@@ -11,9 +11,9 @@ class SoraRuntime {
 
   static const _animePaheApi = 'https://animepahe.si/api';
 
-  Future<T> _withRetry<T>(Future<T> Function() task) async {
+  Future<T> _withRetry<T>(Future<T> Function() task, {int attempts = 3}) async {
     Object? lastError;
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < attempts; i++) {
       try {
         return await task();
       } catch (e) {
@@ -68,38 +68,14 @@ class SoraRuntime {
 
   Future<List<SoraEpisode>> getEpisodes(String animeSession) async {
     if (animeSession.isEmpty) return const [];
-    final first = await _withRetry(() => _dio.get(
-          _animePaheApi,
-          queryParameters: {
-            'm': 'release',
-            'id': animeSession,
-            'sort': 'episode_asc',
-            'page': 1,
-          },
-          options: Options(
-            headers: {'Accept': 'application/json'},
-            sendTimeout: const Duration(seconds: 12),
-            receiveTimeout: const Duration(seconds: 12),
-          ),
-        ));
 
-    final data1 = first.data is Map<String, dynamic>
-        ? first.data as Map<String, dynamic>
-        : jsonDecode(first.data.toString()) as Map<String, dynamic>;
-
-    final totalPages = (data1['last_page'] as num?)?.toInt() ?? 1;
-    final allData = <Map<String, dynamic>>[];
-    allData.addAll(
-      (data1['data'] as List? ?? const []).whereType<Map<String, dynamic>>(),
-    );
-
-    for (var page = 2; page <= totalPages; page++) {
-      final r = await _withRetry(() => _dio.get(
+    Future<Map<String, dynamic>> fetchReleasePage(int page, {required bool sorted}) async {
+      final response = await _withRetry(() => _dio.get(
             _animePaheApi,
             queryParameters: {
               'm': 'release',
               'id': animeSession,
-              'sort': 'episode_asc',
+              if (sorted) 'sort': 'episode_asc',
               'page': page,
             },
             options: Options(
@@ -108,46 +84,13 @@ class SoraRuntime {
               receiveTimeout: const Duration(seconds: 12),
             ),
           ));
-      final d = r.data is Map<String, dynamic>
-          ? r.data as Map<String, dynamic>
-          : jsonDecode(r.data.toString()) as Map<String, dynamic>;
-      allData.addAll(
-          (d['data'] as List? ?? const []).whereType<Map<String, dynamic>>());
+      return response.data is Map<String, dynamic>
+          ? response.data as Map<String, dynamic>
+          : jsonDecode(response.data.toString()) as Map<String, dynamic>;
     }
 
-    var episodes = allData
-        .map((item) {
-          final session = (item['session'] ?? '').toString();
-          final number = (item['episode'] as num?)?.toInt() ?? 0;
-          return SoraEpisode(
-            number: number,
-            session: session,
-            playUrl: 'https://animepahe.si/play/$animeSession/$session',
-          );
-        })
-        .where((e) => e.number > 0 && e.session.isNotEmpty)
-        .toList();
-
-    if (episodes.isEmpty) {
-      final fallback = await _withRetry(() => _dio.get(
-            _animePaheApi,
-            queryParameters: {
-              'm': 'release',
-              'id': animeSession,
-              'page': 1,
-            },
-            options: Options(
-              headers: {'Accept': 'application/json'},
-              sendTimeout: const Duration(seconds: 12),
-              receiveTimeout: const Duration(seconds: 12),
-            ),
-          ));
-      final fbData = fallback.data is Map<String, dynamic>
-          ? fallback.data as Map<String, dynamic>
-          : jsonDecode(fallback.data.toString()) as Map<String, dynamic>;
-      final fbRows = (fbData['data'] as List? ?? const [])
-          .whereType<Map<String, dynamic>>();
-      episodes = fbRows
+    List<SoraEpisode> mapEpisodes(List<Map<String, dynamic>> rows) {
+      final items = rows
           .map((item) {
             final session = (item['session'] ?? '').toString();
             final number = (item['episode'] as num?)?.toInt() ?? 0;
@@ -159,10 +102,43 @@ class SoraRuntime {
           })
           .where((e) => e.number > 0 && e.session.isNotEmpty)
           .toList();
+      items.sort((a, b) => a.number.compareTo(b.number));
+      return items;
     }
 
-    episodes.sort((a, b) => a.number.compareTo(b.number));
-    return episodes;
+    Future<List<SoraEpisode>> fetchAll({required bool sorted}) async {
+      final first = await fetchReleasePage(1, sorted: sorted);
+      final totalPages = (first['last_page'] as num?)?.toInt() ?? 1;
+      final allRows = <Map<String, dynamic>>[];
+      allRows.addAll((first['data'] as List? ?? const []).whereType<Map<String, dynamic>>());
+
+      for (var page = 2; page <= totalPages; page++) {
+        try {
+          final next = await fetchReleasePage(page, sorted: sorted);
+          allRows.addAll((next['data'] as List? ?? const []).whereType<Map<String, dynamic>>());
+        } catch (_) {
+          // Keep partial pages instead of failing all episode loading.
+        }
+      }
+
+      return mapEpisodes(allRows);
+    }
+
+    try {
+      final sortedEpisodes = await fetchAll(sorted: true);
+      if (sortedEpisodes.isNotEmpty) return sortedEpisodes;
+    } catch (_) {
+      // fall through
+    }
+
+    try {
+      final unsortedEpisodes = await fetchAll(sorted: false);
+      if (unsortedEpisodes.isNotEmpty) return unsortedEpisodes;
+    } catch (_) {
+      // fall through
+    }
+
+    return const [];
   }
 
   Future<List<SoraSource>> getSourcesForEpisode(String playUrl) async {

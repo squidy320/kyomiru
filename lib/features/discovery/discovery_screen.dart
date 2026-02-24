@@ -156,7 +156,7 @@ class _HorizontalSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 250,
+          height: 272,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: items.length,
@@ -164,7 +164,7 @@ class _HorizontalSection extends StatelessWidget {
             itemBuilder: (context, index) {
               final item = items[index];
               return SizedBox(
-                width: 148,
+                width: 168,
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(

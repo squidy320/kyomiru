@@ -276,8 +276,28 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 const Icon(Icons.link),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                    child: Text(
-                                        'AnimePahe: ${data.match!.title}')),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('AnimePahe',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w800)),
+                                      Text(
+                                        _manualMatch == null
+                                            ? 'Using automatic matching'
+                                            : 'Using manual matching',
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF9AA0B3)),
+                                      ),
+                                      Text(
+                                        data.match!.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 FilledButton.tonal(
                                   onPressed: () async {
                                     final manual =
@@ -355,7 +375,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           ...episodes.map((ep) {
                             final p = progressStore.read(media.id, ep.number);
                             final pct = p?.percent ?? 0;
-                            final thumb = media.cover.best;
+                            final streamMeta = media.streamingEpisodes
+                                .where((se) => se.guessedEpisodeNumber == ep.number)
+                                .toList();
+                            final thumb = streamMeta.isNotEmpty
+                                ? (streamMeta.first.thumbnail ?? media.cover.best)
+                                : media.cover.best;
+                            final episodeSubtitle =
+                                streamMeta.isNotEmpty && streamMeta.first.title.trim().isNotEmpty
+                                    ? streamMeta.first.title
+                                    : '${media.title.best} - Episode ${ep.number}';
                             final d = downloads.item(media.id, ep.number);
                             final done = d?.status == 'done';
 
@@ -391,7 +420,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   fontWeight: FontWeight.w700)),
                                           const SizedBox(height: 2),
                                           Text(
-                                            '${media.title.best} - Episode ${ep.number}',
+                                            episodeSubtitle,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
@@ -719,3 +748,5 @@ class _PaheData {
   final SoraAnimeMatch? match;
   final List<SoraEpisode> episodes;
 }
+
+

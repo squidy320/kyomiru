@@ -21,6 +21,10 @@ class _AniListLoginWebViewScreenState
 
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
+  static const _clientSecret = String.fromEnvironment(
+    'ANILIST_CLIENT_SECRET',
+    defaultValue: 'LwVZw1mcI7iWatIXJfhcSg9FmYSH3MY7zPNu3XAL',
+  );
   // Keep this fixed to avoid broken builds from wrong env values.
   static const _redirectUri = 'kyomiru://auth';
 
@@ -79,6 +83,16 @@ class _AniListLoginWebViewScreenState
     return List.generate(12, (_) => chars[rnd.nextInt(chars.length)]).join();
   }
 
+  Future<String> _exchangeCodeForToken(String code) async {
+    final client = ref.read(anilistClientProvider);
+    return client.exchangeCodeForToken(
+      clientId: _clientId,
+      clientSecret: _clientSecret,
+      code: code,
+      redirectUri: _redirectUri,
+    );
+  }
+
   Future<void> _completeLogin(String callbackUrl) async {
     try {
       final uri = Uri.parse(callbackUrl);
@@ -89,6 +103,14 @@ class _AniListLoginWebViewScreenState
       final token =
           (fragment['access_token'] ?? query['access_token'] ?? '').trim();
       if (token.isNotEmpty) {
+        await ref.read(authControllerProvider.notifier).setToken(token);
+        if (mounted) Navigator.of(context).pop(true);
+        return;
+      }
+
+      final code = (query['code'] ?? fragment['code'] ?? '').trim();
+      if (code.isNotEmpty) {
+        final token = await _exchangeCodeForToken(code);
         await ref.read(authControllerProvider.notifier).setToken(token);
         if (mounted) Navigator.of(context).pop(true);
         return;
@@ -130,3 +152,5 @@ class _AniListLoginWebViewScreenState
     );
   }
 }
+
+
