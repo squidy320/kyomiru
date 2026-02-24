@@ -159,9 +159,7 @@ class SoraRuntime {
       try {
         if (response.data is Map<String, dynamic>) return response.data;
         return jsonDecode(bodyText);
-      } catch (_) {
-        // fall through to raw body
-      }
+      } catch (_) {}
     }
 
     final trimmed = bodyText.trimLeft();
@@ -236,9 +234,7 @@ class SoraRuntime {
         rows.addAll(
           (next['data'] as List? ?? const []).whereType<Map<String, dynamic>>(),
         );
-      } catch (_) {
-        // keep partial pages
-      }
+      } catch (_) {}
     }
 
     final episodes = rows
@@ -316,17 +312,25 @@ class SoraRuntime {
       );
 
       _mergeSetCookie(response.headers);
-
       if ((response.statusCode ?? 500) != 200) return const [];
+
       final data = response.data is Map<String, dynamic>
           ? response.data as Map<String, dynamic>
           : jsonDecode(response.data.toString()) as Map<String, dynamic>;
-      final streams = (data['streams'] as List? ?? const []);
+
+      dynamic streamsDyn = data['streams'];
+      if ((streamsDyn is! List || streamsDyn.isEmpty) &&
+          data['result'] is Map<String, dynamic>) {
+        streamsDyn = (data['result'] as Map<String, dynamic>)['streams'];
+      }
+      final streams = streamsDyn is List ? streamsDyn : const [];
       if (streams.isEmpty) return const [];
 
       final out = <SoraSource>[];
       for (final item in streams.whereType<Map<String, dynamic>>()) {
-        final streamUrl = (item['streamUrl'] ?? '').toString();
+        final streamUrl =
+            (item['streamUrl'] ?? item['stream_url'] ?? item['url'] ?? '')
+                .toString();
         if (streamUrl.isEmpty || !streamUrl.contains('.m3u8')) continue;
 
         final title = (item['title'] ?? '').toString().toLowerCase();
@@ -366,35 +370,82 @@ class SoraRuntime {
     final html = await _fetchJsonOrHtml(episodeUrl);
     if (html is! String) return const [];
 
-    final normalizedHtml = html.replaceAll("'", '"');
-    final sourceRegex = RegExp(
-      r'data-src="(https://kwik\.[^/]+/e/[^"]+)"[\s\S]*?data-resolution="([0-9]+)"\s*data-audio="([^"]+)"',
+    final candidates = <_LocalSource>[];
+
+    final tagRegex = RegExp(
+      '''<(?:button|a)[^>]*(?:data-src|href)=["']([^"']+)["'][^>]*>''',
       caseSensitive: false,
     );
-
-    final picksByAudio = <String, _LocalSource>{};
-    for (final match in sourceRegex.allMatches(normalizedHtml)) {
-      final kwik = match.group(1) ?? '';
-      final res = int.tryParse(match.group(2) ?? '') ?? 0;
-      final audio = (match.group(3) ?? '').toLowerCase();
-      if (kwik.isEmpty || res == 0) continue;
-
-      final existing = picksByAudio[audio];
-      if (existing == null || existing.resolution < res) {
-        picksByAudio[audio] =
-            _LocalSource(kwik: kwik, resolution: res, audio: audio);
+    for (final m in tagRegex.allMatches(html)) {
+      final tag = m.group(0) ?? '';
+      final raw = m.group(1) ?? '';
+      if (raw.isEmpty) continue;
+      final url = _resolveMaybeRelative(episodeUrl, raw);
+      if (!(url.contains('kwik.') ||
+          url.contains('/e/') ||
+          url.contains('.m3u8'))) {
+        continue;
       }
+      final q = int.tryParse(_attr(tag, 'data-resolution') ?? '') ??
+          (int.tryParse(
+                  RegExp(r'(360|480|720|1080)').firstMatch(tag)?.group(1) ??
+                      '') ??
+              0);
+      final a = (_attr(tag, 'data-audio') ?? 'jpn').toLowerCase();
+      candidates.add(_LocalSource(kwik: url, resolution: q, audio: a));
     }
 
+    final inlineKwikRegex =
+        RegExp(r'https://kwik\.[^"\s]+/e/[^"\s]+', caseSensitive: false);
+    for (final m in inlineKwikRegex.allMatches(html)) {
+      final url = m.group(0) ?? '';
+      if (url.isEmpty) continue;
+      final q = int.tryParse(
+              RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1) ?? '') ??
+          0;
+      candidates.add(_LocalSource(kwik: url, resolution: q, audio: 'jpn'));
+    }
+
+    final inlineM3u8Regex =
+        RegExp(r'https://[^"\s]+\.m3u8[^"\s]*', caseSensitive: false);
     final out = <SoraSource>[];
-    for (final src in picksByAudio.values) {
-      final hls = await _extractKwikHls(src.kwik);
+    for (final m in inlineM3u8Regex.allMatches(html)) {
+      final url = (m.group(0) ?? '').replaceAll(r'\/', '/');
+      if (url.isEmpty) continue;
+      final q = RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1);
+      out.add(
+        SoraSource(
+          url: url,
+          quality: q == null ? 'auto' : '${q}p',
+          subOrDub: 'sub',
+          format: 'm3u8',
+          headers: {
+            'Referer': 'https://kwik.cx/',
+            'Origin': _originFrom(url) ?? 'https://kwik.cx',
+            'User-Agent': _ua,
+            if (_cookieHeader != null) 'Cookie': _cookieHeader!,
+          },
+        ),
+      );
+    }
+
+    final seen = <String>{};
+    for (final c in candidates) {
+      if (seen.contains(c.kwik)) continue;
+      seen.add(c.kwik);
+      String? hls;
+      if (c.kwik.contains('.m3u8')) {
+        hls = c.kwik;
+      } else {
+        hls = await _extractKwikHls(c.kwik);
+      }
       if (hls == null || hls.isEmpty) continue;
+
       out.add(
         SoraSource(
           url: hls,
-          quality: '${src.resolution}p',
-          subOrDub: src.audio.contains('eng') ? 'dub' : 'sub',
+          quality: c.resolution > 0 ? '${c.resolution}p' : 'auto',
+          subOrDub: c.audio.contains('eng') ? 'dub' : 'sub',
           format: 'm3u8',
           headers: {
             'Referer': 'https://kwik.cx/',
@@ -449,6 +500,25 @@ class SoraRuntime {
     } catch (_) {
       return null;
     }
+  }
+
+  String _resolveMaybeRelative(String base, String url) {
+    final trimmed = url.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('//')) return 'https:$trimmed';
+    try {
+      return Uri.parse(base).resolve(trimmed).toString();
+    } catch (_) {
+      return trimmed;
+    }
+  }
+
+  String? _attr(String html, String name) {
+    final m = RegExp('$name=["\']([^"\']+)["\']', caseSensitive: false)
+        .firstMatch(html);
+    return m?.group(1);
   }
 
   String? _unpackPacker(String source) {
