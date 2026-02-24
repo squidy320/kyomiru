@@ -21,10 +21,12 @@ class LibraryScreen extends ConsumerWidget {
     if (auth.token == null || auth.token!.isEmpty) {
       return SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           children: [
             const Text('Library',
-                style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
+                style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900)),
+            const Text('All your AniList collections',
+                style: TextStyle(color: Color(0xFFA1A8BC))),
             const SizedBox(height: 12),
             const GlassCard(
               child: Text(
@@ -56,77 +58,163 @@ class _LibraryDataView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
 
-    return FutureBuilder<List<AniListLibraryEntry>>(
-      future: client.libraryCurrent(token),
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait<dynamic>([
+        client.me(token),
+        client.librarySections(token),
+      ]),
       builder: (context, snap) {
+        final loading = snap.connectionState == ConnectionState.waiting;
+        final hasError = snap.hasError;
+        final user =
+            !loading && !hasError ? snap.data![0] as AniListUser : null;
+        final sections = !loading && !hasError
+            ? snap.data![1] as List<AniListLibrarySection>
+            : const <AniListLibrarySection>[];
+
         return SafeArea(
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             children: [
-              const Text('Library',
-                  style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 12),
-              if (snap.connectionState == ConnectionState.waiting)
-                const Center(child: CircularProgressIndicator())
-              else if (snap.hasError)
-                GlassCard(child: Text('Failed loading library: ${snap.error}'))
-              else if ((snap.data ?? []).isEmpty)
-                const GlassCard(child: Text('No current watching entries.'))
-              else
-                ...snap.data!.map(
-                  (e) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: GestureDetector(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => DetailsScreen(mediaId: e.media.id)),
-                      ),
-                      child: GlassCard(
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 56,
-                              height: 78,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(10),
-                                image: e.media.cover.best != null
-                                    ? DecorationImage(
-                                        image:
-                                            NetworkImage(e.media.cover.best!),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : null,
-                                color: const Color(0x22111111),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    e.media.title.best,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                      'Progress ${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Library',
+                            style: TextStyle(
+                                fontSize: 42, fontWeight: FontWeight.w900)),
+                        Text('All your AniList collections',
+                            style: TextStyle(color: Color(0xFFA1A8BC))),
+                      ],
                     ),
                   ),
-                ),
+                  if (user?.avatar != null)
+                    CircleAvatar(
+                        radius: 18,
+                        backgroundImage: NetworkImage(user!.avatar!)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (loading)
+                const Center(child: CircularProgressIndicator())
+              else if (hasError)
+                GlassCard(child: Text('Failed loading library: ${snap.error}'))
+              else if (sections.isEmpty)
+                const GlassCard(child: Text('No library items found.'))
+              else
+                ...sections.map((section) => Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: _LibrarySection(section: section),
+                    )),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _LibrarySection extends StatelessWidget {
+  const _LibrarySection({required this.section});
+
+  final AniListLibrarySection section;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('${section.title} (${section.items.length})',
+            style: const TextStyle(
+                fontSize: 40 / 1.35, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 210,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: section.items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final e = section.items[index];
+              return SizedBox(
+                width: 148,
+                child: GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => DetailsScreen(mediaId: e.media.id)),
+                  ),
+                  child: GlassCard(
+                    padding: const EdgeInsets.all(6),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: e.media.cover.best == null
+                                ? Container(color: const Color(0x22111111))
+                                : Image.network(e.media.cover.best!,
+                                    fit: BoxFit.cover),
+                          ),
+                        ),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xAA2A3248),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              e.media.averageScore?.toString() ?? 'NR',
+                              style: const TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 8,
+                          right: 8,
+                          bottom: 8,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                e.media.title.best,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    shadows: [
+                                      Shadow(
+                                          color: Colors.black87, blurRadius: 6)
+                                    ]),
+                              ),
+                              Text(
+                                'Progress: ${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFFCDD6F7),
+                                    shadows: [
+                                      Shadow(
+                                          color: Colors.black87, blurRadius: 6)
+                                    ]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

@@ -121,8 +121,11 @@ class AniListLibraryEntry {
   final int progress;
   final AniListMedia media;
 
-  AniListLibraryEntry(
-      {required this.id, required this.progress, required this.media});
+  AniListLibraryEntry({
+    required this.id,
+    required this.progress,
+    required this.media,
+  });
 
   factory AniListLibraryEntry.fromJson(Map<String, dynamic> json) =>
       AniListLibraryEntry(
@@ -131,6 +134,13 @@ class AniListLibraryEntry {
         media: AniListMedia.fromJson(
             (json['media'] as Map<String, dynamic>? ?? const {})),
       );
+}
+
+class AniListLibrarySection {
+  const AniListLibrarySection({required this.title, required this.items});
+
+  final String title;
+  final List<AniListLibraryEntry> items;
 }
 
 class AniListNotificationItem {

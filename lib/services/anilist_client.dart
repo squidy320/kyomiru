@@ -10,17 +10,18 @@ class AniListClient {
   final Dio _dio;
 
   static const authEndpoint = 'https://anilist.co/api/v2/oauth/authorize';
-  static const tokenEndpoint = 'https://anilist.co/api/v2/oauth/token';
   static const graphqlEndpoint = 'https://graphql.anilist.co';
+  static const tokenEndpoint = 'https://anilist.co/api/v2/oauth/token';
 
   String buildAuthUrl({
     required String clientId,
     required String redirectUri,
     required String state,
+    bool useCodeFlow = true,
   }) {
     final uri = Uri.parse(authEndpoint).replace(queryParameters: {
       'client_id': clientId,
-      'response_type': 'token',
+      'response_type': useCodeFlow ? 'code' : 'token',
       'state': state,
       'redirect_uri': redirectUri,
     });
@@ -87,7 +88,8 @@ class AniListClient {
     if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
       final first = (body['errors'] as List).first;
       throw Exception(
-          'AniList GraphQL error: ${first is Map ? (first['message'] ?? first) : first}');
+        'AniList GraphQL error: ${first is Map ? (first['message'] ?? first) : first}',
+      );
     }
 
     return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
@@ -158,6 +160,62 @@ class AniListClient {
     return out;
   }
 
+  Future<List<AniListLibrarySection>> librarySections(String token) async {
+    const q = r'''
+      query {
+        MediaListCollection(type: ANIME, status_in: [CURRENT, PLANNING, COMPLETED]) {
+          lists {
+            name
+            entries {
+              id
+              progress
+              media {
+                id
+                episodes
+                averageScore
+                title { romaji english native }
+                coverImage { large extraLarge }
+                siteUrl
+                bannerImage
+                status
+              }
+            }
+          }
+        }
+      }
+    ''';
+
+    final data = await _graphql(query: q, token: token);
+    final lists = (data['MediaListCollection']?['lists'] as List? ?? const []);
+    final out = <AniListLibrarySection>[];
+
+    for (final list in lists) {
+      if (list is! Map<String, dynamic>) continue;
+      final name = (list['name'] ?? 'List').toString();
+      final entries = (list['entries'] as List? ?? const []);
+      final items = entries
+          .whereType<Map<String, dynamic>>()
+          .map(AniListLibraryEntry.fromJson)
+          .toList();
+      if (items.isEmpty) continue;
+      out.add(AniListLibrarySection(title: name, items: items));
+    }
+
+    out.sort((a, b) {
+      int order(String s) {
+        final l = s.toLowerCase();
+        if (l.contains('current') || l.contains('watching')) return 0;
+        if (l.contains('planning') || l.contains('plan')) return 1;
+        if (l.contains('completed')) return 2;
+        return 99;
+      }
+
+      return order(a.title).compareTo(order(b.title));
+    });
+
+    return out;
+  }
+
   Future<List<AniListMedia>> discoveryTrending() async {
     const q = r'''
       query {
@@ -188,12 +246,9 @@ class AniListClient {
     final now = DateTime.now();
     final currentSeason = _season(now.month);
     final currentYear = now.year;
-    final nextDate = DateTime(now.year, now.month + 3, 1);
-    final nextSeason = _season(nextDate.month);
-    final nextYear = nextDate.year;
 
     const q = r'''
-      query ($currentSeason: MediaSeason, $currentYear: Int, $nextSeason: MediaSeason, $nextYear: Int) {
+      query ($currentSeason: MediaSeason, $currentYear: Int) {
         trending: Page(page: 1, perPage: 20) {
           media(type: ANIME, sort: TRENDING_DESC) {
             id
@@ -206,8 +261,8 @@ class AniListClient {
             status
           }
         }
-        seasonPopular: Page(page: 1, perPage: 20) {
-          media(type: ANIME, season: $currentSeason, seasonYear: $currentYear, sort: POPULARITY_DESC) {
+        newReleases: Page(page: 1, perPage: 20) {
+          media(type: ANIME, season: $currentSeason, seasonYear: $currentYear, sort: START_DATE_DESC) {
             id
             episodes
             averageScore
@@ -218,20 +273,8 @@ class AniListClient {
             status
           }
         }
-        nextSeason: Page(page: 1, perPage: 20) {
-          media(type: ANIME, season: $nextSeason, seasonYear: $nextYear, sort: POPULARITY_DESC) {
-            id
-            episodes
-            averageScore
-            title { romaji english native }
-            coverImage { large extraLarge }
-            siteUrl
-            bannerImage
-            status
-          }
-        }
-        allTime: Page(page: 1, perPage: 20) {
-          media(type: ANIME, sort: FAVOURITES_DESC) {
+        hotNow: Page(page: 1, perPage: 20) {
+          media(type: ANIME, sort: POPULARITY_DESC) {
             id
             episodes
             averageScore
@@ -248,8 +291,6 @@ class AniListClient {
     final data = await _graphql(query: q, variables: {
       'currentSeason': currentSeason,
       'currentYear': currentYear,
-      'nextSeason': nextSeason,
-      'nextYear': nextYear,
     });
 
     List<AniListMedia> listFrom(String key) {
@@ -261,14 +302,10 @@ class AniListClient {
     }
 
     return [
+      AniListDiscoverySection(title: 'Trending', items: listFrom('trending')),
       AniListDiscoverySection(
-          title: 'TRENDING NOW', items: listFrom('trending')),
-      AniListDiscoverySection(
-          title: 'POPULAR THIS SEASON', items: listFrom('seasonPopular')),
-      AniListDiscoverySection(
-          title: 'UPCOMING NEXT SEASON', items: listFrom('nextSeason')),
-      AniListDiscoverySection(
-          title: 'ALL TIME POPULAR', items: listFrom('allTime')),
+          title: 'New Releases', items: listFrom('newReleases')),
+      AniListDiscoverySection(title: 'Hot Now', items: listFrom('hotNow')),
     ];
   }
 

@@ -21,18 +21,24 @@ class _AniListLoginWebViewScreenState
 
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
-  static const _redirectUri = String.fromEnvironment('ANILIST_REDIRECT_URI',
-      defaultValue: 'kyomiru://auth');
+  static const _clientSecret =
+      String.fromEnvironment('ANILIST_CLIENT_SECRET', defaultValue: '');
+
+  // Keep this fixed to avoid broken builds from wrong env values.
+  static const _redirectUri = 'kyomiru://auth';
 
   @override
   void initState() {
     super.initState();
     final client = ref.read(anilistClientProvider);
     final state = _randomState();
+
+    final useCodeFlow = _clientSecret.isNotEmpty;
     final authUrl = client.buildAuthUrl(
       clientId: _clientId,
       redirectUri: _redirectUri,
       state: state,
+      useCodeFlow: useCodeFlow,
     );
 
     _controller = WebViewController()
@@ -41,10 +47,23 @@ class _AniListLoginWebViewScreenState
         NavigationDelegate(
           onNavigationRequest: (request) async {
             final url = request.url;
-            if (url.startsWith(_redirectUri)) {
+
+            // Handle scheme variants: kyomiru://auth and kyomiru:/auth.
+            final isCallback =
+                url.startsWith('kyomiru://') || url.startsWith('kyomiru:/');
+            if (isCallback) {
               await _completeLogin(url);
               return NavigationDecision.prevent;
             }
+
+            // Misconfigured AniList app can redirect to token endpoint and show grant errors.
+            if (url.startsWith('https://anilist.co/api/v2/oauth/token')) {
+              setState(() {
+                _error =
+                    'AniList redirect is misconfigured. Set AniList app Redirect URL to: kyomiru://auth';
+              });
+            }
+
             return NavigationDecision.navigate;
           },
         ),
@@ -67,15 +86,41 @@ class _AniListLoginWebViewScreenState
 
       final token =
           (fragment['access_token'] ?? query['access_token'] ?? '').trim();
-      if (token.isEmpty) {
-        throw Exception(
-            'AniList login failed. No access token in callback URL.');
+      if (token.isNotEmpty) {
+        await ref.read(authControllerProvider.notifier).setToken(token);
+        if (mounted) Navigator.of(context).pop(true);
+        return;
       }
 
-      await ref.read(authControllerProvider.notifier).setToken(token);
-      if (mounted) {
-        Navigator.of(context).pop(true);
+      final code = (query['code'] ?? fragment['code'] ?? '').trim();
+      if (code.isNotEmpty) {
+        if (_clientSecret.isEmpty) {
+          throw Exception(
+              'AniList returned code flow but client secret is missing.');
+        }
+        final exchanged =
+            await ref.read(anilistClientProvider).exchangeCodeForToken(
+                  clientId: _clientId,
+                  clientSecret: _clientSecret,
+                  code: code,
+                  redirectUri: _redirectUri,
+                );
+        await ref.read(authControllerProvider.notifier).setToken(exchanged);
+        if (mounted) Navigator.of(context).pop(true);
+        return;
       }
+
+      final err = (query['error'] ?? fragment['error'] ?? '').trim();
+      final errDesc =
+          (query['error_description'] ?? fragment['error_description'] ?? '')
+              .trim();
+      if (err.isNotEmpty) {
+        throw Exception(
+            'AniList auth error: $err${errDesc.isNotEmpty ? ' - $errDesc' : ''}');
+      }
+
+      throw Exception(
+          'AniList callback did not contain access token or auth code.');
     } catch (e) {
       setState(() => _error = e.toString());
     }
