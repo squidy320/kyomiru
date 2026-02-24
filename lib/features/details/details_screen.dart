@@ -349,7 +349,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         .localManifestPath(media.id, ep.number);
                                     if (local != null) continue;
                                     final sources = await _sora
-                                        .getSourcesForEpisode(ep.playUrl);
+                                        .getSourcesForEpisode(ep.playUrl,
+                                            anilistId: media.id,
+                                            episodeNumber: ep.number);
                                     if (sources.isEmpty) continue;
                                     final selected = _pickSourceByPreference(
                                         sources, settings,
