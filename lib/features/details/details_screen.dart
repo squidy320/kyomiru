@@ -7,6 +7,7 @@ import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
 import '../../services/sora_runtime.dart';
+import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../player/player_screen.dart';
 
@@ -22,12 +23,148 @@ class DetailsScreen extends ConsumerStatefulWidget {
 class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   int _tab = 0;
   final SoraRuntime _sora = SoraRuntime();
+  SoraAnimeMatch? _manualMatch;
+  Future<_PaheData>? _paheFuture;
+  int? _paheMediaId;
 
   Future<_PaheData> _loadPaheData(AniListMedia media) async {
-    final match = await _sora.autoMatchTitle(media.title.best);
+    final match = _manualMatch ?? await _sora.autoMatchTitle(media.title.best);
     if (match == null) return const _PaheData(match: null, episodes: []);
     final eps = await _sora.getEpisodes(match.session);
     return _PaheData(match: match, episodes: eps);
+  }
+
+  void _ensurePaheFuture(AniListMedia media) {
+    if (_paheMediaId == media.id && _paheFuture != null) return;
+    _paheMediaId = media.id;
+    _paheFuture = _loadPaheData(media);
+  }
+
+  void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
+    setState(() {
+      _manualMatch = manual;
+      _paheMediaId = media.id;
+      _paheFuture = _loadPaheData(media);
+    });
+  }
+
+  int _qualityRank(String q) {
+    final m = RegExp(r'(\d+)').firstMatch(q);
+    return int.tryParse(m?.group(1) ?? '') ?? 0;
+  }
+
+  SoraSource _pickSourceByPreference(
+      List<SoraSource> sources, AppSettings settings,
+      {String? preferredQuality, String? preferredAudio}) {
+    var pool = [...sources]..sort(
+        (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+    final audio = (preferredAudio ?? settings.preferredAudio).toLowerCase();
+    final quality =
+        (preferredQuality ?? settings.preferredQuality).toLowerCase();
+
+    if (audio != 'any') {
+      final filtered =
+          pool.where((s) => s.subOrDub.toLowerCase() == audio).toList();
+      if (filtered.isNotEmpty) pool = filtered;
+    }
+    if (quality != 'auto') {
+      final exact =
+          pool.where((s) => s.quality.toLowerCase().contains(quality)).toList();
+      if (exact.isNotEmpty) return exact.first;
+    }
+    return pool.isNotEmpty ? pool.first : sources.first;
+  }
+
+  Future<SoraSource?> _showSourcePicker(List<SoraSource> sources) async {
+    final sorted = [...sources]..sort(
+        (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+    return showModalBottomSheet<SoraSource>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Choose Stream',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 10),
+              ...sorted.map((s) => ListTile(
+                    title: Text('${s.quality} - ${s.subOrDub.toUpperCase()}'),
+                    subtitle: Text(s.format.toUpperCase()),
+                    onTap: () => Navigator.of(context).pop(s),
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<SoraAnimeMatch?> _openManualMatchPicker(AniListMedia media) async {
+    final controller = TextEditingController(text: media.title.best);
+    var results = <SoraAnimeMatch>[];
+    return showModalBottomSheet<SoraAnimeMatch>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Text('Manual Match',
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w800)),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      hintText: 'Search AnimePahe title',
+                    ),
+                    onSubmitted: (value) async {
+                      final r = await _sora.searchAnime(value.trim());
+                      setModalState(() => results = r);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: results.length,
+                      itemBuilder: (context, index) {
+                        final item = results[index];
+                        return ListTile(
+                          title: Text(item.title,
+                              maxLines: 2, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(item.session),
+                          onTap: () => Navigator.of(context).pop(item),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -51,6 +188,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         }
 
         final media = snap.data!;
+        _ensurePaheFuture(media);
         final description = (media.description ?? '')
             .replaceAll(RegExp(r'<[^>]*>'), ' ')
             .trim();
@@ -83,7 +221,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 const SizedBox(height: 12),
                 if (_tab == 0)
                   FutureBuilder<_PaheData>(
-                    future: _loadPaheData(media),
+                    future: _paheFuture,
                     builder: (context, paheSnap) {
                       if (paheSnap.connectionState == ConnectionState.waiting) {
                         return const GlassCard(
@@ -95,9 +233,30 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       if (data == null ||
                           data.match == null ||
                           data.episodes.isEmpty) {
-                        return const GlassCard(
-                            child: Text(
-                                'Could not load AnimePahe episodes for this title.'));
+                        return GlassCard(
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                  child: Text(
+                                      'Could not load AnimePahe episodes for this title.')),
+                              FilledButton.tonal(
+                                onPressed: () => _refreshPahe(media),
+                                child: const Text('Retry'),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton.tonal(
+                                onPressed: () async {
+                                  final manual =
+                                      await _openManualMatchPicker(media);
+                                  if (manual != null) {
+                                    _refreshPahe(media, manual: manual);
+                                  }
+                                },
+                                child: const Text('Manual Match'),
+                              ),
+                            ],
+                          ),
+                        );
                       }
 
                       final episodes = data.episodes;
@@ -111,6 +270,20 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 Expanded(
                                     child: Text(
                                         'AnimePahe: ${data.match!.title}')),
+                                FilledButton.tonal(
+                                  onPressed: () async {
+                                    final manual =
+                                        await _openManualMatchPicker(media);
+                                    if (manual != null) {
+                                      _refreshPahe(media, manual: manual);
+                                    }
+                                  },
+                                  child: const Text('Manual'),
+                                ),
+                                IconButton(
+                                  onPressed: () => _refreshPahe(media),
+                                  icon: const Icon(Icons.refresh),
+                                ),
                               ],
                             ),
                           ),
@@ -124,6 +297,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                               const Spacer(),
                               FilledButton.tonalIcon(
                                 onPressed: () async {
+                                  final settings =
+                                      ref.read(appSettingsProvider);
+                                  String? bulkQuality;
+                                  String? bulkAudio;
+                                  if (settings.chooseStreamEveryTime &&
+                                      episodes.isNotEmpty) {
+                                    final probeSources =
+                                        await _sora.getSourcesForEpisode(
+                                            episodes.first.playUrl);
+                                    if (probeSources.isEmpty) return;
+                                    final chosen =
+                                        await _showSourcePicker(probeSources);
+                                    if (chosen == null) return;
+                                    bulkQuality = chosen.quality;
+                                    bulkAudio = chosen.subOrDub;
+                                  }
                                   for (final ep in episodes) {
                                     final local = await ref
                                         .read(
@@ -133,7 +322,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     final sources = await _sora
                                         .getSourcesForEpisode(ep.playUrl);
                                     if (sources.isEmpty) continue;
-                                    final selected = _pickSource(sources);
+                                    final selected = _pickSourceByPreference(
+                                        sources, settings,
+                                        preferredQuality: bulkQuality,
+                                        preferredAudio: bulkAudio);
                                     await ref
                                         .read(
                                             downloadControllerProvider.notifier)
@@ -250,8 +442,15 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               );
                                               return;
                                             }
+                                            final settings =
+                                                ref.read(appSettingsProvider);
                                             final selected =
-                                                _pickSource(sources);
+                                                settings.chooseStreamEveryTime
+                                                    ? await _showSourcePicker(
+                                                        sources)
+                                                    : _pickSourceByPreference(
+                                                        sources, settings);
+                                            if (selected == null) return;
                                             if (!context.mounted) return;
                                             Navigator.of(context).push(
                                               MaterialPageRoute(
@@ -293,8 +492,15 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   .getSourcesForEpisode(
                                                       ep.playUrl);
                                               if (sources.isEmpty) return;
+                                              final settings =
+                                                  ref.read(appSettingsProvider);
                                               final selected =
-                                                  _pickSource(sources);
+                                                  settings.chooseStreamEveryTime
+                                                      ? await _showSourcePicker(
+                                                          sources)
+                                                      : _pickSourceByPreference(
+                                                          sources, settings);
+                                              if (selected == null) return;
                                               await ref
                                                   .read(
                                                       downloadControllerProvider
@@ -362,20 +568,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         );
       },
     );
-  }
-
-  SoraSource _pickSource(List<SoraSource> sources) {
-    final preferred = sources.where((s) => s.subOrDub == 'sub').toList();
-    final pool = preferred.isNotEmpty ? preferred : sources;
-
-    SoraSource? s720;
-    for (final s in pool) {
-      if (s.quality.contains('720')) {
-        s720 = s;
-        break;
-      }
-    }
-    return s720 ?? pool.first;
   }
 }
 

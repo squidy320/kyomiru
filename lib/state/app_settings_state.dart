@@ -9,6 +9,9 @@ class AppSettings {
     this.touchOutline = true,
     this.glass = 'Auto',
     this.intensity = 'High',
+    this.preferredQuality = '720p',
+    this.preferredAudio = 'sub',
+    this.chooseStreamEveryTime = false,
   });
 
   final String theme;
@@ -17,6 +20,9 @@ class AppSettings {
   final bool touchOutline;
   final String glass;
   final String intensity;
+  final String preferredQuality;
+  final String preferredAudio;
+  final bool chooseStreamEveryTime;
 
   AppSettings copyWith({
     String? theme,
@@ -25,6 +31,9 @@ class AppSettings {
     bool? touchOutline,
     String? glass,
     String? intensity,
+    String? preferredQuality,
+    String? preferredAudio,
+    bool? chooseStreamEveryTime,
   }) {
     return AppSettings(
       theme: theme ?? this.theme,
@@ -33,6 +42,10 @@ class AppSettings {
       touchOutline: touchOutline ?? this.touchOutline,
       glass: glass ?? this.glass,
       intensity: intensity ?? this.intensity,
+      preferredQuality: preferredQuality ?? this.preferredQuality,
+      preferredAudio: preferredAudio ?? this.preferredAudio,
+      chooseStreamEveryTime:
+          chooseStreamEveryTime ?? this.chooseStreamEveryTime,
     );
   }
 
@@ -44,6 +57,9 @@ class AppSettings {
       'touchOutline': touchOutline,
       'glass': glass,
       'intensity': intensity,
+      'preferredQuality': preferredQuality,
+      'preferredAudio': preferredAudio,
+      'chooseStreamEveryTime': chooseStreamEveryTime,
     };
   }
 
@@ -56,6 +72,9 @@ class AppSettings {
       touchOutline: (json['touchOutline'] as bool?) ?? true,
       glass: (json['glass'] as String?) ?? 'Auto',
       intensity: (json['intensity'] as String?) ?? 'High',
+      preferredQuality: (json['preferredQuality'] as String?) ?? '720p',
+      preferredAudio: (json['preferredAudio'] as String?) ?? 'sub',
+      chooseStreamEveryTime: (json['chooseStreamEveryTime'] as bool?) ?? false,
     );
   }
 }
@@ -105,6 +124,21 @@ class AppSettingsController extends StateNotifier<AppSettings> {
 
   Future<void> setIntensity(String value) async {
     state = state.copyWith(intensity: value);
+    await _save();
+  }
+
+  Future<void> setPreferredQuality(String value) async {
+    state = state.copyWith(preferredQuality: value);
+    await _save();
+  }
+
+  Future<void> setPreferredAudio(String value) async {
+    state = state.copyWith(preferredAudio: value);
+    await _save();
+  }
+
+  Future<void> setChooseStreamEveryTime(bool value) async {
+    state = state.copyWith(chooseStreamEveryTime: value);
     await _save();
   }
 

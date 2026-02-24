@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../services/sora_extension_loader.dart';
+import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import 'appearance_settings_screen.dart';
+import 'streams_settings_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -12,6 +14,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
+    final settings = ref.watch(appSettingsProvider);
     final loader = SoraExtensionLoader();
 
     return SafeArea(
@@ -47,8 +50,12 @@ class SettingsScreen extends ConsumerWidget {
               _SettingsTile(
                 icon: Icons.view_list_outlined,
                 title: 'Library & Streams',
-                subtitle: 'Sorting, quality, and language',
-                onTap: () => _openComingSoon(context, 'Library & Streams'),
+                subtitle:
+                    'Default: ${settings.preferredQuality} ${settings.preferredAudio.toUpperCase()}${settings.chooseStreamEveryTime ? ' - Ask every time' : ''}',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const StreamsSettingsScreen()),
+                ),
               ),
               const SizedBox(height: 8),
               _SettingsTile(
