@@ -39,7 +39,7 @@ class _AniListLoginWebViewScreenState
       clientId: _clientId,
       redirectUri: _redirectUri,
       state: state,
-      useCodeFlow: false,
+      useCodeFlow: true,
     );
 
     AppLogger.i('AniListAuth', 'Opening AniList login WebView');
