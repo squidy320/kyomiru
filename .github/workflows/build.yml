@@ -68,6 +68,11 @@ jobs:
       - name: Flutter Pub Get
         run: flutter pub get
 
+      - name: Ensure iOS Platform Folder (if missing)
+        run: |
+          if [ ! -d ios ]; then
+            flutter create --platforms=ios .
+          fi
       - name: Update Pod Repo
         working-directory: ios
         run: pod repo update
@@ -112,3 +117,4 @@ jobs:
         with:
           name: ios-runner-app
           path: build/ios/iphoneos/Runner.app
+
