@@ -19,6 +19,7 @@ class _AniListLoginWebViewScreenState
     extends ConsumerState<AniListLoginWebViewScreen> {
   late final WebViewController _controller;
   String _error = '';
+  bool _completed = false;
 
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
@@ -48,6 +49,30 @@ class _AniListLoginWebViewScreenState
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onPageStarted: (url) {
+            AppLogger.d('AniListAuth', 'onPageStarted: $url');
+          },
+          onPageFinished: (url) async {
+            AppLogger.d('AniListAuth', 'onPageFinished: $url');
+            await _maybeHandleCallback(url, source: 'onPageFinished(url)');
+
+            // Some WebView implementations can miss fragment redirects in URL callbacks.
+            try {
+              final href = await _controller
+                  .runJavaScriptReturningResult('window.location.href');
+              final cleanHref = href.toString().replaceAll('"', '');
+              if (cleanHref.isNotEmpty) {
+                await _maybeHandleCallback(cleanHref,
+                    source: 'onPageFinished(window.location.href)');
+              }
+            } catch (e, st) {
+              AppLogger.w('AniListAuth', 'Failed reading window.location.href',
+                  error: e, stackTrace: st);
+            }
+          },
+          onWebResourceError: (error) {
+            AppLogger.w('AniListAuth', 'Web resource error', error: error);
+          },
           onUrlChange: (change) async {
             final url = change.url ?? '';
             if (_isCallback(url)) {
@@ -78,6 +103,15 @@ class _AniListLoginWebViewScreenState
       ..loadRequest(Uri.parse(authUrl));
   }
 
+  Future<void> _maybeHandleCallback(String url,
+      {required String source}) async {
+    if (_completed) return;
+    if (_isCallback(url)) {
+      AppLogger.i('AniListAuth', 'Callback detected via $source');
+      await _completeLogin(url);
+    }
+  }
+
   bool _isCallback(String url) {
     return url.startsWith('kyomiru://') || url.startsWith('kyomiru:/');
   }
@@ -99,6 +133,7 @@ class _AniListLoginWebViewScreenState
   }
 
   Future<void> _completeLogin(String callbackUrl) async {
+    if (_completed) return;
     try {
       final uri = Uri.parse(callbackUrl);
       final fragment =
@@ -110,6 +145,7 @@ class _AniListLoginWebViewScreenState
       if (token.isNotEmpty) {
         AppLogger.i(
             'AniListAuth', 'Received implicit access_token from callback');
+        _completed = true;
         await ref.read(authControllerProvider.notifier).setToken(token);
         if (mounted) Navigator.of(context).pop(true);
         return;
@@ -120,6 +156,7 @@ class _AniListLoginWebViewScreenState
         AppLogger.i('AniListAuth',
             'Received auth code from callback; exchanging token');
         final exchanged = await _exchangeCodeForToken(code);
+        _completed = true;
         await ref.read(authControllerProvider.notifier).setToken(exchanged);
         if (mounted) Navigator.of(context).pop(true);
         return;
