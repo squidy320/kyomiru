@@ -4,12 +4,14 @@ class SoraAnimeMatch {
     required this.image,
     required this.href,
     required this.session,
+    required this.animeId,
   });
 
   final String title;
   final String image;
   final String href;
   final String session;
+  final String animeId;
 }
 
 class SoraEpisode {

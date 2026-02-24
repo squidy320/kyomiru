@@ -30,7 +30,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Future<_PaheData> _loadPaheData(AniListMedia media) async {
     final match = _manualMatch ?? await _sora.autoMatchTitle(media.title.best);
     if (match == null) return const _PaheData(match: null, episodes: []);
-    final eps = await _sora.getEpisodes(match.session);
+    final eps = await _sora.getEpisodes(match);
     return _PaheData(match: match, episodes: eps);
   }
 
@@ -277,7 +277,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text('AnimePahe',
                                           style: TextStyle(
@@ -376,15 +377,17 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             final p = progressStore.read(media.id, ep.number);
                             final pct = p?.percent ?? 0;
                             final streamMeta = media.streamingEpisodes
-                                .where((se) => se.guessedEpisodeNumber == ep.number)
+                                .where((se) =>
+                                    se.guessedEpisodeNumber == ep.number)
                                 .toList();
                             final thumb = streamMeta.isNotEmpty
-                                ? (streamMeta.first.thumbnail ?? media.cover.best)
+                                ? (streamMeta.first.thumbnail ??
+                                    media.cover.best)
                                 : media.cover.best;
-                            final episodeSubtitle =
-                                streamMeta.isNotEmpty && streamMeta.first.title.trim().isNotEmpty
-                                    ? streamMeta.first.title
-                                    : '${media.title.best} - Episode ${ep.number}';
+                            final episodeSubtitle = streamMeta.isNotEmpty &&
+                                    streamMeta.first.title.trim().isNotEmpty
+                                ? streamMeta.first.title
+                                : '${media.title.best} - Episode ${ep.number}';
                             final d = downloads.item(media.id, ep.number);
                             final done = d?.status == 'done';
 
@@ -748,5 +751,3 @@ class _PaheData {
   final SoraAnimeMatch? match;
   final List<SoraEpisode> episodes;
 }
-
-

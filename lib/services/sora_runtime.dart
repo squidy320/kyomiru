@@ -9,7 +9,11 @@ class SoraRuntime {
 
   final Dio _dio;
 
-  static const _animePaheApi = 'https://animepahe.si/api';
+  static const _bases = <String>[
+    'https://animepahe.si',
+    'https://animepahe.ru',
+    'https://animepahe.com',
+  ];
 
   Future<T> _withRetry<T>(Future<T> Function() task, {int attempts = 3}) async {
     Object? lastError;
@@ -26,32 +30,47 @@ class SoraRuntime {
 
   Future<List<SoraAnimeMatch>> searchAnime(String query) async {
     if (query.trim().isEmpty) return const [];
-    final response = await _withRetry(() => _dio.get(
-          _animePaheApi,
-          queryParameters: {'m': 'search', 'q': query.trim()},
-          options: Options(
-            headers: {'Accept': 'application/json'},
-            sendTimeout: const Duration(seconds: 12),
-            receiveTimeout: const Duration(seconds: 12),
-          ),
-        ));
-    final data = response.data is Map<String, dynamic>
-        ? response.data as Map<String, dynamic>
-        : jsonDecode(response.data.toString()) as Map<String, dynamic>;
-    final list = (data['data'] as List? ?? const []);
-    return list
-        .whereType<Map<String, dynamic>>()
-        .map((e) {
-          final session = (e['session'] ?? '').toString();
-          return SoraAnimeMatch(
-            title: (e['title'] ?? 'Unknown').toString(),
-            image: (e['poster'] ?? '').toString(),
-            href: 'https://animepahe.si/anime/$session',
-            session: session,
-          );
-        })
-        .where((e) => e.session.isNotEmpty)
-        .toList();
+
+    for (final base in _bases) {
+      try {
+        final response = await _withRetry(() => _dio.get(
+              '$base/api',
+              queryParameters: {'m': 'search', 'q': query.trim()},
+              options: Options(
+                headers: {'Accept': 'application/json'},
+                sendTimeout: const Duration(seconds: 12),
+                receiveTimeout: const Duration(seconds: 12),
+              ),
+            ));
+
+        final data = response.data is Map<String, dynamic>
+            ? response.data as Map<String, dynamic>
+            : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+        final list = (data['data'] as List? ?? const []);
+
+        final results = list
+            .whereType<Map<String, dynamic>>()
+            .map((e) {
+              final session = (e['session'] ?? '').toString();
+              final animeId = (e['id'] ?? '').toString();
+              return SoraAnimeMatch(
+                title: (e['title'] ?? 'Unknown').toString(),
+                image: (e['poster'] ?? '').toString(),
+                href: '$base/anime/$session',
+                session: session,
+                animeId: animeId,
+              );
+            })
+            .where((e) => e.session.isNotEmpty && e.animeId.isNotEmpty)
+            .toList();
+
+        if (results.isNotEmpty) return results;
+      } catch (_) {
+        // try next mirror
+      }
+    }
+
+    return const [];
   }
 
   Future<SoraAnimeMatch?> autoMatchTitle(String title) async {
@@ -66,76 +85,79 @@ class SoraRuntime {
     return results.first;
   }
 
-  Future<List<SoraEpisode>> getEpisodes(String animeSession) async {
-    if (animeSession.isEmpty) return const [];
+  Future<List<SoraEpisode>> getEpisodes(SoraAnimeMatch match) async {
+    if (match.session.isEmpty || match.animeId.isEmpty) return const [];
 
-    Future<Map<String, dynamic>> fetchReleasePage(int page, {required bool sorted}) async {
-      final response = await _withRetry(() => _dio.get(
-            _animePaheApi,
-            queryParameters: {
-              'm': 'release',
-              'id': animeSession,
-              if (sorted) 'sort': 'episode_asc',
-              'page': page,
-            },
-            options: Options(
-              headers: {'Accept': 'application/json'},
-              sendTimeout: const Duration(seconds: 12),
-              receiveTimeout: const Duration(seconds: 12),
-            ),
-          ));
-      return response.data is Map<String, dynamic>
-          ? response.data as Map<String, dynamic>
-          : jsonDecode(response.data.toString()) as Map<String, dynamic>;
-    }
+    for (final base in _bases) {
+      try {
+        final first = await _withRetry(() => _dio.get(
+              '$base/api',
+              queryParameters: {
+                'm': 'release',
+                'id': match.animeId,
+                'sort': 'episode_asc',
+                'page': 1,
+              },
+              options: Options(
+                headers: {'Accept': 'application/json'},
+                sendTimeout: const Duration(seconds: 12),
+                receiveTimeout: const Duration(seconds: 12),
+              ),
+            ));
 
-    List<SoraEpisode> mapEpisodes(List<Map<String, dynamic>> rows) {
-      final items = rows
-          .map((item) {
-            final session = (item['session'] ?? '').toString();
-            final number = (item['episode'] as num?)?.toInt() ?? 0;
-            return SoraEpisode(
-              number: number,
-              session: session,
-              playUrl: 'https://animepahe.si/play/$animeSession/$session',
-            );
-          })
-          .where((e) => e.number > 0 && e.session.isNotEmpty)
-          .toList();
-      items.sort((a, b) => a.number.compareTo(b.number));
-      return items;
-    }
+        final data1 = first.data is Map<String, dynamic>
+            ? first.data as Map<String, dynamic>
+            : jsonDecode(first.data.toString()) as Map<String, dynamic>;
 
-    Future<List<SoraEpisode>> fetchAll({required bool sorted}) async {
-      final first = await fetchReleasePage(1, sorted: sorted);
-      final totalPages = (first['last_page'] as num?)?.toInt() ?? 1;
-      final allRows = <Map<String, dynamic>>[];
-      allRows.addAll((first['data'] as List? ?? const []).whereType<Map<String, dynamic>>());
+        final totalPages = (data1['last_page'] as num?)?.toInt() ?? 1;
+        final allRows = <Map<String, dynamic>>[];
+        allRows.addAll((data1['data'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>());
 
-      for (var page = 2; page <= totalPages; page++) {
-        try {
-          final next = await fetchReleasePage(page, sorted: sorted);
-          allRows.addAll((next['data'] as List? ?? const []).whereType<Map<String, dynamic>>());
-        } catch (_) {
-          // Keep partial pages instead of failing all episode loading.
+        for (var page = 2; page <= totalPages; page++) {
+          try {
+            final next = await _withRetry(() => _dio.get(
+                  '$base/api',
+                  queryParameters: {
+                    'm': 'release',
+                    'id': match.animeId,
+                    'sort': 'episode_asc',
+                    'page': page,
+                  },
+                  options: Options(
+                    headers: {'Accept': 'application/json'},
+                    sendTimeout: const Duration(seconds: 12),
+                    receiveTimeout: const Duration(seconds: 12),
+                  ),
+                ));
+            final d = next.data is Map<String, dynamic>
+                ? next.data as Map<String, dynamic>
+                : jsonDecode(next.data.toString()) as Map<String, dynamic>;
+            allRows.addAll((d['data'] as List? ?? const [])
+                .whereType<Map<String, dynamic>>());
+          } catch (_) {
+            // partial list is still useful
+          }
         }
+
+        final episodes = allRows
+            .map((item) {
+              final epSession = (item['session'] ?? '').toString();
+              final number = (item['episode'] as num?)?.toInt() ?? 0;
+              return SoraEpisode(
+                number: number,
+                session: epSession,
+                playUrl: '$base/play/${match.session}/$epSession',
+              );
+            })
+            .where((e) => e.number > 0 && e.session.isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.number.compareTo(b.number));
+
+        if (episodes.isNotEmpty) return episodes;
+      } catch (_) {
+        // try next mirror
       }
-
-      return mapEpisodes(allRows);
-    }
-
-    try {
-      final sortedEpisodes = await fetchAll(sorted: true);
-      if (sortedEpisodes.isNotEmpty) return sortedEpisodes;
-    } catch (_) {
-      // fall through
-    }
-
-    try {
-      final unsortedEpisodes = await fetchAll(sorted: false);
-      if (unsortedEpisodes.isNotEmpty) return unsortedEpisodes;
-    } catch (_) {
-      // fall through
     }
 
     return const [];
@@ -143,68 +165,126 @@ class SoraRuntime {
 
   Future<List<SoraSource>> getSourcesForEpisode(String playUrl) async {
     if (playUrl.isEmpty) return const [];
-    final html = await _withRetry(() => _dio
-        .get(
-          playUrl,
-          options: Options(
-            headers: {
-              'User-Agent': _ua,
-              'Referer': 'https://animepahe.si/',
-            },
-            sendTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 15),
-          ),
-        )
-        .then((r) => r.data.toString()));
 
-    final buttonRegex = RegExp(
-      r'<button[^>]*data-src="([^"]+)"[^>]*>',
-      caseSensitive: false,
-    );
-    final matches = buttonRegex.allMatches(html).toList();
-
-    final out = <SoraSource>[];
-    for (final m in matches) {
-      final buttonHtml = m.group(0) ?? '';
-      final src = m.group(1) ?? '';
-      if (src.isEmpty) continue;
-
-      final resolution = _attr(buttonHtml, 'data-resolution') ?? 'Unknown';
-      final audio = (_attr(buttonHtml, 'data-audio') ?? 'jpn').toLowerCase();
-      final quality = resolution == 'Unknown' ? 'auto' : '${resolution}p';
-      final subOrDub = audio == 'eng' ? 'dub' : 'sub';
-
-      String? hls;
-      if (src.contains('.m3u8')) {
-        hls = src;
-      } else if (src.contains('kwik.cx') || src.contains('kwik.si')) {
-        try {
-          hls = await _extractKwikHls(src);
-        } catch (_) {
-          hls = null;
+    final playCandidates = <String>{playUrl};
+    try {
+      final uri = Uri.parse(playUrl);
+      if (uri.host.contains('animepahe')) {
+        for (final base in _bases) {
+          final b = Uri.parse(base);
+          playCandidates.add(
+            uri
+                .replace(
+                    scheme: b.scheme,
+                    host: b.host,
+                    port: b.hasPort ? b.port : null)
+                .toString(),
+          );
         }
       }
+    } catch (_) {}
 
-      if (hls == null || hls.isEmpty) continue;
-      out.add(
-        SoraSource(
-          url: hls,
-          quality: quality,
-          subOrDub: subOrDub,
-          format: 'm3u8',
-          headers: const {
-            'Referer': 'https://kwik.cx/',
-            'Origin': 'https://kwik.cx',
-          },
-        ),
-      );
+    for (final play in playCandidates) {
+      try {
+        final html = await _withRetry(() => _dio
+            .get(
+              play,
+              options: Options(
+                headers: {
+                  'User-Agent': _ua,
+                  'Referer': _inferReferer(play),
+                },
+                sendTimeout: const Duration(seconds: 15),
+                receiveTimeout: const Duration(seconds: 15),
+              ),
+            )
+            .then((r) => r.data.toString()));
+
+        final candidates = <_Candidate>[];
+
+        final buttonRegex = RegExp(r'<button[^>]*data-src="([^"]+)"[^>]*>',
+            caseSensitive: false);
+        for (final m in buttonRegex.allMatches(html)) {
+          final tag = m.group(0) ?? '';
+          final src = m.group(1) ?? '';
+          if (src.isEmpty) continue;
+          final resolution =
+              _attr(tag, 'data-resolution') ?? _guessQuality(tag) ?? 'auto';
+          final audio = (_attr(tag, 'data-audio') ?? 'jpn').toLowerCase();
+          candidates.add(
+            _Candidate(
+              url: _resolveMaybeRelative(play, src),
+              quality: resolution == 'auto' ? 'auto' : '${resolution}p',
+              subOrDub: audio.contains('eng') ? 'dub' : 'sub',
+            ),
+          );
+        }
+
+        final kwikRegex =
+            RegExp(r'"kwik"\s*:\s*"([^"]+)"', caseSensitive: false);
+        for (final m in kwikRegex.allMatches(html)) {
+          final url = m.group(1) ?? '';
+          if (url.isEmpty) continue;
+          candidates.add(_Candidate(
+              url: _resolveMaybeRelative(play, url),
+              quality: _guessQuality(url) ?? 'auto',
+              subOrDub: 'sub'));
+        }
+
+        final m3u8Regex =
+            RegExp(r'https:\/\/[^"\s]+\.m3u8[^"\s]*', caseSensitive: false);
+        for (final m in m3u8Regex.allMatches(html)) {
+          final raw = m.group(0) ?? '';
+          if (raw.isEmpty) continue;
+          final url = raw.replaceAll(r'\/', '/');
+          candidates.add(_Candidate(
+              url: url,
+              quality: _guessQuality(url) ?? 'auto',
+              subOrDub: 'sub'));
+        }
+
+        final dedup = <String, _Candidate>{};
+        for (final c in candidates) {
+          dedup[c.url] = c;
+        }
+
+        final out = <SoraSource>[];
+        for (final c in dedup.values) {
+          String? hls;
+          final lower = c.url.toLowerCase();
+          if (lower.contains('.m3u8')) {
+            hls = c.url;
+          } else if (lower.contains('kwik.') || lower.contains('/e/')) {
+            hls = await _extractKwikHls(c.url);
+          }
+          if (hls == null || hls.isEmpty) continue;
+
+          out.add(
+            SoraSource(
+              url: hls,
+              quality: c.quality,
+              subOrDub: c.subOrDub,
+              format: 'm3u8',
+              headers: {
+                'Referer': _inferReferer(c.url),
+                'Origin': _originFrom(hls) ?? 'https://kwik.cx',
+                'User-Agent': _ua,
+              },
+            ),
+          );
+        }
+
+        if (out.isNotEmpty) {
+          out.sort((a, b) =>
+              _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+          return out;
+        }
+      } catch (_) {
+        // next mirror candidate
+      }
     }
 
-    final unique = <String, SoraSource>{};
-    for (final s in out) {
-      unique['${s.quality}_${s.subOrDub}_${s.url}'] = s;
-    }
-    return unique.values.toList();
+    return const [];
   }
 
   Future<String?> _extractKwikHls(String kwikUrl) async {
@@ -214,7 +294,7 @@ class SoraRuntime {
           options: Options(
             headers: {
               'User-Agent': _ua,
-              'Referer': 'https://animepahe.si/',
+              'Referer': _inferReferer(kwikUrl),
             },
             sendTimeout: const Duration(seconds: 15),
             receiveTimeout: const Duration(seconds: 15),
@@ -222,39 +302,34 @@ class SoraRuntime {
         )
         .then((r) => r.data.toString()));
 
-    final scripts = RegExp(
-      r'<script>([\s\S]*?)<\/script>',
-      caseSensitive: false,
-    ).allMatches(html).toList();
+    final direct =
+        RegExp(r'https://[^"\s]+\.m3u8[^"\s]*').firstMatch(html)?.group(0);
+    if (direct != null && direct.isNotEmpty) return direct;
 
-    final direct = RegExp("https://[^\\s\"']+\\.m3u8[^\\s\"']*")
-        .firstMatch(html)
-        ?.group(0);
-    if (direct != null) return direct;
+    final scriptRegex =
+        RegExp(r'<script[^>]*>([\s\S]*?)<\/script>', caseSensitive: false);
+    for (final m in scriptRegex.allMatches(html)) {
+      final script = m.group(1) ?? '';
+      final fromConst = RegExp(r"const\s+source\s*=\s*'([^']+\.m3u8[^']*)'",
+              caseSensitive: false)
+          .firstMatch(script)
+          ?.group(1);
+      if (fromConst != null && fromConst.isNotEmpty) return fromConst;
 
-    for (final s in scripts) {
-      final script = s.group(1) ?? '';
-      String? unpacked;
+      final fromFile =
+          RegExp(r"file\s*:\s*'([^']+\.m3u8[^']*)'", caseSensitive: false)
+              .firstMatch(script)
+              ?.group(1);
+      if (fromFile != null && fromFile.isNotEmpty) return fromFile;
 
-      if (script.contains('));eval(')) {
-        final parts = script.split('));eval(');
-        if (parts.length == 2) {
-          final layer2 = parts[1].substring(0, parts[1].length - 1);
-          unpacked = _unpackPacker(layer2);
-        }
-      } else if (script.contains(".split('|')")) {
-        unpacked = _unpackPacker(script);
+      final unpacked =
+          script.contains(".split('|')") ? _unpackPacker(script) : null;
+      if (unpacked != null) {
+        final inUnpacked = RegExp(r'https://[^"\s]+\.m3u8[^"\s]*')
+            .firstMatch(unpacked)
+            ?.group(0);
+        if (inUnpacked != null && inUnpacked.isNotEmpty) return inUnpacked;
       }
-
-      final source = unpacked ?? script;
-      final m =
-          RegExp("https://[^\\s\\\"']+\\.m3u8[^\\s\\\"']*").firstMatch(source);
-      if (m != null) return m.group(0);
-
-      final m2 = RegExp(
-        "const\\s+source\\s*=\\s*['\\\"]([^'\\\"]+\\.m3u8[^'\\\"]*)['\\\"]",
-      ).firstMatch(source);
-      if (m2 != null) return m2.group(1);
     }
 
     return null;
@@ -288,14 +363,12 @@ class SoraRuntime {
     final symtab = (args.group(4) ?? '').split('|');
     if (count != symtab.length || radix <= 0) return null;
 
-    final out = payload.replaceAllMapped(RegExp(r'\b\w+\b'), (match) {
+    return payload.replaceAllMapped(RegExp(r'\b\w+\b'), (match) {
       final word = match.group(0)!;
       final idx = _unbase(word, radix);
       if (idx == null || idx < 0 || idx >= symtab.length) return word;
       return symtab[idx].isEmpty ? word : symtab[idx];
     });
-
-    return out;
   }
 
   int? _unbase(String value, int base) {
@@ -339,9 +412,47 @@ class SoraRuntime {
     final maxLen = a.length > b.length ? a.length : b.length;
     var same = 0;
     for (var i = 0; i < a.length; i++) {
-      if (b.contains(a[i])) same++;
+      if (b.contains(a[i])) {
+        same++;
+      }
     }
     return (same * 1000) - maxLen;
+  }
+
+  int _qualityRank(String q) {
+    final m = RegExp(r'(\d+)').firstMatch(q);
+    return int.tryParse(m?.group(1) ?? '') ?? 0;
+  }
+
+  String _resolveMaybeRelative(String base, String url) {
+    final trimmed = url.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('//')) return 'https:$trimmed';
+    try {
+      return Uri.parse(base).resolve(trimmed).toString();
+    } catch (_) {
+      return trimmed;
+    }
+  }
+
+  String _inferReferer(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return '${uri.scheme}://${uri.host}/';
+    } catch (_) {
+      return 'https://animepahe.si/';
+    }
+  }
+
+  String? _originFrom(String url) {
+    try {
+      final uri = Uri.parse(url);
+      return '${uri.scheme}://${uri.host}';
+    } catch (_) {
+      return null;
+    }
   }
 
   String? _attr(String html, String name) {
@@ -349,6 +460,19 @@ class SoraRuntime {
     return m?.group(1);
   }
 
+  String? _guessQuality(String text) {
+    return RegExp(r'(360|480|720|1080)').firstMatch(text)?.group(1);
+  }
+
   static const _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
+}
+
+class _Candidate {
+  const _Candidate(
+      {required this.url, required this.quality, required this.subOrDub});
+
+  final String url;
+  final String quality;
+  final String subOrDub;
 }

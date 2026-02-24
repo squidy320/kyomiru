@@ -25,7 +25,6 @@ class _AniListLoginWebViewScreenState
     'ANILIST_CLIENT_SECRET',
     defaultValue: 'LwVZw1mcI7iWatIXJfhcSg9FmYSH3MY7zPNu3XAL',
   );
-  // Keep this fixed to avoid broken builds from wrong env values.
   static const _redirectUri = 'kyomiru://auth';
 
   @override
@@ -47,34 +46,31 @@ class _AniListLoginWebViewScreenState
         NavigationDelegate(
           onUrlChange: (change) async {
             final url = change.url ?? '';
-            if (url.startsWith('kyomiru://') || url.startsWith('kyomiru:/')) {
+            if (_isCallback(url)) {
               await _completeLogin(url);
             }
           },
           onNavigationRequest: (request) async {
             final url = request.url;
-
-            // Handle scheme variants: kyomiru://auth and kyomiru:/auth.
-            final isCallback =
-                url.startsWith('kyomiru://') || url.startsWith('kyomiru:/');
-            if (isCallback) {
+            if (_isCallback(url)) {
               await _completeLogin(url);
               return NavigationDecision.prevent;
             }
-
-            // Misconfigured AniList app can redirect to token endpoint and show grant errors.
             if (url.startsWith('https://anilist.co/api/v2/oauth/token')) {
               setState(() {
                 _error =
-                    'AniList redirect is misconfigured. Set AniList app Redirect URL to: kyomiru://auth';
+                    'AniList redirect is misconfigured. Set AniList Redirect URL to: kyomiru://auth';
               });
             }
-
             return NavigationDecision.navigate;
           },
         ),
       )
       ..loadRequest(Uri.parse(authUrl));
+  }
+
+  bool _isCallback(String url) {
+    return url.startsWith('kyomiru://') || url.startsWith('kyomiru:/');
   }
 
   String _randomState() {
@@ -110,8 +106,8 @@ class _AniListLoginWebViewScreenState
 
       final code = (query['code'] ?? fragment['code'] ?? '').trim();
       if (code.isNotEmpty) {
-        final token = await _exchangeCodeForToken(code);
-        await ref.read(authControllerProvider.notifier).setToken(token);
+        final exchanged = await _exchangeCodeForToken(code);
+        await ref.read(authControllerProvider.notifier).setToken(exchanged);
         if (mounted) Navigator.of(context).pop(true);
         return;
       }
@@ -125,8 +121,7 @@ class _AniListLoginWebViewScreenState
             'AniList auth error: $err${errDesc.isNotEmpty ? ' - $errDesc' : ''}');
       }
 
-      throw Exception(
-          'AniList callback did not contain access token or auth code.');
+      throw Exception('AniList callback did not contain access token/code.');
     } catch (e) {
       setState(() => _error = e.toString());
     }
@@ -146,11 +141,10 @@ class _AniListLoginWebViewScreenState
               child:
                   Text(_error, style: const TextStyle(color: Colors.redAccent)),
             ),
+          const LinearProgressIndicator(minHeight: 1),
           Expanded(child: WebViewWidget(controller: _controller)),
         ],
       ),
     );
   }
 }
-
-
