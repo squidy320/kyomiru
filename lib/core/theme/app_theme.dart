@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../state/app_settings_state.dart';
+
 class AppColors {
   static const background = Color(0xFF040714);
   static const backgroundSoft = Color(0xFF091327);
@@ -7,16 +9,29 @@ class AppColors {
   static const surfaceSoft = Color(0xFF141C33);
   static const text = Color(0xFFF4F7FF);
   static const textMuted = Color(0xFF9AA5C1);
-  static const accent = Color(0xFF7C6CFF);
 }
 
-ThemeData buildKyomiruTheme() {
+const _accentMap = {
+  'Midnight': Color(0xFF7C6CFF),
+  'Ocean': Color(0xFF26B9FF),
+  'Rose': Color(0xFFFF5FA2),
+  'Emerald': Color(0xFF3DDC97),
+  'Sunset': Color(0xFFFF8A3D),
+};
+
+ThemeData buildKyomiruTheme(AppSettings settings) {
   final base = ThemeData.dark(useMaterial3: true);
+  final accent = _accentMap[settings.theme] ?? _accentMap['Midnight']!;
+  final bg = settings.oled ? const Color(0xFF000000) : AppColors.background;
+
   return base.copyWith(
-    scaffoldBackgroundColor: AppColors.background,
+    scaffoldBackgroundColor: bg,
+    splashFactory: settings.touchOutline
+        ? InkSparkle.splashFactory
+        : NoSplash.splashFactory,
     colorScheme: base.colorScheme.copyWith(
-      primary: AppColors.accent,
-      secondary: AppColors.accent,
+      primary: accent,
+      secondary: accent,
       surface: AppColors.surface,
       onSurface: AppColors.text,
     ),
@@ -25,10 +40,10 @@ ThemeData buildKyomiruTheme() {
       displayColor: AppColors.text,
     ),
     cardColor: AppColors.surface,
-    navigationBarTheme: const NavigationBarThemeData(
-      backgroundColor: Color(0xCC0E1428),
-      indicatorColor: Color(0x447C6CFF),
-      labelTextStyle: WidgetStatePropertyAll(
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: const Color(0xCC0E1428),
+      indicatorColor: accent.withValues(alpha: 0.26),
+      labelTextStyle: const WidgetStatePropertyAll(
         TextStyle(fontWeight: FontWeight.w700),
       ),
     ),
@@ -45,7 +60,7 @@ ThemeData buildKyomiruTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.accent),
+        borderSide: BorderSide(color: accent),
       ),
     ),
   );

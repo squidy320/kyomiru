@@ -1,8 +1,11 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class GlassCard extends StatelessWidget {
+import '../state/app_settings_state.dart';
+
+class GlassCard extends ConsumerWidget {
   const GlassCard({
     super.key,
     required this.child,
@@ -15,42 +18,63 @@ class GlassCard extends StatelessWidget {
   final double borderRadius;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final glassEnabled = settings.glass != 'Off';
+    final sigma = switch (settings.intensity) {
+      'Low' => 6.0,
+      'Medium' => 10.0,
+      _ => 14.0,
+    };
+    final overlayAlpha = switch (settings.intensity) {
+      'Low' => 0.72,
+      'Medium' => 0.62,
+      _ => 0.55,
+    };
+
+    final content = Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF121A30).withValues(alpha: overlayAlpha),
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(color: const Color(0x40FFFFFF)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: padding,
+      child: child,
+    );
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0x8C121A30),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: const Color(0x40FFFFFF)),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x33000000),
-                blurRadius: 18,
-                offset: Offset(0, 8),
-              ),
-            ],
-          ),
-          padding: padding,
-          child: child,
-        ),
-      ),
+      child: glassEnabled
+          ? BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+              child: content,
+            )
+          : content,
     );
   }
 }
 
-class GlassScaffoldBackground extends StatelessWidget {
+class GlassScaffoldBackground extends ConsumerWidget {
   const GlassScaffoldBackground({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final background =
+        settings.oled ? const Color(0xFF000000) : const Color(0xFF040714);
+
     return Stack(
       children: [
-        Container(color: const Color(0xFF040714)),
+        Container(color: background),
         Positioned(
           top: -120,
           left: -80,

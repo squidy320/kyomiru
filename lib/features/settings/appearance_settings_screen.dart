@@ -1,25 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/glass_widgets.dart';
+import '../../state/app_settings_state.dart';
 
-class AppearanceSettingsScreen extends StatefulWidget {
+class AppearanceSettingsScreen extends ConsumerWidget {
   const AppearanceSettingsScreen({super.key});
 
   @override
-  State<AppearanceSettingsScreen> createState() =>
-      _AppearanceSettingsScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final controller = ref.read(appSettingsProvider.notifier);
 
-class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
-  String theme = 'Midnight';
-  bool oled = true;
-  bool compactBar = true;
-  bool touchOutline = true;
-  String glass = 'Auto';
-  String intensity = 'High';
-
-  @override
-  Widget build(BuildContext context) {
     Widget chip(String label, String value, void Function() onTap) {
       final selected = value == label;
       return GestureDetector(
@@ -60,16 +52,16 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        chip('Midnight', theme,
-                            () => setState(() => theme = 'Midnight')),
-                        chip('Ocean', theme,
-                            () => setState(() => theme = 'Ocean')),
-                        chip('Rose', theme,
-                            () => setState(() => theme = 'Rose')),
-                        chip('Emerald', theme,
-                            () => setState(() => theme = 'Emerald')),
-                        chip('Sunset', theme,
-                            () => setState(() => theme = 'Sunset')),
+                        chip('Midnight', settings.theme,
+                            () => controller.setTheme('Midnight')),
+                        chip('Ocean', settings.theme,
+                            () => controller.setTheme('Ocean')),
+                        chip('Rose', settings.theme,
+                            () => controller.setTheme('Rose')),
+                        chip('Emerald', settings.theme,
+                            () => controller.setTheme('Emerald')),
+                        chip('Sunset', settings.theme,
+                            () => controller.setTheme('Sunset')),
                       ],
                     ),
                   ],
@@ -85,18 +77,18 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
                             fontSize: 22, fontWeight: FontWeight.w800)),
                     SwitchListTile(
                       title: const Text('OLED Black Mode'),
-                      value: oled,
-                      onChanged: (v) => setState(() => oled = v),
+                      value: settings.oled,
+                      onChanged: controller.setOled,
                     ),
                     SwitchListTile(
                       title: const Text('Compact Bottom Bar'),
-                      value: compactBar,
-                      onChanged: (v) => setState(() => compactBar = v),
+                      value: settings.compactBar,
+                      onChanged: controller.setCompactBar,
                     ),
                     SwitchListTile(
                       title: const Text('Touch Outline'),
-                      value: touchOutline,
-                      onChanged: (v) => setState(() => touchOutline = v),
+                      value: settings.touchOutline,
+                      onChanged: controller.setTouchOutline,
                     ),
                   ],
                 ),
@@ -113,25 +105,31 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
                     Wrap(
                       spacing: 8,
                       children: [
-                        chip('Auto', glass,
-                            () => setState(() => glass = 'Auto')),
-                        chip('Off', glass, () => setState(() => glass = 'Off')),
+                        chip('Auto', settings.glass,
+                            () => controller.setGlass('Auto')),
+                        chip('Off', settings.glass,
+                            () => controller.setGlass('Off')),
                       ],
                     ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
                       children: [
-                        chip('Low', intensity,
-                            () => setState(() => intensity = 'Low')),
-                        chip('Medium', intensity,
-                            () => setState(() => intensity = 'Medium')),
-                        chip('High', intensity,
-                            () => setState(() => intensity = 'High')),
+                        chip('Low', settings.intensity,
+                            () => controller.setIntensity('Low')),
+                        chip('Medium', settings.intensity,
+                            () => controller.setIntensity('Medium')),
+                        chip('High', settings.intensity,
+                            () => controller.setIntensity('High')),
                       ],
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: controller.reset,
+                child: const Text('Reset All Customizations'),
               ),
             ],
           ),

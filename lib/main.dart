@@ -9,5 +9,6 @@ Future<void> main() async {
   await Hive.initFlutter();
   await Hive.openBox('episode_progress');
   await Hive.openBox('downloads');
+  await Hive.openBox('app_settings');
   runApp(const ProviderScope(child: KyomiruApp()));
 }

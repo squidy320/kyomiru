@@ -10,7 +10,7 @@ class SoraExtensionLoader {
   final Dio _dio;
 
   static const officialAnimePaheUrl =
-      'https://jormungandr.ofchaos.com/releases/sora/animepahe/Jorm.json';
+      'https://git.luna-app.eu/50n50/sources/raw/branch/main/animepahe/animepahe.json';
 
   Future<SoraExtensionManifest> loadOfficialAnimePahe() async {
     final response = await _dio.get(officialAnimePaheUrl);
