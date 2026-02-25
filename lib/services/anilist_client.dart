@@ -131,9 +131,15 @@ class AniListClient {
         ),
       );
 
+      final status = response.statusCode ?? 0;
       final body = response.data is Map<String, dynamic>
           ? response.data as Map<String, dynamic>
           : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+
+      if (status >= 400) {
+        AppLogger.e('AniList', 'GraphQL HTTP  op=', error: body);
+        throw Exception('AniList GraphQL HTTP ');
+      }
 
       if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
         final first = (body['errors'] as List).first;

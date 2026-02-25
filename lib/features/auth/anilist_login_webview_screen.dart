@@ -20,6 +20,7 @@ class _AniListLoginWebViewScreenState
   late final WebViewController _controller;
   String _error = '';
   bool _completed = false;
+  bool _authInFlight = false;
 
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
@@ -105,7 +106,7 @@ class _AniListLoginWebViewScreenState
 
   Future<void> _maybeHandleCallback(String url,
       {required String source}) async {
-    if (_completed) return;
+    if (_completed || _authInFlight) return;
     if (_isCallback(url)) {
       AppLogger.i('AniListAuth', 'Callback detected via $source');
       await _completeLogin(url);
@@ -133,7 +134,7 @@ class _AniListLoginWebViewScreenState
   }
 
   Future<void> _completeLogin(String callbackUrl) async {
-    if (_completed) return;
+    if (_completed || _authInFlight) return;
     try {
       final uri = Uri.parse(callbackUrl);
       final fragment =
@@ -178,6 +179,8 @@ class _AniListLoginWebViewScreenState
       AppLogger.e('AniListAuth', 'Login callback handling failed',
           error: e, stackTrace: st);
       setState(() => _error = e.toString());
+    } finally {
+      _authInFlight = false;
     }
   }
 
