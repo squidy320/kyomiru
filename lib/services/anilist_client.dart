@@ -267,7 +267,8 @@ class AniListClient {
     return user;
   }
 
-  Future<int> unreadNotificationCount(String token, {bool force = false}) async {
+  Future<int> unreadNotificationCount(String token,
+      {bool force = false}) async {
     final cached = _unreadCache[token];
     if (!force && cached != null && cached.isValid) return cached.value;
 
@@ -285,6 +286,7 @@ class AniListClient {
     );
     return value;
   }
+
   void clearUnreadCache(String token) {
     _unreadCache.remove(token);
   }
@@ -301,9 +303,11 @@ class AniListClient {
       AppLogger.i('AniList', 'Marked notifications as read');
     } catch (e, st) {
       // Non-fatal; some API variants may not expose this mutation.
-      AppLogger.w('AniList', 'NotificationReset failed', error: e, stackTrace: st);
+      AppLogger.w('AniList', 'NotificationReset failed',
+          error: e, stackTrace: st);
     }
   }
+
   Future<List<AniListLibraryEntry>> libraryCurrent(
     String token, {
     int? userId,
@@ -823,4 +827,3 @@ class AniListClient {
     return 'FALL';
   }
 }
-

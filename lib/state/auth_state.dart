@@ -61,4 +61,3 @@ final currentUserProvider = FutureProvider((ref) async {
   if (token == null || token.isEmpty) return null;
   return ref.watch(anilistClientProvider).me(token);
 });
-

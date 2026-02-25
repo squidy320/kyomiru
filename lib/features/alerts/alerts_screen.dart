@@ -142,7 +142,7 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media?.cover.best ?? item.userAvatar;
-    final subtitle = '${item.type.toLowerCase()} · ${_timeAgo(item.createdAt)}';
+    final subtitle = '${item.type.toLowerCase()} Â· ${_timeAgo(item.createdAt)}';
 
     return GestureDetector(
       onTap: item.media == null

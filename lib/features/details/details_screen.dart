@@ -37,16 +37,68 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   void _ensurePaheFuture(AniListMedia media) {
     if (_paheMediaId == media.id && _paheFuture != null) return;
+    _manualMatch ??= _readSavedMatch(media.id);
     _paheMediaId = media.id;
     _paheFuture = _loadPaheData(media);
   }
 
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
     setState(() {
-      _manualMatch = manual;
+      _manualMatch = manual ?? _manualMatch;
+      if (_manualMatch != null) {
+        _persistManualMatch(media.id, _manualMatch!);
+      }
       _paheMediaId = media.id;
       _paheFuture = _loadPaheData(media);
     });
+  }
+
+  SoraAnimeMatch? _readSavedMatch(int mediaId) {
+    final box = Hive.box('manual_matches');
+    final raw = box.get(mediaId.toString());
+    if (raw is! Map) return null;
+    final title = (raw['title'] ?? '').toString();
+    final image = (raw['image'] ?? '').toString();
+    final href = (raw['href'] ?? '').toString();
+    final session = (raw['session'] ?? '').toString();
+    final animeId = (raw['animeId'] ?? '').toString();
+    if (title.isEmpty || session.isEmpty || animeId.isEmpty) return null;
+    return SoraAnimeMatch(
+      title: title,
+      image: image,
+      href: href,
+      session: session,
+      animeId: animeId,
+    );
+  }
+
+  Future<void> _persistManualMatch(int mediaId, SoraAnimeMatch match) async {
+    final box = Hive.box('manual_matches');
+    await box.put(mediaId.toString(), {
+      'title': match.title,
+      'image': match.image,
+      'href': match.href,
+      'session': match.session,
+      'animeId': match.animeId,
+    });
+  }
+
+  String _episodeSpecificTitle(AniListMedia media, int episodeNumber) {
+    final streamMeta = media.streamingEpisodes
+        .where((se) => se.guessedEpisodeNumber == episodeNumber)
+        .toList();
+    if (streamMeta.isNotEmpty && streamMeta.first.title.trim().isNotEmpty) {
+      return streamMeta.first.title.trim();
+    }
+    return '${media.title.best} - Episode $episodeNumber';
+  }
+
+  String _episodePlaybackTitle(AniListMedia media, int episodeNumber) {
+    final title = _episodeSpecificTitle(media, episodeNumber).trim();
+    if (title.toLowerCase().startsWith('episode ')) {
+      return '${media.title.best} - $title';
+    }
+    return title;
   }
 
   int _qualityRank(String q) {
@@ -396,19 +448,23 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             final p = progressStore.read(media.id, ep.number);
                             final pct = p?.percent ?? 0;
                             final streamMeta = media.streamingEpisodes
-                                .where((se) => se.guessedEpisodeNumber == ep.number)
+                                .where((se) =>
+                                    se.guessedEpisodeNumber == ep.number)
                                 .toList();
                             final thumb = streamMeta.isNotEmpty
-                                ? (streamMeta.first.thumbnail ?? media.cover.best)
+                                ? (streamMeta.first.thumbnail ??
+                                    media.cover.best)
                                 : media.cover.best;
-                            final episodeSubtitle = _episodeSpecificTitle(media, ep.number);
+                            final episodeSubtitle =
+                                _episodeSpecificTitle(media, ep.number);
                             final d = downloads.item(media.id, ep.number);
                             final done = d?.status == 'done';
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
                               child: GlassCard(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
                                 child: Row(
                                   children: [
                                     Container(
@@ -440,7 +496,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             episodeSubtitle,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                                            style: const TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w700),
                                           ),
                                           if (d != null && d.status != 'done')
                                             Padding(
@@ -457,7 +515,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     const SizedBox(width: 8),
                                     Column(
                                       children: [
-                                        IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                                        IconButton.filledTonal(
+                                          style: IconButton.styleFrom(
+                                              minimumSize: const Size(30, 30),
+                                              padding: EdgeInsets.zero,
+                                              visualDensity:
+                                                  VisualDensity.compact),
                                           onPressed: () async {
                                             final local = await ref
                                                 .read(downloadControllerProvider
@@ -472,12 +535,15 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     mediaId: media.id,
                                                     episodeNumber: ep.number,
                                                     episodeTitle:
-                                                        _episodePlaybackTitle(media, ep.number),
+                                                        _episodePlaybackTitle(
+                                                            media, ep.number),
                                                     sourceUrl: local,
                                                     isLocal: true,
-                                                    backgroundImageUrl: media.cover.best ?? media.bannerImage,
-                                                  mediaTitle: media.title.best,
-                                                    mediaTitle: media.title.best,
+                                                    backgroundImageUrl:
+                                                        media.cover.best ??
+                                                            media.bannerImage,
+                                                    mediaTitle:
+                                                        media.title.best,
                                                   ),
                                                 ),
                                               );
@@ -516,12 +582,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   mediaId: media.id,
                                                   episodeNumber: ep.number,
                                                   episodeTitle:
-                                                      _episodePlaybackTitle(media, ep.number),
+                                                      _episodePlaybackTitle(
+                                                          media, ep.number),
                                                   sourceUrl: selected.url,
                                                   headers: selected.headers,
-                                                  backgroundImageUrl: media.cover.best ?? media.bannerImage,
+                                                  backgroundImageUrl:
+                                                      media.cover.best ??
+                                                          media.bannerImage,
                                                   mediaTitle: media.title.best,
-                                                    mediaTitle: media.title.best,
                                                 ),
                                               ),
                                             );
@@ -530,7 +598,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         if (d?.status == 'downloading')
-                                          IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                                          IconButton.filledTonal(
+                                            style: IconButton.styleFrom(
+                                                minimumSize: const Size(30, 30),
+                                                padding: EdgeInsets.zero,
+                                                visualDensity:
+                                                    VisualDensity.compact),
                                             onPressed: () => ref
                                                 .read(downloadControllerProvider
                                                     .notifier)
@@ -538,7 +611,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             icon: const Icon(Icons.close),
                                           )
                                         else if (done)
-                                          IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                                          IconButton.filledTonal(
+                                            style: IconButton.styleFrom(
+                                                minimumSize: const Size(30, 30),
+                                                padding: EdgeInsets.zero,
+                                                visualDensity:
+                                                    VisualDensity.compact),
                                             onPressed: () => ref
                                                 .read(downloadControllerProvider
                                                     .notifier)
@@ -547,7 +625,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                 Icons.delete_outline),
                                           )
                                         else
-                                          IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                                          IconButton.filledTonal(
+                                            style: IconButton.styleFrom(
+                                                minimumSize: const Size(30, 30),
+                                                padding: EdgeInsets.zero,
+                                                visualDensity:
+                                                    VisualDensity.compact),
                                             onPressed: () async {
                                               final sources = await _sora
                                                   .getSourcesForEpisode(
@@ -619,24 +702,72 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                     ],
                   ),
                 if (_tab == 2)
-                  GlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Status: ${media.status ?? 'N/A'}'),
-                        Text('Score: ${media.averageScore ?? 'N/A'}'),
-                        Text('Episodes: ${media.episodes ?? 'N/A'}'),
-                        const SizedBox(height: 8),
-                        FilledButton.tonalIcon(
-                          onPressed: media.siteUrl == null
-                              ? null
-                              : () => Share.share(media.siteUrl!,
-                                  subject: media.title.best),
-                          icon: const Icon(Icons.share),
-                          label: const Text('Share AniList'),
+                  Column(
+                    children: [
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Status: ${media.status ?? 'N/A'}'),
+                            Text('Score: ${media.averageScore ?? 'N/A'}'),
+                            Text('Episodes: ${media.episodes ?? 'N/A'}'),
+                            const SizedBox(height: 8),
+                            FilledButton.tonalIcon(
+                              onPressed: media.siteUrl == null
+                                  ? null
+                                  : () => Share.share(media.siteUrl!,
+                                      subject: media.title.best),
+                              icon: const Icon(Icons.share),
+                              label: const Text('Share AniList'),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 10),
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Relations',
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 8),
+                            if (media.relations.isEmpty)
+                              const Text(
+                                'No relations available.',
+                                style: TextStyle(color: Color(0xFF9AA0B3)),
+                              )
+                            else
+                              ...media.relations.map(
+                                (rel) => ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    rel.media.title.best,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    rel.relationType
+                                        .replaceAll('_', ' ')
+                                        .toLowerCase(),
+                                  ),
+                                  trailing:
+                                      const Icon(Icons.chevron_right_rounded),
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          DetailsScreen(mediaId: rel.media.id),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
               ],
             ),
@@ -738,7 +869,8 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Slider(
-                            value: _progress.toDouble().clamp(0, maxEp.toDouble()),
+                            value:
+                                _progress.toDouble().clamp(0, maxEp.toDouble()),
                             max: maxEp.toDouble(),
                             divisions: maxEp > 0 ? maxEp : 1,
                             label: '$_progress',
@@ -796,8 +928,8 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                                   if (!mounted) return;
                                   messenger.showSnackBar(
                                     SnackBar(
-                                        content: Text(
-                                            'Tracking update failed: $e')),
+                                        content:
+                                            Text('Tracking update failed: $e')),
                                   );
                                 } finally {
                                   if (mounted) setState(() => _saving = false);
@@ -918,16 +1050,17 @@ class _TabPill extends StatelessWidget {
 }
 
 class ProgressRing extends StatelessWidget {
-  const ProgressRing({super.key, required this.percent});
+  const ProgressRing({super.key, required this.percent, this.size = 56});
 
   final double percent;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final value = percent.clamp(0, 1).toDouble();
     return SizedBox(
-      width: 56,
-      height: 56,
+      width: size,
+      height: size,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -958,13 +1091,3 @@ class _PaheData {
   final SoraAnimeMatch? match;
   final List<SoraEpisode> episodes;
 }
-
-
-
-
-
-
-
-
-
-

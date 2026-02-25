@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../state/app_settings_state.dart';
 
@@ -25,7 +25,6 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
   final bg = settings.oled ? const Color(0xFF000000) : AppColors.background;
 
   return base.copyWith(
-    fontFamily: 'SF Pro Text',
     scaffoldBackgroundColor: bg,
     splashFactory: settings.touchOutline
         ? InkSparkle.splashFactory
@@ -92,4 +91,3 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
     ),
   );
 }
-

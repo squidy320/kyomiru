@@ -603,7 +603,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if ((widget.mediaTitle ?? '').trim().isNotEmpty)
+                                  if ((widget.mediaTitle ?? '')
+                                      .trim()
+                                      .isNotEmpty)
                                     Text(
                                       widget.mediaTitle!,
                                       maxLines: 1,
@@ -615,7 +617,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                       ),
                                     ),
                                   Text(
-                                    'Episode ',
+                                    'Episode ${widget.episodeNumber}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -737,4 +739,3 @@ class _AppleCircleButton extends StatelessWidget {
     );
   }
 }
-

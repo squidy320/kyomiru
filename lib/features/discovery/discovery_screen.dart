@@ -239,4 +239,3 @@ class _AnimePosterCard extends StatelessWidget {
     );
   }
 }
-

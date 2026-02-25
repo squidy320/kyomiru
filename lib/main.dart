@@ -16,4 +16,3 @@ Future<void> main() async {
   await Hive.openBox('manual_matches');
   runApp(const ProviderScope(child: KyomiruApp()));
 }
-
