@@ -34,7 +34,13 @@ class StreamsSettingsScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Library & Streams')),
+      appBar: GlassAppBar(
+        title: const Text('Library & Streams'),
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+        ),
+      ),
       body: GlassScaffoldBackground(
         child: SafeArea(
           child: ListView(

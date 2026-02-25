@@ -36,12 +36,13 @@ class LibraryScreen extends ConsumerWidget {
                   'No account connected. Sign in with AniList to sync lists and tracking.'),
             ),
             const SizedBox(height: 12),
-            ElevatedButton(
+            GlassButton(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                     builder: (_) => const AniListLoginWebViewScreen()),
               ),
-              child: const Text('Connect AniList'),
+              child: const Text('Connect AniList',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),

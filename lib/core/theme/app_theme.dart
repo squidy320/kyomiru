@@ -35,6 +35,17 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       surface: AppColors.surface,
       onSurface: AppColors.text,
     ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      centerTitle: true,
+      titleTextStyle: base.textTheme.titleLarge?.copyWith(
+        color: AppColors.text,
+        fontWeight: FontWeight.w800,
+      ),
+      iconTheme: const IconThemeData(color: AppColors.text),
+    ),
     textTheme: base.textTheme
         .apply(
           bodyColor: AppColors.text,
@@ -50,11 +61,15 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
         ),
     cardColor: AppColors.surface,
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: const Color(0xCC0E1428),
-      indicatorColor: accent.withValues(alpha: 0.24),
+      backgroundColor: Colors.transparent,
+      indicatorColor: accent.withValues(alpha: 0.22),
       labelTextStyle: const WidgetStatePropertyAll(
         TextStyle(fontWeight: FontWeight.w700),
       ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: const Color(0xFF12182A).withValues(alpha: 0.94),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       isDense: true,
@@ -71,7 +86,7 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: accent.withValues(alpha: 0.4)),
+        borderSide: BorderSide(color: accent.withValues(alpha: 0.45)),
       ),
     ),
   );

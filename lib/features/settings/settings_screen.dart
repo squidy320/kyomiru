@@ -87,11 +87,18 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              ElevatedButton.icon(
+              GlassButton(
                 onPressed: () =>
                     ref.read(authControllerProvider.notifier).logout(),
-                icon: const Icon(Icons.logout),
-                label: const Text('Logout AniList'),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.logout, size: 18),
+                    SizedBox(width: 8),
+                    Text('Logout AniList',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                  ],
+                ),
               ),
             ],
           );
@@ -103,6 +110,7 @@ class SettingsScreen extends ConsumerWidget {
   void _openComingSoon(BuildContext context, String title) {
     showModalBottomSheet<void>(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (_) => GlassScaffoldBackground(
         child: SafeArea(
           child: Padding(

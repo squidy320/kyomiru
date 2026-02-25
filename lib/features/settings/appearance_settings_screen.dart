@@ -31,7 +31,13 @@ class AppearanceSettingsScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Appearance')),
+      appBar: GlassAppBar(
+        title: const Text('Appearance'),
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+        ),
+      ),
       body: GlassScaffoldBackground(
         child: SafeArea(
           child: ListView(
@@ -127,9 +133,10 @@ class AppearanceSettingsScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              OutlinedButton(
+              GlassButton(
                 onPressed: controller.reset,
-                child: const Text('Reset All Customizations'),
+                child: const Text('Reset All Customizations',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
               ),
             ],
           ),

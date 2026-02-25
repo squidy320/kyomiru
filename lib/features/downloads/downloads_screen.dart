@@ -48,7 +48,7 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
-            child: OutlinedButton(
+            child: GlassButton(
               onPressed: () async {
                 for (final d in library) {
                   await ref
@@ -56,7 +56,8 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                       .delete(d.mediaId, d.episode);
                 }
               },
-              child: const Text('Clear Finished'),
+              child: const Text('Clear Finished',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ),
           const SizedBox(height: 8),

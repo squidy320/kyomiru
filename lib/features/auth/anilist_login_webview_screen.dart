@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/app_logger.dart';
+import '../../core/glass_widgets.dart';
 import '../../state/auth_state.dart';
 
 class AniListLoginWebViewScreen extends ConsumerStatefulWidget {
@@ -33,7 +34,13 @@ class _AniListLoginWebViewScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AniList Login')),
+      appBar: GlassAppBar(
+        title: const Text('AniList Login'),
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+        ),
+      ),
       body: Column(
         children: [
           if (_error.isNotEmpty)

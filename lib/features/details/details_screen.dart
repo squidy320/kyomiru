@@ -80,21 +80,26 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
     return showModalBottomSheet<SoraSource>(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (_) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Choose Stream',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 10),
-              ...sorted.map((s) => ListTile(
-                    title: Text('${s.quality} - ${s.subOrDub.toUpperCase()}'),
-                    subtitle: Text(s.format.toUpperCase()),
-                    onTap: () => Navigator.of(context).pop(s),
-                  )),
-            ],
+          child: GlassContainer(
+            borderRadius: 22,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Choose Stream',
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 10),
+                ...sorted.map((s) => ListTile(
+                      title: Text('${s.quality} - ${s.subOrDub.toUpperCase()}'),
+                      subtitle: Text(s.format.toUpperCase()),
+                      onTap: () => Navigator.of(context).pop(s),
+                    )),
+              ],
+            ),
           ),
         ),
       ),
@@ -106,6 +111,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     var results = <SoraAnimeMatch>[];
     return showModalBottomSheet<SoraAnimeMatch>(
       context: context,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -117,56 +123,59 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 top: 16,
                 bottom: MediaQuery.of(context).viewInsets.bottom + 16,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Text('Manual Match',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.w800)),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Close'),
-                      ),
-                    ],
-                  ),
-                  TextField(
-                    controller: controller,
-                    decoration: InputDecoration(
-                      hintText: 'Search AnimePahe title',
-                      suffixIcon: IconButton(
-                        onPressed: () async {
-                          final r =
-                              await _sora.searchAnime(controller.text.trim());
-                          setModalState(() => results = r);
-                        },
-                        icon: const Icon(Icons.search),
-                      ),
+              child: GlassContainer(
+                borderRadius: 22,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Text('Manual Match',
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.w800)),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Close'),
+                        ),
+                      ],
                     ),
-                    onSubmitted: (value) async {
-                      final r = await _sora.searchAnime(value.trim());
-                      setModalState(() => results = r);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: results.length,
-                      itemBuilder: (context, index) {
-                        final item = results[index];
-                        return ListTile(
-                          title: Text(item.title,
-                              maxLines: 2, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(item.session),
-                          onTap: () => Navigator.of(context).pop(item),
-                        );
+                    TextField(
+                      controller: controller,
+                      decoration: InputDecoration(
+                        hintText: 'Search AnimePahe title',
+                        suffixIcon: IconButton(
+                          onPressed: () async {
+                            final r =
+                                await _sora.searchAnime(controller.text.trim());
+                            setModalState(() => results = r);
+                          },
+                          icon: const Icon(Icons.search),
+                        ),
+                      ),
+                      onSubmitted: (value) async {
+                        final r = await _sora.searchAnime(value.trim());
+                        setModalState(() => results = r);
                       },
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: results.length,
+                        itemBuilder: (context, index) {
+                          final item = results[index];
+                          return ListTile(
+                            title: Text(item.title,
+                                maxLines: 2, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(item.session),
+                            onTap: () => Navigator.of(context).pop(item),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -191,7 +200,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         }
         if (snap.hasError || snap.data == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Details')),
+            appBar: GlassAppBar(
+              title: const Text('Details'),
+              leading: IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+              ),
+            ),
             body: Center(child: Text('Failed to load details: ${snap.error}')),
           );
         }
