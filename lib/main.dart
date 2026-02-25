@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -13,5 +13,7 @@ Future<void> main() async {
   await Hive.openBox('episode_progress');
   await Hive.openBox('downloads');
   await Hive.openBox('app_settings');
+  await Hive.openBox('manual_matches');
   runApp(const ProviderScope(child: KyomiruApp()));
 }
+

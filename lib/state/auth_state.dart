@@ -54,3 +54,11 @@ final unreadAlertsProvider = FutureProvider<int>((ref) async {
   if (token == null || token.isEmpty) return 0;
   return ref.watch(anilistClientProvider).unreadNotificationCount(token);
 });
+
+final currentUserProvider = FutureProvider((ref) async {
+  final auth = ref.watch(authControllerProvider);
+  final token = auth.token;
+  if (token == null || token.isEmpty) return null;
+  return ref.watch(anilistClientProvider).me(token);
+});
+

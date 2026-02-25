@@ -267,9 +267,9 @@ class AniListClient {
     return user;
   }
 
-  Future<int> unreadNotificationCount(String token) async {
+  Future<int> unreadNotificationCount(String token, {bool force = false}) async {
     final cached = _unreadCache[token];
-    if (cached != null && cached.isValid) return cached.value;
+    if (!force && cached != null && cached.isValid) return cached.value;
 
     const q = r'''
       query {
@@ -285,7 +285,25 @@ class AniListClient {
     );
     return value;
   }
+  void clearUnreadCache(String token) {
+    _unreadCache.remove(token);
+  }
 
+  Future<void> markNotificationsRead(String token) async {
+    const q = r'''
+      mutation {
+        NotificationReset
+      }
+    ''';
+    try {
+      await _graphql(query: q, token: token);
+      clearUnreadCache(token);
+      AppLogger.i('AniList', 'Marked notifications as read');
+    } catch (e, st) {
+      // Non-fatal; some API variants may not expose this mutation.
+      AppLogger.w('AniList', 'NotificationReset failed', error: e, stackTrace: st);
+    }
+  }
   Future<List<AniListLibraryEntry>> libraryCurrent(
     String token, {
     int? userId,
@@ -570,6 +588,23 @@ class AniListClient {
             url
             site
           }
+          relations {
+            edges {
+              relationType
+              node {
+                id
+                episodes
+                averageScore
+                title { romaji english native }
+                coverImage { large extraLarge }
+                siteUrl
+                bannerImage
+                status
+                isAdult
+                genres
+              }
+            }
+          }
         }
       }
     ''';
@@ -788,3 +823,4 @@ class AniListClient {
     return 'FALL';
   }
 }
+

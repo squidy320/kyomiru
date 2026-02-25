@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/glass_widgets.dart';
@@ -395,29 +396,24 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             final p = progressStore.read(media.id, ep.number);
                             final pct = p?.percent ?? 0;
                             final streamMeta = media.streamingEpisodes
-                                .where((se) =>
-                                    se.guessedEpisodeNumber == ep.number)
+                                .where((se) => se.guessedEpisodeNumber == ep.number)
                                 .toList();
                             final thumb = streamMeta.isNotEmpty
-                                ? (streamMeta.first.thumbnail ??
-                                    media.cover.best)
+                                ? (streamMeta.first.thumbnail ?? media.cover.best)
                                 : media.cover.best;
-                            final episodeSubtitle = streamMeta.isNotEmpty &&
-                                    streamMeta.first.title.trim().isNotEmpty
-                                ? streamMeta.first.title
-                                : '${media.title.best} - Episode ${ep.number}';
+                            final episodeSubtitle = _episodeSpecificTitle(media, ep.number);
                             final d = downloads.item(media.id, ep.number);
                             final done = d?.status == 'done';
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
                               child: GlassCard(
-                                padding: const EdgeInsets.all(10),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 child: Row(
                                   children: [
                                     Container(
-                                      width: 84,
-                                      height: 54,
+                                      width: 104,
+                                      height: 64,
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(10),
                                         color: const Color(0x22111111),
@@ -444,9 +440,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             episodeSubtitle,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.w700),
+                                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                                           ),
                                           if (d != null && d.status != 'done')
                                             Padding(
@@ -459,11 +453,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    ProgressRing(percent: pct),
+                                    ProgressRing(percent: pct, size: 52),
                                     const SizedBox(width: 8),
                                     Column(
                                       children: [
-                                        IconButton.filledTonal(
+                                        IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
                                           onPressed: () async {
                                             final local = await ref
                                                 .read(downloadControllerProvider
@@ -478,12 +472,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     mediaId: media.id,
                                                     episodeNumber: ep.number,
                                                     episodeTitle:
-                                                        '${media.title.best} - Episode ${ep.number}',
+                                                        _episodePlaybackTitle(media, ep.number),
                                                     sourceUrl: local,
                                                     isLocal: true,
-                                                    backgroundImageUrl:
-                                                        media.cover.best ??
-                                                            media.bannerImage,
+                                                    backgroundImageUrl: media.cover.best ?? media.bannerImage,
+                                                  mediaTitle: media.title.best,
+                                                    mediaTitle: media.title.best,
                                                   ),
                                                 ),
                                               );
@@ -522,12 +516,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   mediaId: media.id,
                                                   episodeNumber: ep.number,
                                                   episodeTitle:
-                                                      '${media.title.best} - Episode ${ep.number}',
+                                                      _episodePlaybackTitle(media, ep.number),
                                                   sourceUrl: selected.url,
                                                   headers: selected.headers,
-                                                  backgroundImageUrl:
-                                                      media.cover.best ??
-                                                          media.bannerImage,
+                                                  backgroundImageUrl: media.cover.best ?? media.bannerImage,
+                                                  mediaTitle: media.title.best,
+                                                    mediaTitle: media.title.best,
                                                 ),
                                               ),
                                             );
@@ -536,7 +530,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         if (d?.status == 'downloading')
-                                          IconButton.filledTonal(
+                                          IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
                                             onPressed: () => ref
                                                 .read(downloadControllerProvider
                                                     .notifier)
@@ -544,7 +538,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             icon: const Icon(Icons.close),
                                           )
                                         else if (done)
-                                          IconButton.filledTonal(
+                                          IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
                                             onPressed: () => ref
                                                 .read(downloadControllerProvider
                                                     .notifier)
@@ -553,7 +547,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                 Icons.delete_outline),
                                           )
                                         else
-                                          IconButton.filledTonal(
+                                          IconButton.filledTonal(style: IconButton.styleFrom(minimumSize: const Size(30, 30), padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
                                             onPressed: () async {
                                               final sources = await _sora
                                                   .getSourcesForEpisode(
@@ -669,6 +663,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
   double _score = 0;
   int _progress = 0;
   bool _saving = false;
+  bool _loadedInitial = false;
 
   @override
   Widget build(BuildContext context) {
@@ -688,10 +683,11 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
         final entry =
             snap.hasData ? snap.data![1] as AniListTrackingEntry? : null;
 
-        if (entry != null) {
+        if (!_loadedInitial && entry != null) {
           _status = entry.status;
           _score = entry.score;
           _progress = entry.progress;
+          _loadedInitial = true;
         }
 
         final bg = user?.bannerImage ?? widget.media.bannerImage;
@@ -725,7 +721,8 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                           'PLANNING',
                           'COMPLETED',
                           'PAUSED',
-                          'DROPPED'
+                          'DROPPED',
+                          'REPEATING'
                         ])
                           ChoiceChip(
                             label: Text(s),
@@ -741,8 +738,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Slider(
-                            value:
-                                _progress.toDouble().clamp(0, maxEp.toDouble()),
+                            value: _progress.toDouble().clamp(0, maxEp.toDouble()),
                             max: maxEp.toDouble(),
                             divisions: maxEp > 0 ? maxEp : 1,
                             label: '$_progress',
@@ -779,7 +775,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                                 final messenger = ScaffoldMessenger.of(context);
                                 setState(() => _saving = true);
                                 try {
-                                  await client.saveTrackingEntry(
+                                  final saved = await client.saveTrackingEntry(
                                     token: widget.token,
                                     mediaId: widget.media.id,
                                     status: _status,
@@ -787,9 +783,21 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                                     score: _score,
                                   );
                                   if (!mounted) return;
+                                  setState(() {
+                                    _status = saved.status;
+                                    _progress = saved.progress;
+                                    _score = saved.score;
+                                  });
                                   messenger.showSnackBar(
                                     const SnackBar(
                                         content: Text('Tracking updated.')),
+                                  );
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  messenger.showSnackBar(
+                                    SnackBar(
+                                        content: Text(
+                                            'Tracking update failed: $e')),
                                   );
                                 } finally {
                                   if (mounted) setState(() => _saving = false);
@@ -950,3 +958,13 @@ class _PaheData {
   final SoraAnimeMatch? match;
   final List<SoraEpisode> episodes;
 }
+
+
+
+
+
+
+
+
+
+

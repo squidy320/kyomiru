@@ -16,6 +16,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.episodeNumber,
     required this.episodeTitle,
     required this.sourceUrl,
+    this.mediaTitle,
     this.headers = const {},
     this.isLocal = false,
     this.backgroundImageUrl,
@@ -25,6 +26,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final int episodeNumber;
   final String episodeTitle;
   final String? sourceUrl;
+  final String? mediaTitle;
   final Map<String, String> headers;
   final bool isLocal;
   final String? backgroundImageUrl;
@@ -598,15 +600,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                widget.episodeTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if ((widget.mediaTitle ?? '').trim().isNotEmpty)
+                                    Text(
+                                      widget.mediaTitle!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  Text(
+                                    'Episode ',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    widget.episodeTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 6),
                               SliderTheme(
@@ -709,3 +737,4 @@ class _AppleCircleButton extends StatelessWidget {
     );
   }
 }
+

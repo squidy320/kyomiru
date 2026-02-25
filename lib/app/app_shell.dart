@@ -38,6 +38,8 @@ class AppTabs extends ConsumerStatefulWidget {
 
 class _AppTabsState extends ConsumerState<AppTabs> {
   int _index = 0;
+  int _lastServerUnread = 0;
+  bool _alertsSeenForCurrentUnread = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   static const _pages = [
@@ -70,6 +72,15 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
   }
 
+  void _onTabTap(int value) {
+    setState(() {
+      _index = value;
+      if (value == 2) {
+        _alertsSeenForCurrentUnread = true;
+      }
+    });
+  }
+
   @override
   void dispose() {
     _connectivitySub?.cancel();
@@ -80,6 +91,17 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   Widget build(BuildContext context) {
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
     final settings = ref.watch(appSettingsProvider);
+    final currentUser = ref.watch(currentUserProvider).valueOrNull;
+
+    if (unread > _lastServerUnread) {
+      _lastServerUnread = unread;
+      _alertsSeenForCurrentUnread = false;
+    } else if (unread == 0) {
+      _alertsSeenForCurrentUnread = true;
+      _lastServerUnread = 0;
+    }
+
+    final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
 
     return Scaffold(
       extendBody: true,
@@ -89,8 +111,9 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         child: _PillBottomBar(
           compact: settings.compactBar,
           index: _index,
-          unread: unread,
-          onTap: (value) => setState(() => _index = value),
+          unread: displayUnread,
+          userAvatar: currentUser?.avatar,
+          onTap: _onTabTap,
         ),
       ),
     );
@@ -102,12 +125,14 @@ class _PillBottomBar extends StatelessWidget {
     required this.compact,
     required this.index,
     required this.unread,
+    required this.userAvatar,
     required this.onTap,
   });
 
   final bool compact;
   final int index;
   final int unread;
+  final String? userAvatar;
   final ValueChanged<int> onTap;
 
   @override
@@ -121,6 +146,36 @@ class _PillBottomBar extends StatelessWidget {
     ];
 
     final activeColor = Theme.of(context).colorScheme.primary;
+
+    Widget alertsIcon() {
+      final avatar = userAvatar;
+      final selected = index == 2;
+      final borderColor = selected ? activeColor : const Color(0x33FFFFFF);
+      final base = Container(
+        width: compact ? 20 : 22,
+        height: compact ? 20 : 22,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: borderColor, width: 1),
+          image: (avatar != null && avatar.isNotEmpty)
+              ? DecorationImage(image: NetworkImage(avatar), fit: BoxFit.cover)
+              : null,
+          color: (avatar == null || avatar.isEmpty)
+              ? const Color(0x44161D32)
+              : Colors.transparent,
+        ),
+        child: (avatar == null || avatar.isEmpty)
+            ? Icon(Icons.person_rounded,
+                size: compact ? 14 : 15,
+                color: selected ? activeColor : const Color(0xFFCAD0DD))
+            : null,
+      );
+      return Badge(
+        isLabelVisible: unread > 0,
+        smallSize: 8,
+        child: base,
+      );
+    }
 
     return GlassCard(
       borderRadius: 999,
@@ -144,17 +199,7 @@ class _PillBottomBar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (i == 2)
-                        Badge(
-                          isLabelVisible: unread > 0,
-                          smallSize: 8,
-                          child: Icon(
-                            items[i].icon,
-                            size: compact ? 19 : 20,
-                            color: i == index
-                                ? activeColor
-                                : const Color(0xFFCAD0DD),
-                          ),
-                        )
+                        alertsIcon()
                       else
                         Icon(
                           items[i].icon,

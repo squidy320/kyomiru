@@ -7,11 +7,18 @@ import '../../features/details/details_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 
-class AlertsScreen extends ConsumerWidget {
+class AlertsScreen extends ConsumerStatefulWidget {
   const AlertsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AlertsScreen> createState() => _AlertsScreenState();
+}
+
+class _AlertsScreenState extends ConsumerState<AlertsScreen> {
+  String? _markedForToken;
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     if (auth.loading) return const Center(child: CircularProgressIndicator());
 
@@ -26,23 +33,34 @@ class AlertsScreen extends ConsumerWidget {
             const GlassCard(
                 child: Text('Connect AniList to see notifications.')),
             const SizedBox(height: 12),
-            ElevatedButton(
+            GlassButton(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                     builder: (_) => const AniListLoginWebViewScreen()),
               ),
-              child: const Text('Connect AniList'),
+              child: const Text('Connect AniList',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
       );
     }
 
+    final token = auth.token!;
+    if (_markedForToken != token) {
+      _markedForToken = token;
+      Future<void>(() async {
+        await ref.read(anilistClientProvider).markNotificationsRead(token);
+        if (!mounted) return;
+        ref.invalidate(unreadAlertsProvider);
+      });
+    }
+
     final client = ref.watch(anilistClientProvider);
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
 
     return FutureBuilder<List<AniListNotificationItem>>(
-      future: client.notifications(auth.token!),
+      future: client.notifications(token),
       builder: (context, snap) {
         return SafeArea(
           child: ListView(
@@ -124,7 +142,7 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media?.cover.best ?? item.userAvatar;
-    final subtitle = '${item.type.toLowerCase()} â€¢ ${_timeAgo(item.createdAt)}';
+    final subtitle = '${item.type.toLowerCase()} · ${_timeAgo(item.createdAt)}';
 
     return GestureDetector(
       onTap: item.media == null

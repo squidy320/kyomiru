@@ -92,6 +92,7 @@ class AniListMedia {
   final bool isAdult;
   final List<String> genres;
   final List<AniListStreamingEpisode> streamingEpisodes;
+  final List<AniListRelation> relations;
 
   AniListMedia({
     required this.id,
@@ -106,6 +107,7 @@ class AniListMedia {
     this.isAdult = false,
     this.genres = const [],
     this.streamingEpisodes = const [],
+    this.relations = const [],
   });
 
   factory AniListMedia.fromJson(Map<String, dynamic> json) => AniListMedia(
@@ -129,6 +131,29 @@ class AniListMedia {
             .whereType<Map<String, dynamic>>()
             .map(AniListStreamingEpisode.fromJson)
             .toList(),
+        relations: (((json['relations'] as Map<String, dynamic>?)?['edges']
+                    as List?) ??
+                const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AniListRelation.fromJson)
+            .toList(),
+      );
+}
+
+class AniListRelation {
+  final String relationType;
+  final AniListMedia media;
+
+  const AniListRelation({
+    required this.relationType,
+    required this.media,
+  });
+
+  factory AniListRelation.fromJson(Map<String, dynamic> json) =>
+      AniListRelation(
+        relationType: (json['relationType'] ?? '').toString(),
+        media: AniListMedia.fromJson(
+            (json['node'] as Map<String, dynamic>? ?? const {})),
       );
 }
 

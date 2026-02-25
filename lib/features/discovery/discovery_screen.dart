@@ -152,7 +152,7 @@ class _HorizontalSection extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -239,3 +239,4 @@ class _AnimePosterCard extends StatelessWidget {
     );
   }
 }
+
