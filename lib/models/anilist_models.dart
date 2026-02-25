@@ -174,16 +174,27 @@ class AniListNotificationItem {
     this.media,
   });
 
-  factory AniListNotificationItem.fromJson(Map<String, dynamic> json) =>
-      AniListNotificationItem(
-        id: (json['id'] as num?)?.toInt() ?? 0,
-        type: (json['type'] ?? '').toString(),
-        createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
-        context: json['context']?.toString(),
-        media: json['media'] is Map<String, dynamic>
-            ? AniListMedia.fromJson(json['media'] as Map<String, dynamic>)
-            : null,
-      );
+  factory AniListNotificationItem.fromJson(Map<String, dynamic> json) {
+    final contexts = (json['contexts'] as List?)
+            ?.map((e) => e?.toString() ?? '')
+            .where((e) => e.isNotEmpty)
+            .toList() ??
+        const <String>[];
+
+    return AniListNotificationItem(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      type: (json['type'] ?? '').toString(),
+      createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
+      context: json['context']?.toString() ??
+          (contexts.isNotEmpty ? contexts.first : null) ??
+          ((json['episode'] as num?)?.toInt() != null
+              ? 'Episode ${(json['episode'] as num).toInt()} aired'
+              : null),
+      media: json['media'] is Map<String, dynamic>
+          ? AniListMedia.fromJson(json['media'] as Map<String, dynamic>)
+          : null,
+    );
+  }
 }
 
 class AniListDiscoverySection {

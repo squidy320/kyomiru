@@ -588,43 +588,8 @@ class AniListClient {
               id
               type
               createdAt
-              context
-              media {
-                id
-                episodes
-                averageScore
-                title { romaji english native }
-                coverImage { large extraLarge }
-                siteUrl
-                bannerImage
-                status
-                isAdult
-                genres
-              }
-            }
-            ... on RelatedMediaAdditionNotification {
-              id
-              type
-              createdAt
-              context
-              media {
-                id
-                episodes
-                averageScore
-                title { romaji english native }
-                coverImage { large extraLarge }
-                siteUrl
-                bannerImage
-                status
-                isAdult
-                genres
-              }
-            }
-            ... on MediaDataChangeNotification {
-              id
-              type
-              createdAt
-              context
+              episode
+              contexts
               media {
                 id
                 episodes
@@ -644,14 +609,15 @@ class AniListClient {
     ''';
 
     const qFallback = r'''
-      query NotificationsFallback($userId: Int) {
+      query NotificationsFallback {
         Page(page: 1, perPage: 40) {
-          notifications(userId: $userId) {
+          notifications {
             ... on AiringNotification {
               id
               type
               createdAt
-              context
+              episode
+              contexts
               media {
                 id
                 episodes
@@ -676,32 +642,35 @@ class AniListClient {
       final out = raw
           .whereType<Map<String, dynamic>>()
           .map(AniListNotificationItem.fromJson)
+          .where((n) => n.id != 0)
           .toList();
       AppLogger.i('AniList', 'notifications loaded count=${out.length}');
       return out;
     } catch (e, st) {
       AppLogger.w(
-          'AniList', 'notifications primary query failed, trying fallback',
-          error: e, stackTrace: st);
+        'AniList',
+        'notifications primary query failed, trying fallback',
+        error: e,
+        stackTrace: st,
+      );
       try {
-        final user = await me(token);
-        final data = await _graphql(
-          query: qFallback,
-          token: token,
-          variables: {'userId': user.id},
-        );
+        final data = await _graphql(query: qFallback, token: token);
         final raw = (data['Page']?['notifications'] as List? ?? const []);
         final out = raw
             .whereType<Map<String, dynamic>>()
             .map(AniListNotificationItem.fromJson)
+            .where((n) => n.id != 0)
             .toList();
         AppLogger.i(
             'AniList', 'notifications fallback loaded count=${out.length}');
         return out;
       } catch (e2, st2) {
         AppLogger.w(
-            'AniList', 'notifications query failed, returning empty list',
-            error: e2, stackTrace: st2);
+          'AniList',
+          'notifications query failed, returning empty list',
+          error: e2,
+          stackTrace: st2,
+        );
         return const [];
       }
     }
