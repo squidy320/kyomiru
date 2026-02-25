@@ -214,9 +214,14 @@ class AniListClient {
   }
 
   Future<List<AniListLibraryEntry>> libraryCurrent(String token) async {
+    final user = await me(token);
     const q = r'''
-      query {
-        MediaListCollection(type: ANIME, status_in: [CURRENT, REPEATING]) {
+      query ($userId: Int) {
+        MediaListCollection(
+          userId: $userId,
+          type: ANIME,
+          status_in: [CURRENT, REPEATING]
+        ) {
           lists {
             entries {
               id
@@ -230,8 +235,8 @@ class AniListClient {
                 siteUrl
                 bannerImage
                 status
-            isAdult
-            genres
+                isAdult
+                genres
               }
             }
           }
@@ -239,7 +244,11 @@ class AniListClient {
       }
     ''';
 
-    final data = await _graphql(query: q, token: token);
+    final data = await _graphql(
+      query: q,
+      token: token,
+      variables: {'userId': user.id},
+    );
     final lists = (data['MediaListCollection']?['lists'] as List? ?? const []);
     final out = <AniListLibraryEntry>[];
     for (final list in lists) {
@@ -256,9 +265,14 @@ class AniListClient {
   }
 
   Future<List<AniListLibrarySection>> librarySections(String token) async {
+    final user = await me(token);
     const q = r'''
-      query {
-        MediaListCollection(type: ANIME, status_in: [CURRENT, PLANNING, COMPLETED]) {
+      query ($userId: Int) {
+        MediaListCollection(
+          userId: $userId,
+          type: ANIME,
+          status_in: [CURRENT, PLANNING, COMPLETED]
+        ) {
           lists {
             name
             entries {
@@ -283,7 +297,11 @@ class AniListClient {
     ''';
 
     try {
-      final data = await _graphql(query: q, token: token);
+      final data = await _graphql(
+        query: q,
+        token: token,
+        variables: {'userId': user.id},
+      );
       final lists =
           (data['MediaListCollection']?['lists'] as List? ?? const []);
       final out = <AniListLibrarySection>[];
