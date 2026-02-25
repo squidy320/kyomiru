@@ -164,6 +164,9 @@ class AniListNotificationItem {
   final String type;
   final int createdAt;
   final String? context;
+  final int? episode;
+  final String? userName;
+  final String? userAvatar;
   final AniListMedia? media;
 
   AniListNotificationItem({
@@ -171,6 +174,9 @@ class AniListNotificationItem {
     required this.type,
     required this.createdAt,
     this.context,
+    this.episode,
+    this.userName,
+    this.userAvatar,
     this.media,
   });
 
@@ -181,10 +187,16 @@ class AniListNotificationItem {
             .toList() ??
         const <String>[];
 
+    final user = json['user'] as Map<String, dynamic>?;
+
     return AniListNotificationItem(
       id: (json['id'] as num?)?.toInt() ?? 0,
       type: (json['type'] ?? '').toString(),
       createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
+      episode: (json['episode'] as num?)?.toInt(),
+      userName: user?['name']?.toString(),
+      userAvatar:
+          (user?['avatar'] as Map<String, dynamic>?)?['large']?.toString(),
       context: json['context']?.toString() ??
           (contexts.isNotEmpty ? contexts.first : null) ??
           ((json['episode'] as num?)?.toInt() != null

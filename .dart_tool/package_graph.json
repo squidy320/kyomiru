@@ -16,9 +16,11 @@
         "hive",
         "hive_flutter",
         "liquid_glass_renderer",
+        "media_kit",
+        "media_kit_libs_video",
+        "media_kit_video",
         "path_provider",
         "share_plus",
-        "video_player",
         "webview_flutter"
       ],
       "devDependencies": [
@@ -140,15 +142,47 @@
       ]
     },
     {
-      "name": "video_player",
-      "version": "2.11.0",
+      "name": "media_kit_libs_video",
+      "version": "1.0.7",
+      "dependencies": [
+        "media_kit_libs_android_video",
+        "media_kit_libs_ios_video",
+        "media_kit_libs_linux",
+        "media_kit_libs_macos_video",
+        "media_kit_libs_windows_video"
+      ]
+    },
+    {
+      "name": "media_kit_video",
+      "version": "1.3.1",
       "dependencies": [
         "flutter",
-        "html",
-        "video_player_android",
-        "video_player_avfoundation",
-        "video_player_platform_interface",
-        "video_player_web"
+        "media_kit",
+        "plugin_platform_interface",
+        "screen_brightness_android",
+        "screen_brightness_platform_interface",
+        "synchronized",
+        "universal_platform",
+        "volume_controller",
+        "wakelock_plus",
+        "web"
+      ]
+    },
+    {
+      "name": "media_kit",
+      "version": "1.2.6",
+      "dependencies": [
+        "collection",
+        "http",
+        "image",
+        "meta",
+        "path",
+        "safe_local_storage",
+        "synchronized",
+        "universal_platform",
+        "uri_parser",
+        "uuid",
+        "web"
       ]
     },
     {
@@ -292,6 +326,15 @@
       ]
     },
     {
+      "name": "motor",
+      "version": "1.1.0",
+      "dependencies": [
+        "equatable",
+        "flutter",
+        "meta"
+      ]
+    },
+    {
       "name": "logging",
       "version": "1.3.0",
       "dependencies": []
@@ -302,6 +345,14 @@
       "dependencies": [
         "flutter",
         "vector_math"
+      ]
+    },
+    {
+      "name": "equatable",
+      "version": "2.0.8",
+      "dependencies": [
+        "collection",
+        "meta"
       ]
     },
     {
@@ -514,45 +565,137 @@
       ]
     },
     {
-      "name": "video_player_web",
-      "version": "2.4.0",
+      "name": "media_kit_libs_linux",
+      "version": "1.2.1",
       "dependencies": [
-        "flutter",
-        "flutter_web_plugins",
-        "video_player_platform_interface",
-        "web"
+        "flutter"
       ]
     },
     {
-      "name": "video_player_platform_interface",
-      "version": "6.6.0",
+      "name": "media_kit_libs_windows_video",
+      "version": "1.0.11",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
+      "name": "media_kit_libs_macos_video",
+      "version": "1.1.4",
       "dependencies": [
         "flutter",
         "plugin_platform_interface"
       ]
     },
     {
-      "name": "video_player_avfoundation",
-      "version": "2.9.3",
+      "name": "media_kit_libs_ios_video",
+      "version": "1.1.4",
       "dependencies": [
         "flutter",
-        "video_player_platform_interface"
+        "plugin_platform_interface"
       ]
     },
     {
-      "name": "video_player_android",
-      "version": "2.9.4",
+      "name": "media_kit_libs_android_video",
+      "version": "1.3.8",
       "dependencies": [
         "flutter",
-        "video_player_platform_interface"
+        "plugin_platform_interface"
       ]
     },
     {
-      "name": "html",
-      "version": "0.15.6",
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
       "dependencies": [
-        "csslib",
-        "source_span"
+        "meta"
+      ]
+    },
+    {
+      "name": "universal_platform",
+      "version": "1.1.0",
+      "dependencies": []
+    },
+    {
+      "name": "volume_controller",
+      "version": "3.4.1",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
+      "name": "screen_brightness_platform_interface",
+      "version": "2.1.0",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "screen_brightness_android",
+      "version": "2.1.3",
+      "dependencies": [
+        "flutter",
+        "screen_brightness_platform_interface"
+      ]
+    },
+    {
+      "name": "wakelock_plus",
+      "version": "1.4.0",
+      "dependencies": [
+        "dbus",
+        "flutter",
+        "flutter_web_plugins",
+        "meta",
+        "package_info_plus",
+        "wakelock_plus_platform_interface",
+        "web",
+        "win32"
+      ]
+    },
+    {
+      "name": "synchronized",
+      "version": "3.4.0",
+      "dependencies": []
+    },
+    {
+      "name": "uuid",
+      "version": "4.5.3",
+      "dependencies": [
+        "crypto",
+        "fixnum"
+      ]
+    },
+    {
+      "name": "uri_parser",
+      "version": "3.0.2",
+      "dependencies": [
+        "path"
+      ]
+    },
+    {
+      "name": "safe_local_storage",
+      "version": "2.0.3",
+      "dependencies": [
+        "path",
+        "synchronized"
+      ]
+    },
+    {
+      "name": "image",
+      "version": "4.8.0",
+      "dependencies": [
+        "archive",
+        "meta",
+        "xml"
+      ]
+    },
+    {
+      "name": "http",
+      "version": "1.6.0",
+      "dependencies": [
+        "async",
+        "http_parser",
+        "meta",
+        "web"
       ]
     },
     {
@@ -705,13 +848,6 @@
       ]
     },
     {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
-      "dependencies": [
-        "meta"
-      ]
-    },
-    {
       "name": "platform",
       "version": "3.1.6",
       "dependencies": []
@@ -752,23 +888,33 @@
       ]
     },
     {
-      "name": "uuid",
-      "version": "4.5.3",
+      "name": "package_info_plus",
+      "version": "9.0.0",
       "dependencies": [
-        "crypto",
-        "fixnum"
+        "clock",
+        "ffi",
+        "flutter",
+        "flutter_web_plugins",
+        "http",
+        "meta",
+        "package_info_plus_platform_interface",
+        "path",
+        "web",
+        "win32"
       ]
     },
     {
-      "name": "csslib",
-      "version": "1.0.2",
+      "name": "wakelock_plus_platform_interface",
+      "version": "1.3.0",
       "dependencies": [
-        "source_span"
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
       ]
     },
     {
-      "name": "vm_service",
-      "version": "15.0.2",
+      "name": "fixnum",
+      "version": "1.1.1",
       "dependencies": []
     },
     {
@@ -779,6 +925,19 @@
         "meta",
         "petitparser"
       ]
+    },
+    {
+      "name": "archive",
+      "version": "4.0.9",
+      "dependencies": [
+        "path",
+        "posix"
+      ]
+    },
+    {
+      "name": "vm_service",
+      "version": "15.0.2",
+      "dependencies": []
     },
     {
       "name": "args",
@@ -825,9 +984,13 @@
       ]
     },
     {
-      "name": "fixnum",
-      "version": "1.1.1",
-      "dependencies": []
+      "name": "package_info_plus_platform_interface",
+      "version": "3.2.1",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
     },
     {
       "name": "petitparser",
@@ -835,6 +998,15 @@
       "dependencies": [
         "collection",
         "meta"
+      ]
+    },
+    {
+      "name": "posix",
+      "version": "6.5.0",
+      "dependencies": [
+        "ffi",
+        "meta",
+        "path"
       ]
     },
     {
@@ -855,23 +1027,6 @@
         "collection",
         "source_span",
         "string_scanner"
-      ]
-    },
-    {
-      "name": "motor",
-      "version": "1.1.0",
-      "dependencies": [
-        "equatable",
-        "flutter",
-        "meta"
-      ]
-    },
-    {
-      "name": "equatable",
-      "version": "2.0.8",
-      "dependencies": [
-        "collection",
-        "meta"
       ]
     }
   ],

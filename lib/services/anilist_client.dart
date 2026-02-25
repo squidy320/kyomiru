@@ -582,8 +582,9 @@ class AniListClient {
   Future<List<AniListNotificationItem>> notifications(String token) async {
     const qPrimary = r'''
       query NotificationsPrimary {
-        Page(page: 1, perPage: 40) {
+        Page(page: 1, perPage: 50) {
           notifications {
+            __typename
             ... on AiringNotification {
               id
               type
@@ -601,6 +602,42 @@ class AniListClient {
                 status
                 isAdult
                 genres
+              }
+            }
+            ... on ActivityLikeNotification {
+              id
+              type
+              createdAt
+              user {
+                name
+                avatar { large }
+              }
+            }
+            ... on ActivityReplyNotification {
+              id
+              type
+              createdAt
+              user {
+                name
+                avatar { large }
+              }
+            }
+            ... on ActivityReplyLikeNotification {
+              id
+              type
+              createdAt
+              user {
+                name
+                avatar { large }
+              }
+            }
+            ... on FollowingNotification {
+              id
+              type
+              createdAt
+              user {
+                name
+                avatar { large }
               }
             }
           }
@@ -662,7 +699,9 @@ class AniListClient {
             .where((n) => n.id != 0)
             .toList();
         AppLogger.i(
-            'AniList', 'notifications fallback loaded count=${out.length}');
+          'AniList',
+          'notifications fallback loaded count=${out.length}',
+        );
         return out;
       } catch (e2, st2) {
         AppLogger.w(

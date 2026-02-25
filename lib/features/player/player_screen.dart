@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/app_logger.dart';
 import '../../state/auth_state.dart';
@@ -38,16 +38,42 @@ class _PlayerCandidate {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
-  VideoPlayerController? _controller;
+  late final Player _player;
+  late final VideoController _videoController;
+
+  StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
+
   Timer? _persistTimer;
   bool _controlsVisible = true;
   bool _ready = false;
   bool _isPlaying = false;
   String? _initError;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
 
   @override
   void initState() {
     super.initState();
+    _player = Player();
+    _videoController = VideoController(_player);
+
+    _playingSub = _player.stream.playing.listen((playing) {
+      if (!mounted) return;
+      if (_isPlaying != playing) {
+        setState(() => _isPlaying = playing);
+      }
+    });
+
+    _positionSub = _player.stream.position.listen((p) {
+      _position = p;
+    });
+
+    _durationSub = _player.stream.duration.listen((d) {
+      _duration = d;
+    });
+
     _init();
   }
 
@@ -92,25 +118,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return out;
   }
 
-  Future<VideoPlayerController?> _createController(_PlayerCandidate c) async {
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(c.url),
-      httpHeaders: c.headers,
-    );
+  Future<bool> _tryOpen(_PlayerCandidate candidate) async {
     try {
-      await controller.initialize();
-      return controller;
+      await _player.open(
+        Media(candidate.url, httpHeaders: candidate.headers),
+        play: false,
+      );
+      return true;
     } catch (e, st) {
-      AppLogger.w('Player', 'Init attempt failed for ${c.url}',
+      AppLogger.w('Player', 'Init attempt failed for ${candidate.url}',
           error: e, stackTrace: st);
-      await controller.dispose();
-      return null;
+      return false;
     }
   }
 
   Future<void> _init() async {
-    final url =
-        widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
+    final rawUrl = widget.sourceUrl;
+    final url = rawUrl == null ? null : _sanitizeUrl(rawUrl);
     if (url == null || url.isEmpty) {
       AppLogger.w('Player',
           'Missing source URL for media ${widget.mediaId} ep ${widget.episodeNumber}');
@@ -122,29 +146,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
 
-    VideoPlayerController? controller;
+    bool opened = false;
 
     if (widget.isLocal) {
       final uri = Uri.parse(url);
-      final file = uri.isScheme('file') ? File.fromUri(uri) : File(url);
-      controller = VideoPlayerController.file(file);
-      try {
-        await controller.initialize();
-      } catch (e, st) {
-        AppLogger.w('Player', 'Local source init failed for ${file.path}',
-            error: e, stackTrace: st);
-        await controller.dispose();
-        controller = null;
+      final fileUri = uri.isScheme('file') ? uri : Uri.file(url);
+      opened = await _tryOpen(
+          _PlayerCandidate(url: fileUri.toString(), headers: const {}));
+      if (!opened) {
+        AppLogger.w(
+            'Player', 'Local source init failed for ${fileUri.toFilePath()}');
       }
     } else {
       final candidates = _buildCandidates(url);
       for (final c in candidates) {
-        controller = await _createController(c);
-        if (controller != null) break;
+        opened = await _tryOpen(c);
+        if (opened) break;
       }
     }
 
-    if (controller == null) {
+    if (!opened) {
       AppLogger.e('Player',
           'All source init attempts failed for media ${widget.mediaId} ep ${widget.episodeNumber}',
           error: url);
@@ -158,32 +179,30 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
 
-    _controller = controller;
     AppLogger.i('Player',
         'Playback initialized for media ${widget.mediaId} ep ${widget.episodeNumber}');
 
     final store = ref.read(progressStoreProvider);
     final saved = store.read(widget.mediaId, widget.episodeNumber);
     if (saved != null && saved.positionMs > 0) {
-      final maxMs = controller.value.duration.inMilliseconds;
+      // Wait briefly to ensure duration has propagated.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final maxMs = _duration.inMilliseconds;
       if (maxMs > 0) {
         final seekMs = saved.positionMs.clamp(0, maxMs);
-        await controller.seekTo(Duration(milliseconds: seekMs));
+        await _player.seek(Duration(milliseconds: seekMs));
       }
     }
 
-    controller.addListener(_onPlayerUpdate);
-    await controller.play();
+    await _player.play();
 
     _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      final c = _controller;
-      if (c == null || !c.value.isInitialized) return;
-      final durationMs = c.value.duration.inMilliseconds;
+      final durationMs = _duration.inMilliseconds;
       if (durationMs <= 0) return;
       await store.write(
         mediaId: widget.mediaId,
         episode: widget.episodeNumber,
-        positionMs: c.value.position.inMilliseconds,
+        positionMs: _position.inMilliseconds,
         durationMs: durationMs,
       );
     });
@@ -191,50 +210,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (mounted) {
       setState(() {
         _ready = true;
-        _isPlaying = controller!.value.isPlaying;
+        _isPlaying = true;
         _initError = null;
       });
     }
   }
 
-  void _onPlayerUpdate() {
-    final c = _controller;
-    if (c == null || !mounted) return;
-    final playing = c.value.isPlaying;
-    if (_isPlaying != playing) {
-      setState(() => _isPlaying = playing);
-    }
-  }
-
   Future<void> _seekRelative(Duration delta) async {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    final target = c.value.position + delta;
-    final max = c.value.duration;
-    Duration clamped = target;
-    if (clamped < Duration.zero) clamped = Duration.zero;
-    if (clamped > max) clamped = max;
-    await c.seekTo(clamped);
+    final max = _duration;
+    if (max <= Duration.zero) return;
+    var target = _position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > max) target = max;
+    await _player.seek(target);
   }
 
   @override
   void dispose() {
     _persistTimer?.cancel();
-    _controller?.removeListener(_onPlayerUpdate);
-    _controller?.dispose();
+    _playingSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    unawaited(_player.dispose());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final controller = _controller;
-    final ready =
-        controller != null && _ready && controller.value.isInitialized;
+    final ready = _ready;
 
-    final durationMs = ready ? controller.value.duration.inMilliseconds : 0;
+    final durationMs = ready ? _duration.inMilliseconds : 0;
     final positionMs = ready
-        ? controller.value.position.inMilliseconds
-            .clamp(0, durationMs <= 0 ? 0 : durationMs)
+        ? _position.inMilliseconds.clamp(0, durationMs <= 0 ? 0 : durationMs)
         : 0;
     final sliderMax = durationMs <= 0 ? 1.0 : durationMs.toDouble();
 
@@ -257,11 +264,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 },
                 child: Center(
                   child: ready
-                      ? AspectRatio(
-                          aspectRatio: controller.value.aspectRatio <= 0
-                              ? (16 / 9)
-                              : controller.value.aspectRatio,
-                          child: VideoPlayer(controller),
+                      ? Video(
+                          controller: _videoController,
+                          fit: BoxFit.contain,
                         )
                       : Text(
                           _initError ?? 'Loading source...',
@@ -301,8 +306,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       min: 0,
                       max: sliderMax,
                       onChanged: (v) async {
-                        await controller
-                            .seekTo(Duration(milliseconds: v.round()));
+                        await _player.seek(Duration(milliseconds: v.round()));
                       },
                     ),
                     Row(
@@ -315,10 +319,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         ),
                         IconButton(
                           onPressed: () async {
-                            if (controller.value.isPlaying) {
-                              await controller.pause();
+                            if (_isPlaying) {
+                              await _player.pause();
                             } else {
-                              await controller.play();
+                              await _player.play();
                             }
                           },
                           icon: Icon(
@@ -343,4 +347,3 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 }
-

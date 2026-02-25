@@ -114,37 +114,31 @@ class _PillBottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <({IconData icon, String label})>[
       (icon: Icons.library_books_outlined, label: 'Library'),
-      (icon: Icons.auto_awesome_outlined, label: 'Discover'),
-      (icon: Icons.notifications_none, label: 'Alerts'),
+      (icon: Icons.auto_awesome_outlined, label: 'Discovery'),
+      (icon: Icons.notifications_rounded, label: 'Alerts'),
       (icon: Icons.download_outlined, label: 'Downloads'),
       (icon: Icons.settings_outlined, label: 'Settings'),
     ];
 
+    final activeColor = Theme.of(context).colorScheme.primary;
+
     return GlassCard(
-      borderRadius: 30,
+      borderRadius: 999,
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
+        horizontal: compact ? 8 : 12,
         vertical: compact ? 4 : 6,
       ),
       child: Row(
         children: [
-          for (var i = 0; i < items.length; i++) ...[
+          for (var i = 0; i < items.length; i++)
             Expanded(
               child: InkWell(
                 borderRadius: BorderRadius.circular(999),
                 onTap: () => onTap(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
+                child: Padding(
                   padding: EdgeInsets.symmetric(
-                      vertical: compact ? 8 : 10, horizontal: 6),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: i == index
-                        ? Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.24)
-                        : Colors.transparent,
+                    vertical: compact ? 8 : 10,
+                    horizontal: 4,
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -153,31 +147,35 @@ class _PillBottomBar extends StatelessWidget {
                         Badge(
                           isLabelVisible: unread > 0,
                           smallSize: 8,
-                          child: Icon(items[i].icon,
-                              size: compact ? 18 : 20,
-                              color: i == index
-                                  ? Theme.of(context).colorScheme.primary
-                                  : null),
+                          child: Icon(
+                            items[i].icon,
+                            size: compact ? 19 : 20,
+                            color: i == index
+                                ? activeColor
+                                : const Color(0xFFCAD0DD),
+                          ),
                         )
                       else
-                        Icon(items[i].icon,
-                            size: compact ? 18 : 20,
-                            color: i == index
-                                ? Theme.of(context).colorScheme.primary
-                                : null),
+                        Icon(
+                          items[i].icon,
+                          size: compact ? 19 : 20,
+                          color: i == index
+                              ? activeColor
+                              : const Color(0xFFCAD0DD),
+                        ),
                       if (!compact) ...[
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 3),
                         Text(
                           items[i].label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 12,
                             fontWeight:
                                 i == index ? FontWeight.w800 : FontWeight.w600,
                             color: i == index
-                                ? Theme.of(context).colorScheme.primary
-                                : const Color(0xFFA1A8BC),
+                                ? activeColor
+                                : const Color(0xFFCAD0DD),
                           ),
                         ),
                       ],
@@ -186,8 +184,6 @@ class _PillBottomBar extends StatelessWidget {
                 ),
               ),
             ),
-            if (i != items.length - 1) const SizedBox(width: 4),
-          ],
         ],
       ),
     );
