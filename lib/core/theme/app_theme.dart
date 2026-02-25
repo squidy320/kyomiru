@@ -35,32 +35,43 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       surface: AppColors.surface,
       onSurface: AppColors.text,
     ),
-    textTheme: base.textTheme.apply(
-      bodyColor: AppColors.text,
-      displayColor: AppColors.text,
-    ),
+    textTheme: base.textTheme
+        .apply(
+          bodyColor: AppColors.text,
+          displayColor: AppColors.text,
+        )
+        .copyWith(
+          titleLarge:
+              const TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+          titleMedium:
+              const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          bodyMedium: const TextStyle(fontSize: 14, height: 1.25),
+          bodySmall: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+        ),
     cardColor: AppColors.surface,
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: const Color(0xCC0E1428),
-      indicatorColor: accent.withValues(alpha: 0.26),
+      indicatorColor: accent.withValues(alpha: 0.24),
       labelTextStyle: const WidgetStatePropertyAll(
         TextStyle(fontWeight: FontWeight.w700),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       filled: true,
-      fillColor: const Color(0xAA11182B),
+      fillColor: const Color(0x6611182B),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0x33FFFFFF)),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0x33FFFFFF)),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: accent),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: accent.withValues(alpha: 0.4)),
       ),
     ),
   );

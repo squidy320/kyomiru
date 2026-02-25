@@ -1,7 +1,10 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import '../state/app_settings_state.dart';
 
@@ -9,7 +12,7 @@ class GlassCard extends ConsumerWidget {
   const GlassCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(14),
+    this.padding = const EdgeInsets.all(12),
     this.borderRadius = 16,
   });
 
@@ -17,37 +20,58 @@ class GlassCard extends ConsumerWidget {
   final EdgeInsetsGeometry padding;
   final double borderRadius;
 
+  bool _supportsLiquidGlass(String mode) {
+    if (mode == 'Off') return false;
+    return !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
     final glassEnabled = settings.glass != 'Off';
+    final liquidEnabled = _supportsLiquidGlass(settings.glass);
     final sigma = switch (settings.intensity) {
       'Low' => 6.0,
       'Medium' => 10.0,
       _ => 14.0,
     };
     final overlayAlpha = switch (settings.intensity) {
-      'Low' => 0.72,
-      'Medium' => 0.62,
-      _ => 0.55,
+      'Low' => 0.74,
+      'Medium' => 0.66,
+      _ => 0.58,
     };
 
     final content = Container(
       decoration: BoxDecoration(
         color: const Color(0xFF121A30).withValues(alpha: overlayAlpha),
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: const Color(0x40FFFFFF)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
+            color: Color(0x26000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
           ),
         ],
       ),
       padding: padding,
       child: child,
     );
+
+    if (liquidEnabled) {
+      return LiquidGlass.withOwnLayer(
+        shape: LiquidRoundedSuperellipse(borderRadius: borderRadius),
+        settings: LiquidGlassSettings(
+          blur: sigma,
+          thickness: 7,
+          lightAngle: 0.2 * math.pi,
+          glassColor: Colors.white.withValues(alpha: 0.08),
+          refractiveIndex: 1.12,
+        ),
+        child: content,
+      );
+    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
@@ -72,7 +96,7 @@ class GlassScaffoldBackground extends ConsumerWidget {
     final background =
         settings.oled ? const Color(0xFF000000) : const Color(0xFF040714);
 
-    return Stack(
+    final base = Stack(
       children: [
         Container(color: background),
         Positioned(
@@ -106,5 +130,13 @@ class GlassScaffoldBackground extends ConsumerWidget {
         child,
       ],
     );
+
+    final liquidEnabled = !kIsWeb &&
+        settings.glass != 'Off' &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+
+    if (!liquidEnabled) return base;
+    return LiquidGlassLayer(child: base);
   }
 }

@@ -7,6 +7,9 @@ import '../../features/details/details_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 
+const double _kCardWidth = 156;
+const double _kCardHeight = 236;
+
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
 
@@ -21,10 +24,10 @@ class LibraryScreen extends ConsumerWidget {
     if (auth.token == null || auth.token!.isEmpty) {
       return SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
           children: [
             const Text('Library',
-                style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900)),
+                style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
             const Text('All your AniList collections',
                 style: TextStyle(color: Color(0xFFA1A8BC))),
             const SizedBox(height: 12),
@@ -74,7 +77,7 @@ class _LibraryDataView extends ConsumerWidget {
 
         return SafeArea(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
             children: [
               Row(
                 children: [
@@ -84,7 +87,7 @@ class _LibraryDataView extends ConsumerWidget {
                       children: [
                         Text('Library',
                             style: TextStyle(
-                                fontSize: 42, fontWeight: FontWeight.w900)),
+                                fontSize: 34, fontWeight: FontWeight.w900)),
                         Text('All your AniList collections',
                             style: TextStyle(color: Color(0xFFA1A8BC))),
                       ],
@@ -105,7 +108,7 @@ class _LibraryDataView extends ConsumerWidget {
                 const GlassCard(child: Text('No library items found.'))
               else
                 ...sections.map((section) => Padding(
-                      padding: const EdgeInsets.only(bottom: 18),
+                      padding: const EdgeInsets.only(bottom: 14),
                       child: _LibrarySection(section: section),
                     )),
             ],
@@ -127,11 +130,10 @@ class _LibrarySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('${section.title} (${section.items.length})',
-            style: const TextStyle(
-                fontSize: 40 / 1.35, fontWeight: FontWeight.w900)),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
         const SizedBox(height: 8),
         SizedBox(
-          height: 210,
+          height: _kCardHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: section.items.length,
@@ -139,7 +141,7 @@ class _LibrarySection extends StatelessWidget {
             itemBuilder: (context, index) {
               final e = section.items[index];
               return SizedBox(
-                width: 148,
+                width: _kCardWidth,
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -151,7 +153,7 @@ class _LibrarySection extends StatelessWidget {
                       children: [
                         Positioned.fill(
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                             child: e.media.cover.best == null
                                 ? Container(color: const Color(0x22111111))
                                 : Image.network(e.media.cover.best!,
@@ -163,47 +165,49 @@ class _LibrarySection extends StatelessWidget {
                           right: 8,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 3),
+                                horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: const Color(0xAA2A3248),
+                              color: const Color(0xAA0C1324),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
                               e.media.averageScore?.toString() ?? 'NR',
                               style: const TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w700),
+                                  fontSize: 12, fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),
                         Positioned(
-                          left: 8,
-                          right: 8,
-                          bottom: 8,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                e.media.title.best,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    shadows: [
-                                      Shadow(
-                                          color: Colors.black87, blurRadius: 6)
-                                    ]),
-                              ),
-                              Text(
-                                'Progress: ${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}',
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFFCDD6F7),
-                                    shadows: [
-                                      Shadow(
-                                          color: Colors.black87, blurRadius: 6)
-                                    ]),
-                              ),
-                            ],
+                          left: 10,
+                          right: 10,
+                          bottom: 10,
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xAA0B0F1D),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  e.media.title.best,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Progress: ${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFFCDD6F7),
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],

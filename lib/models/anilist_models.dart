@@ -2,14 +2,21 @@ class AniListUser {
   final int id;
   final String name;
   final String? avatar;
+  final String? bannerImage;
 
-  AniListUser({required this.id, required this.name, this.avatar});
+  AniListUser({
+    required this.id,
+    required this.name,
+    this.avatar,
+    this.bannerImage,
+  });
 
   factory AniListUser.fromJson(Map<String, dynamic> json) => AniListUser(
         id: (json['id'] as num?)?.toInt() ?? 0,
         name: (json['name'] ?? 'User').toString(),
         avatar:
             ((json['avatar'] as Map<String, dynamic>?)?['large'])?.toString(),
+        bannerImage: json['bannerImage']?.toString(),
       );
 }
 
@@ -184,6 +191,28 @@ class AniListDiscoverySection {
 
   final String title;
   final List<AniListMedia> items;
+}
+
+class AniListTrackingEntry {
+  final int id;
+  final String status;
+  final int progress;
+  final double score;
+
+  const AniListTrackingEntry({
+    required this.id,
+    required this.status,
+    required this.progress,
+    required this.score,
+  });
+
+  factory AniListTrackingEntry.fromJson(Map<String, dynamic> json) =>
+      AniListTrackingEntry(
+        id: (json['id'] as num?)?.toInt() ?? 0,
+        status: (json['status'] ?? 'CURRENT').toString(),
+        progress: (json['progress'] as num?)?.toInt() ?? 0,
+        score: (json['score'] as num?)?.toDouble() ?? 0,
+      );
 }
 
 class SoraExtensionManifest {

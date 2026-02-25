@@ -8,6 +8,9 @@ import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 import '../details/details_screen.dart';
 
+const double _kCardWidth = 156;
+const double _kCardHeight = 236;
+
 class DiscoveryScreen extends ConsumerStatefulWidget {
   const DiscoveryScreen({super.key});
 
@@ -30,7 +33,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 320), () async {
+    _debounce = Timer(const Duration(milliseconds: 260), () async {
       if (!mounted) return;
       if (value.trim().isEmpty) {
         setState(() {
@@ -62,18 +65,21 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
         children: [
           const Text('Discovery',
               style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
+          const Text('Trending, new releases, and hot anime',
+              style: TextStyle(color: Color(0xFFA1A8BC))),
+          const SizedBox(height: 10),
           GlassCard(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             child: TextField(
               controller: _search,
               onChanged: _onSearchChanged,
               decoration: InputDecoration(
-                hintText: 'Search AniList anime...',
+                hintText: 'Search anime...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _search.text.isEmpty
                     ? null
@@ -87,7 +93,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           if (showingSearch) ...[
             if (_searching)
               const Center(child: CircularProgressIndicator())
@@ -95,7 +101,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               const GlassCard(child: Text('No results.'))
             else
               _HorizontalSection(
-                title: 'SEARCH RESULTS',
+                title: 'Search Results',
                 items: _searchResults,
               ),
           ] else
@@ -114,7 +120,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                   children: [
                     for (final section in sections)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.only(bottom: 14),
                         child: _HorizontalSection(
                           title: section.title,
                           items: section.items,
@@ -144,19 +150,13 @@ class _HorizontalSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-            ),
-            const Spacer(),
-            TextButton(onPressed: () {}, child: const Text('View All')),
-          ],
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 272,
+          height: _kCardHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: items.length,
@@ -164,7 +164,7 @@ class _HorizontalSection extends StatelessWidget {
             itemBuilder: (context, index) {
               final item = items[index];
               return SizedBox(
-                width: 168,
+                width: _kCardWidth,
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
@@ -188,31 +188,34 @@ class _HorizontalSection extends StatelessWidget {
                           right: 8,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 3),
+                                horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: const Color(0xAA2A3248),
+                              color: const Color(0xAA0C1324),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
                               item.averageScore?.toString() ?? 'NR',
                               style: const TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w700),
+                                  fontSize: 12, fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),
                         Positioned(
-                          left: 8,
-                          right: 8,
-                          bottom: 8,
-                          child: Text(
-                            item.title.best,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              shadows: [
-                                Shadow(color: Colors.black87, blurRadius: 6)
-                              ],
+                          left: 10,
+                          right: 10,
+                          bottom: 10,
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xAA0B0F1D),
+                            ),
+                            child: Text(
+                              item.title.best,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 16),
                             ),
                           ),
                         ),

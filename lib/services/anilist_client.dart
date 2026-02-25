@@ -195,6 +195,7 @@ class AniListClient {
           id
           name
           avatar { large }
+          bannerImage
         }
       }
     ''';
@@ -502,9 +503,9 @@ class AniListClient {
 
   Future<List<AniListNotificationItem>> notifications(String token) async {
     const q = r'''
-      query {
+      query ($userId: Int) {
         Page(page: 1, perPage: 30) {
-          notifications {
+          notifications(userId: $userId, type_in: [AIRING]) {
             ... on AiringNotification {
               id
               type
@@ -526,7 +527,12 @@ class AniListClient {
     ''';
 
     try {
-      final data = await _graphql(query: q, token: token);
+      final user = await me(token);
+      final data = await _graphql(
+        query: q,
+        token: token,
+        variables: {'userId': user.id},
+      );
       final raw = (data['Page']?['notifications'] as List? ?? const []);
       return raw
           .whereType<Map<String, dynamic>>()
@@ -537,6 +543,72 @@ class AniListClient {
           error: e, stackTrace: st);
       return const [];
     }
+  }
+
+  Future<AniListTrackingEntry?> trackingEntry(
+    String token,
+    int mediaId,
+  ) async {
+    const q = r'''
+      query ($mediaId: Int) {
+        MediaList(mediaId: $mediaId, type: ANIME) {
+          id
+          status
+          progress
+          score(format: POINT_10_DECIMAL)
+        }
+      }
+    ''';
+    final data = await _graphql(
+      query: q,
+      token: token,
+      variables: {'mediaId': mediaId},
+    );
+    final raw = data['MediaList'];
+    if (raw is! Map<String, dynamic>) return null;
+    return AniListTrackingEntry.fromJson(raw);
+  }
+
+  Future<AniListTrackingEntry> saveTrackingEntry({
+    required String token,
+    required int mediaId,
+    required String status,
+    required int progress,
+    required double score,
+  }) async {
+    const q = r'''
+      mutation (
+        $mediaId: Int,
+        $status: MediaListStatus,
+        $progress: Int,
+        $score: Float
+      ) {
+        SaveMediaListEntry(
+          mediaId: $mediaId,
+          status: $status,
+          progress: $progress,
+          score: $score
+        ) {
+          id
+          status
+          progress
+          score(format: POINT_10_DECIMAL)
+        }
+      }
+    ''';
+    final data = await _graphql(
+      query: q,
+      token: token,
+      variables: {
+        'mediaId': mediaId,
+        'status': status,
+        'progress': progress,
+        'score': score,
+      },
+    );
+    return AniListTrackingEntry.fromJson(
+      (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
+    );
   }
 
   String _season(int month) {

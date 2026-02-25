@@ -180,6 +180,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final client = ref.watch(anilistClientProvider);
     final progressStore = ref.watch(progressStoreProvider);
     final downloads = ref.watch(downloadControllerProvider);
+    final auth = ref.watch(authControllerProvider);
 
     return FutureBuilder<AniListMedia>(
       future: client.mediaDetails(widget.mediaId),
@@ -576,19 +577,31 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                     },
                   ),
                 if (_tab == 1)
-                  GlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(media.title.best,
-                            style: const TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 8),
-                        Text(description.isEmpty
-                            ? 'No description.'
-                            : description),
-                      ],
-                    ),
+                  Column(
+                    children: [
+                      GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(media.title.best,
+                                style: const TextStyle(
+                                    fontSize: 22, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 8),
+                            Text(description.isEmpty
+                                ? 'No description.'
+                                : description),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (auth.token == null || auth.token!.isEmpty)
+                        const GlassCard(
+                          child: Text(
+                              'Connect AniList to manage list, score, and progress.'),
+                        )
+                      else
+                        _AniListTrackingPane(token: auth.token!, media: media),
+                    ],
                   ),
                 if (_tab == 2)
                   GlassCard(
@@ -612,6 +625,163 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                   ),
               ],
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AniListTrackingPane extends ConsumerStatefulWidget {
+  const _AniListTrackingPane({required this.token, required this.media});
+
+  final String token;
+  final AniListMedia media;
+
+  @override
+  ConsumerState<_AniListTrackingPane> createState() =>
+      _AniListTrackingPaneState();
+}
+
+class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
+  String _status = 'CURRENT';
+  double _score = 0;
+  int _progress = 0;
+  bool _saving = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final client = ref.watch(anilistClientProvider);
+
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([
+        client.me(widget.token),
+        client.trackingEntry(widget.token, widget.media.id),
+      ]),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const GlassCard(child: Text('Loading tracking...'));
+        }
+
+        final user = snap.hasData ? snap.data![0] as AniListUser : null;
+        final entry =
+            snap.hasData ? snap.data![1] as AniListTrackingEntry? : null;
+
+        if (entry != null) {
+          _status = entry.status;
+          _score = entry.score;
+          _progress = entry.progress;
+        }
+
+        final bg = user?.bannerImage ?? widget.media.bannerImage;
+        final maxEp = widget.media.episodes ?? 9999;
+
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
+              if (bg != null)
+                Positioned.fill(
+                  child: Image.network(bg, fit: BoxFit.cover),
+                ),
+              Positioned.fill(
+                child: Container(color: const Color(0xCC0B1020)),
+              ),
+              GlassCard(
+                borderRadius: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('AniList Tracking',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final s in const [
+                          'CURRENT',
+                          'PLANNING',
+                          'COMPLETED',
+                          'PAUSED',
+                          'DROPPED'
+                        ])
+                          ChoiceChip(
+                            label: Text(s),
+                            selected: _status == s,
+                            onSelected: (_) => setState(() => _status = s),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Text('Episode'),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Slider(
+                            value:
+                                _progress.toDouble().clamp(0, maxEp.toDouble()),
+                            max: maxEp.toDouble(),
+                            divisions: maxEp > 0 ? maxEp : 1,
+                            label: '$_progress',
+                            onChanged: (v) =>
+                                setState(() => _progress = v.round()),
+                          ),
+                        ),
+                        Text('$_progress/$maxEp'),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const Text('Score'),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Slider(
+                            value: _score.clamp(0, 10),
+                            max: 10,
+                            divisions: 100,
+                            label: _score.toStringAsFixed(1),
+                            onChanged: (v) => setState(() => _score = v),
+                          ),
+                        ),
+                        Text(_score.toStringAsFixed(1)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.tonalIcon(
+                        onPressed: _saving
+                            ? null
+                            : () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                setState(() => _saving = true);
+                                try {
+                                  await client.saveTrackingEntry(
+                                    token: widget.token,
+                                    mediaId: widget.media.id,
+                                    status: _status,
+                                    progress: _progress,
+                                    score: _score,
+                                  );
+                                  if (!mounted) return;
+                                  messenger.showSnackBar(
+                                    const SnackBar(
+                                        content: Text('Tracking updated.')),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _saving = false);
+                                }
+                              },
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(_saving ? 'Saving...' : 'Save'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },
