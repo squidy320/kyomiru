@@ -17,11 +17,6 @@ class AniListLoginWebViewScreen extends ConsumerStatefulWidget {
 
 class _AniListLoginWebViewScreenState
     extends ConsumerState<AniListLoginWebViewScreen> {
-  late final WebViewController _controller;
-  String _error = '';
-  bool _completed = false;
-  bool _authInFlight = false;
-
   static const _clientId =
       String.fromEnvironment('ANILIST_CLIENT_ID', defaultValue: '36271');
   static const _clientSecret = String.fromEnvironment(
@@ -29,6 +24,32 @@ class _AniListLoginWebViewScreenState
     defaultValue: 'LwVZw1mcI7iWatIXJfhcSg9FmYSH3MY7zPNu3XAL',
   );
   static const _redirectUri = 'kyomiru://auth';
+  late final WebViewController _controller;
+
+  String _error = '';
+  bool _completed = false;
+  bool _authInFlight = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('AniList Login')),
+      body: Column(
+        children: [
+          if (_error.isNotEmpty)
+            Container(
+              width: double.infinity,
+              color: Colors.red.withValues(alpha: 0.2),
+              padding: const EdgeInsets.all(10),
+              child:
+                  Text(_error, style: const TextStyle(color: Colors.redAccent)),
+            ),
+          const LinearProgressIndicator(minHeight: 1),
+          Expanded(child: WebViewWidget(controller: _controller)),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -104,35 +125,6 @@ class _AniListLoginWebViewScreenState
       ..loadRequest(Uri.parse(authUrl));
   }
 
-  Future<void> _maybeHandleCallback(String url,
-      {required String source}) async {
-    if (_completed || _authInFlight) return;
-    if (_isCallback(url)) {
-      AppLogger.i('AniListAuth', 'Callback detected via $source');
-      await _completeLogin(url);
-    }
-  }
-
-  bool _isCallback(String url) {
-    return url.startsWith('kyomiru://') || url.startsWith('kyomiru:/');
-  }
-
-  String _randomState() {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    final rnd = Random();
-    return List.generate(12, (_) => chars[rnd.nextInt(chars.length)]).join();
-  }
-
-  Future<String> _exchangeCodeForToken(String code) async {
-    final client = ref.read(anilistClientProvider);
-    return client.exchangeCodeForToken(
-      clientId: _clientId,
-      clientSecret: _clientSecret,
-      code: code,
-      redirectUri: _redirectUri,
-    );
-  }
-
   Future<void> _completeLogin(String callbackUrl) async {
     if (_completed || _authInFlight) return;
     _authInFlight = true;
@@ -185,24 +177,32 @@ class _AniListLoginWebViewScreenState
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('AniList Login')),
-      body: Column(
-        children: [
-          if (_error.isNotEmpty)
-            Container(
-              width: double.infinity,
-              color: Colors.red.withValues(alpha: 0.2),
-              padding: const EdgeInsets.all(10),
-              child:
-                  Text(_error, style: const TextStyle(color: Colors.redAccent)),
-            ),
-          const LinearProgressIndicator(minHeight: 1),
-          Expanded(child: WebViewWidget(controller: _controller)),
-        ],
-      ),
+  Future<String> _exchangeCodeForToken(String code) async {
+    final client = ref.read(anilistClientProvider);
+    return client.exchangeCodeForToken(
+      clientId: _clientId,
+      clientSecret: _clientSecret,
+      code: code,
+      redirectUri: _redirectUri,
     );
+  }
+
+  bool _isCallback(String url) {
+    return url.startsWith('kyomiru://') || url.startsWith('kyomiru:/');
+  }
+
+  Future<void> _maybeHandleCallback(String url,
+      {required String source}) async {
+    if (_completed || _authInFlight) return;
+    if (_isCallback(url)) {
+      AppLogger.i('AniListAuth', 'Callback detected via $source');
+      await _completeLogin(url);
+    }
+  }
+
+  String _randomState() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final rnd = Random();
+    return List.generate(12, (_) => chars[rnd.nextInt(chars.length)]).join();
   }
 }

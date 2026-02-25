@@ -580,10 +580,10 @@ class AniListClient {
   }
 
   Future<List<AniListNotificationItem>> notifications(String token) async {
-    const q = r'''
-      query ($userId: Int) {
-        Page(page: 1, perPage: 30) {
-          notifications(userId: $userId, type_in: [AIRING]) {
+    const qPrimary = r'''
+      query NotificationsPrimary {
+        Page(page: 1, perPage: 40) {
+          notifications {
             ... on AiringNotification {
               id
               type
@@ -591,9 +591,75 @@ class AniListClient {
               context
               media {
                 id
+                episodes
+                averageScore
                 title { romaji english native }
                 coverImage { large extraLarge }
                 siteUrl
+                bannerImage
+                status
+                isAdult
+                genres
+              }
+            }
+            ... on RelatedMediaAdditionNotification {
+              id
+              type
+              createdAt
+              context
+              media {
+                id
+                episodes
+                averageScore
+                title { romaji english native }
+                coverImage { large extraLarge }
+                siteUrl
+                bannerImage
+                status
+                isAdult
+                genres
+              }
+            }
+            ... on MediaDataChangeNotification {
+              id
+              type
+              createdAt
+              context
+              media {
+                id
+                episodes
+                averageScore
+                title { romaji english native }
+                coverImage { large extraLarge }
+                siteUrl
+                bannerImage
+                status
+                isAdult
+                genres
+              }
+            }
+          }
+        }
+      }
+    ''';
+
+    const qFallback = r'''
+      query NotificationsFallback($userId: Int) {
+        Page(page: 1, perPage: 40) {
+          notifications(userId: $userId) {
+            ... on AiringNotification {
+              id
+              type
+              createdAt
+              context
+              media {
+                id
+                episodes
+                averageScore
+                title { romaji english native }
+                coverImage { large extraLarge }
+                siteUrl
+                bannerImage
                 status
                 isAdult
                 genres
@@ -605,21 +671,39 @@ class AniListClient {
     ''';
 
     try {
-      final user = await me(token);
-      final data = await _graphql(
-        query: q,
-        token: token,
-        variables: {'userId': user.id},
-      );
+      final data = await _graphql(query: qPrimary, token: token);
       final raw = (data['Page']?['notifications'] as List? ?? const []);
-      return raw
+      final out = raw
           .whereType<Map<String, dynamic>>()
           .map(AniListNotificationItem.fromJson)
           .toList();
+      AppLogger.i('AniList', 'notifications loaded count=${out.length}');
+      return out;
     } catch (e, st) {
-      AppLogger.w('AniList', 'notifications query failed, returning empty list',
+      AppLogger.w(
+          'AniList', 'notifications primary query failed, trying fallback',
           error: e, stackTrace: st);
-      return const [];
+      try {
+        final user = await me(token);
+        final data = await _graphql(
+          query: qFallback,
+          token: token,
+          variables: {'userId': user.id},
+        );
+        final raw = (data['Page']?['notifications'] as List? ?? const []);
+        final out = raw
+            .whereType<Map<String, dynamic>>()
+            .map(AniListNotificationItem.fromJson)
+            .toList();
+        AppLogger.i(
+            'AniList', 'notifications fallback loaded count=${out.length}');
+        return out;
+      } catch (e2, st2) {
+        AppLogger.w(
+            'AniList', 'notifications query failed, returning empty list',
+            error: e2, stackTrace: st2);
+        return const [];
+      }
     }
   }
 
