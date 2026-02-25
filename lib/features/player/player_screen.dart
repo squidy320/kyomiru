@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,7 +8,6 @@ import 'package:video_player/video_player.dart';
 import '../../core/app_logger.dart';
 import '../../core/apple_material_overlay.dart';
 import '../../state/auth_state.dart';
-import 'widgets/anime_player_mesh_background.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
@@ -363,12 +362,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _scheduleControlsAutoHide() {
+    // Keep controls visible until explicit user tap to avoid missing controls.
     _controlsHideTimer?.cancel();
-    if (!_isPlaying) return;
-    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      setState(() => _controlsVisible = false);
-    });
   }
 
   Future<void> _togglePlayPause() async {
@@ -440,27 +435,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       body: SafeArea(
         child: Stack(
           children: [
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimePlayerMeshBackground(
-                  backgroundImageUrl: widget.backgroundImageUrl,
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.35),
-                      Colors.black.withValues(alpha: 0.18),
-                      Colors.black.withValues(alpha: 0.45),
-                    ],
-                  ),
-                ),
-              ),
+            const Positioned.fill(
+              child: ColoredBox(color: Colors.black),
             ),
             Positioned.fill(
               child: GestureDetector(
