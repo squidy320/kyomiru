@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/app_logger.dart';
+import '../../core/apple_material_overlay.dart';
 import '../../state/auth_state.dart';
 import 'widgets/anime_player_mesh_background.dart';
 
@@ -447,6 +448,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               ),
             ),
             Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.35),
+                      Colors.black.withValues(alpha: 0.18),
+                      Colors.black.withValues(alpha: 0.45),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _toggleControls,
@@ -468,21 +484,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 },
                 child: Center(
                   child: ready
-                      ? AspectRatio(
-                          aspectRatio: controller.value.aspectRatio <= 0
-                              ? (16 / 9)
-                              : controller.value.aspectRatio,
-                          child: Stack(
-                            children: [
-                              Positioned.fill(child: VideoPlayer(controller)),
-                              if (_isBuffering)
-                                const Positioned.fill(
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: AspectRatio(
+                            aspectRatio: controller.value.aspectRatio <= 0
+                                ? (16 / 9)
+                                : controller.value.aspectRatio,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: VideoPlayer(controller),
                                   ),
-                                ),
-                            ],
+                                  if (_isBuffering)
+                                    const Positioned.fill(
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
                         )
                       : Text(
@@ -500,13 +524,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     child: AnimatedOpacity(
                       opacity: _skipIndicator == null ? 0 : 1,
                       duration: const Duration(milliseconds: 140),
-                      child: Container(
+                      child: AppleMaterialOverlay(
+                        borderRadius: BorderRadius.circular(999),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
+                            horizontal: 16, vertical: 10),
                         child: Text(
                           _skipIndicator!,
                           style: const TextStyle(
@@ -519,104 +540,194 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   ),
                 ),
               ),
-            if (_controlsVisible)
-              Positioned(
-                top: 8,
-                left: 8,
-                child: IconButton.filledTonal(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close),
-                ),
-              ),
-            if (_controlsVisible && ready)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 16,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.episodeTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+            Positioned.fill(
+              child: AnimatedOpacity(
+                opacity: _controlsVisible ? 1 : 0,
+                duration: const Duration(milliseconds: 220),
+                child: IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 8,
+                        left: 12,
+                        child: _AppleCircleButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: Icons.close,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Slider(
-                      value: sliderValue.clamp(0, sliderMax),
-                      min: 0,
-                      max: sliderMax,
-                      onChangeStart: (v) {
-                        _isScrubbing = true;
-                        _scrubValue = v;
-                      },
-                      onChanged: (v) {
-                        setState(() => _scrubValue = v);
-                      },
-                      onChangeEnd: (v) async {
-                        _isScrubbing = false;
-                        _scrubValue = null;
-                        await controller
-                            .seekTo(Duration(milliseconds: v.round()));
-                        _scheduleControlsAutoHide();
-                      },
-                    ),
-                    Row(
-                      children: [
-                        Text(
-                          _formatDuration(Duration(milliseconds: positionMs)),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12),
-                        ),
-                        const Spacer(),
-                        Text(
-                          '-${_formatDuration(Duration(milliseconds: (durationMs - positionMs).clamp(0, durationMs)))}',
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        IconButton(
-                          onPressed: () =>
-                              _seekRelative(const Duration(seconds: -10)),
-                          icon:
-                              const Icon(Icons.replay_10, color: Colors.white),
-                        ),
-                        IconButton(
-                          onPressed: _togglePlayPause,
-                          icon: Icon(
-                            _isPlaying ? Icons.pause : Icons.play_arrow,
-                            color: Colors.white,
+                      Positioned(
+                        top: 8,
+                        right: 12,
+                        child: AppleMaterialOverlay(
+                          borderRadius: BorderRadius.circular(999),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.speed,
+                                  size: 16, color: Colors.white),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${_playbackSpeed.toStringAsFixed(_playbackSpeed == _playbackSpeed.roundToDouble() ? 0 : 2)}x',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        IconButton(
-                          onPressed: () =>
-                              _seekRelative(const Duration(seconds: 10)),
-                          icon:
-                              const Icon(Icons.forward_10, color: Colors.white),
+                      ),
+                      Align(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _AppleCircleButton(
+                              onPressed: () =>
+                                  _seekRelative(const Duration(seconds: -10)),
+                              icon: Icons.replay_10_rounded,
+                              size: 64,
+                              iconSize: 32,
+                            ),
+                            const SizedBox(width: 20),
+                            _AppleCircleButton(
+                              onPressed: _togglePlayPause,
+                              icon: _isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: 78,
+                              iconSize: 42,
+                            ),
+                            const SizedBox(width: 20),
+                            _AppleCircleButton(
+                              onPressed: () =>
+                                  _seekRelative(const Duration(seconds: 10)),
+                              icon: Icons.forward_10_rounded,
+                              size: 64,
+                              iconSize: 32,
+                            ),
+                          ],
                         ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: _cycleSpeed,
-                          child: Text(
-                            '${_playbackSpeed.toStringAsFixed(_playbackSpeed == _playbackSpeed.roundToDouble() ? 0 : 2)}x',
-                            style: const TextStyle(color: Colors.white),
+                      ),
+                      Positioned(
+                        left: 10,
+                        right: 10,
+                        bottom: 10,
+                        child: AppleMaterialOverlay(
+                          borderRadius: BorderRadius.circular(22),
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                widget.episodeTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  trackHeight: 6,
+                                  thumbShape: const RoundSliderThumbShape(
+                                      enabledThumbRadius: 7),
+                                  overlayShape: const RoundSliderOverlayShape(
+                                      overlayRadius: 14),
+                                ),
+                                child: Slider(
+                                  value: sliderValue.clamp(0, sliderMax),
+                                  min: 0,
+                                  max: sliderMax,
+                                  onChangeStart: (v) {
+                                    _isScrubbing = true;
+                                    _scrubValue = v;
+                                  },
+                                  onChanged: (v) {
+                                    setState(() => _scrubValue = v);
+                                  },
+                                  onChangeEnd: (v) async {
+                                    _isScrubbing = false;
+                                    _scrubValue = null;
+                                    await controller!.seekTo(
+                                        Duration(milliseconds: v.round()));
+                                    _scheduleControlsAutoHide();
+                                  },
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  Text(
+                                    _formatDuration(
+                                        Duration(milliseconds: positionMs)),
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 12),
+                                  ),
+                                  const Spacer(),
+                                  GestureDetector(
+                                    onTap: _cycleSpeed,
+                                    child: Text(
+                                      '${_playbackSpeed.toStringAsFixed(_playbackSpeed == _playbackSpeed.roundToDouble() ? 0 : 2)}x',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    '-${_formatDuration(Duration(milliseconds: (durationMs - positionMs).clamp(0, durationMs)))}',
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppleCircleButton extends StatelessWidget {
+  const _AppleCircleButton({
+    required this.onPressed,
+    required this.icon,
+    this.size = 54,
+    this.iconSize = 28,
+  });
+
+  final VoidCallback onPressed;
+  final IconData icon;
+  final double size;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: AppleMaterialOverlay(
+        borderRadius: BorderRadius.circular(999),
+        padding: EdgeInsets.zero,
+        child: IconButton(
+          onPressed: onPressed,
+          icon: Icon(icon, size: iconSize, color: Colors.white),
         ),
       ),
     );
