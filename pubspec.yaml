@@ -21,6 +21,7 @@ dependencies:
   path_provider: ^2.1.5
   connectivity_plus: ^6.1.0
   liquid_glass_renderer: ^0.2.0-dev.4
+  palette_generator: ^0.3.3+6
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +30,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+

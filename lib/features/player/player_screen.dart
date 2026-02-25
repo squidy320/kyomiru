@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../core/app_logger.dart';
 import '../../state/auth_state.dart';
+import 'widgets/anime_player_mesh_background.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
@@ -17,6 +18,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     required this.sourceUrl,
     this.headers = const {},
     this.isLocal = false,
+    this.backgroundImageUrl,
   });
 
   final int mediaId;
@@ -25,6 +27,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String? sourceUrl;
   final Map<String, String> headers;
   final bool isLocal;
+  final String? backgroundImageUrl;
 
   @override
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
@@ -436,6 +439,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       body: SafeArea(
         child: Stack(
           children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimePlayerMeshBackground(
+                  backgroundImageUrl: widget.backgroundImageUrl,
+                ),
+              ),
+            ),
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,

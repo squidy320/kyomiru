@@ -16,6 +16,7 @@
         "hive",
         "hive_flutter",
         "liquid_glass_renderer",
+        "palette_generator",
         "path_provider",
         "share_plus",
         "video_player",
@@ -49,6 +50,14 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "palette_generator",
+      "version": "0.3.3+7",
+      "dependencies": [
+        "collection",
+        "flutter"
       ]
     },
     {

@@ -466,6 +466,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                         '${media.title.best} - Episode ${ep.number}',
                                                     sourceUrl: local,
                                                     isLocal: true,
+                                                    backgroundImageUrl:
+                                                        media.cover.best ??
+                                                            media.bannerImage,
                                                   ),
                                                 ),
                                               );
@@ -507,6 +510,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                       '${media.title.best} - Episode ${ep.number}',
                                                   sourceUrl: selected.url,
                                                   headers: selected.headers,
+                                                  backgroundImageUrl:
+                                                      media.cover.best ??
+                                                          media.bannerImage,
                                                 ),
                                               ),
                                             );
