@@ -54,12 +54,19 @@ class AniListClient {
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
           headers: const {'Accept': 'application/json'},
+          validateStatus: (_) => true,
         ),
       );
 
+      final status = response.statusCode ?? 0;
       final data = response.data is Map<String, dynamic>
           ? response.data as Map<String, dynamic>
           : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+
+      if (status >= 400) {
+        AppLogger.e('AniList', 'Token exchange HTTP $status', error: data);
+        throw Exception('AniList token exchange HTTP $status');
+      }
 
       final token = (data['access_token'] ?? '').toString();
       if (token.isEmpty) {
@@ -69,6 +76,15 @@ class AniListClient {
       }
       AppLogger.i('AniList', 'Token exchange succeeded');
       return token;
+    } on DioException catch (e, st) {
+      AppLogger.e('AniList', 'Token exchange DioException',
+          error: {
+            'statusCode': e.response?.statusCode,
+            'response': e.response?.data,
+            'message': e.message,
+          },
+          stackTrace: st);
+      rethrow;
     } catch (e, st) {
       AppLogger.e('AniList', 'Token exchange failed', error: e, stackTrace: st);
       rethrow;
@@ -107,11 +123,11 @@ class AniListClient {
     Map<String, dynamic>? variables,
     String? token,
   }) async {
+    final operation = RegExp(r'\b(query|mutation)\s+([A-Za-z0-9_]+)')
+            .firstMatch(query)
+            ?.group(2) ??
+        'anonymous';
     try {
-      final operation = RegExp(r'\b(query|mutation)\s+([A-Za-z0-9_]+)')
-              .firstMatch(query)
-              ?.group(2) ??
-          'anonymous';
       AppLogger.d('AniList',
           'GraphQL request op=$operation hasToken=${token != null && token.isNotEmpty}');
 
@@ -128,6 +144,7 @@ class AniListClient {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
+          validateStatus: (_) => true,
         ),
       );
 
@@ -137,20 +154,35 @@ class AniListClient {
           : jsonDecode(response.data.toString()) as Map<String, dynamic>;
 
       if (status >= 400) {
-        AppLogger.e('AniList', 'GraphQL HTTP  op=', error: body);
-        throw Exception('AniList GraphQL HTTP ');
+        AppLogger.e('AniList', 'GraphQL HTTP $status op=$operation', error: {
+          'variables': variables,
+          'body': body,
+        });
+        throw Exception('AniList GraphQL HTTP $status');
       }
 
       if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
         final first = (body['errors'] as List).first;
         final message = first is Map ? (first['message'] ?? first) : first;
-        AppLogger.e('AniList', 'GraphQL error op=$operation', error: message);
+        AppLogger.e('AniList', 'GraphQL logical error op=$operation', error: {
+          'message': message,
+          'variables': variables,
+        });
         throw Exception('AniList GraphQL error: $message');
       }
 
       return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    } on DioException catch (e, st) {
+      AppLogger.e('AniList', 'GraphQL DioException op=$operation',
+          error: {
+            'statusCode': e.response?.statusCode,
+            'response': e.response?.data,
+            'message': e.message,
+          },
+          stackTrace: st);
+      rethrow;
     } catch (e, st) {
-      AppLogger.e('AniList', 'GraphQL request failed',
+      AppLogger.e('AniList', 'GraphQL request failed op=$operation',
           error: e, stackTrace: st);
       rethrow;
     }

@@ -135,6 +135,7 @@ class _AniListLoginWebViewScreenState
 
   Future<void> _completeLogin(String callbackUrl) async {
     if (_completed || _authInFlight) return;
+    _authInFlight = true;
     try {
       final uri = Uri.parse(callbackUrl);
       final fragment =
