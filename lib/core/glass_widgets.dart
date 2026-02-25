@@ -1,5 +1,4 @@
-import 'dart:math' as math;
-import 'dart:ui';
+﻿import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -38,15 +37,16 @@ class GlassCard extends ConsumerWidget {
       _ => 14.0,
     };
     final overlayAlpha = switch (settings.intensity) {
-      'Low' => 0.74,
-      'Medium' => 0.66,
-      _ => 0.58,
+      'Low' => 0.28,
+      'Medium' => 0.22,
+      _ => 0.16,
     };
 
     final content = Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF121A30).withValues(alpha: overlayAlpha),
+        color: const Color(0xFF0D1224).withValues(alpha: overlayAlpha),
         borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(color: const Color(0x30FFFFFF), width: 0.8),
         boxShadow: const [
           BoxShadow(
             color: Color(0x26000000),
@@ -62,11 +62,16 @@ class GlassCard extends ConsumerWidget {
     if (liquidEnabled) {
       return LiquidGlass.withOwnLayer(
         shape: LiquidRoundedSuperellipse(borderRadius: borderRadius),
+        fake: !ImageFilter.isShaderFilterSupported,
+        glassContainsChild: true,
         settings: LiquidGlassSettings(
           blur: sigma,
-          thickness: 7,
-          lightAngle: 0.2 * math.pi,
-          glassColor: Colors.white.withValues(alpha: 0.08),
+          thickness: 10,
+          lightAngle: 0.65,
+          lightIntensity: 0.7,
+          ambientStrength: 0.25,
+          saturation: 1.15,
+          glassColor: Colors.white.withValues(alpha: 0.10),
           refractiveIndex: 1.12,
         ),
         child: content,

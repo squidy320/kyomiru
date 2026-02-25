@@ -1,9 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
 import '../core/app_logger.dart';
 import '../models/anilist_models.dart';
+
+class _CacheEntry<T> {
+  const _CacheEntry(this.value, this.expiresAt);
+
+  final T value;
+  final DateTime expiresAt;
+
+  bool get isValid => DateTime.now().isBefore(expiresAt);
+}
 
 class AniListClient {
   AniListClient({Dio? dio}) : _dio = dio ?? Dio();
@@ -13,6 +23,34 @@ class AniListClient {
   static const authEndpoint = 'https://anilist.co/api/v2/oauth/authorize';
   static const graphqlEndpoint = 'https://graphql.anilist.co';
   static const tokenEndpoint = 'https://anilist.co/api/v2/oauth/token';
+
+  Future<void> _requestChain = Future<void>.value();
+  DateTime _nextAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  final Map<String, _CacheEntry<AniListUser>> _viewerCache = {};
+  final Map<String, _CacheEntry<int>> _unreadCache = {};
+
+  Future<T> _serialize<T>(Future<T> Function() task) {
+    final completer = Completer<T>();
+    _requestChain = _requestChain.then((_) async {
+      try {
+        final r = await task();
+        completer.complete(r);
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> _respectGate() async {
+    final now = DateTime.now();
+    if (now.isBefore(_nextAllowedAt)) {
+      await Future<void>.delayed(_nextAllowedAt.difference(now));
+    }
+    // steady throttle to avoid accidental bursts
+    _nextAllowedAt = DateTime.now().add(const Duration(milliseconds: 250));
+  }
 
   String buildAuthUrl({
     required String clientId,
@@ -127,68 +165,90 @@ class AniListClient {
             .firstMatch(query)
             ?.group(2) ??
         'anonymous';
-    try {
-      AppLogger.d('AniList',
-          'GraphQL request op=$operation hasToken=${token != null && token.isNotEmpty}');
 
-      final response = await _dio.post(
-        graphqlEndpoint,
-        data: {
-          'query': query,
-          'variables': variables ?? <String, dynamic>{},
-        },
-        options: Options(
-          headers: {
-            if (token != null && token.isNotEmpty)
-              'Authorization': 'Bearer $token',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          validateStatus: (_) => true,
-        ),
-      );
+    return _serialize(() async {
+      var attempts = 0;
+      while (true) {
+        attempts++;
+        await _respectGate();
+        try {
+          AppLogger.d('AniList',
+              'GraphQL request op=$operation hasToken=${token != null && token.isNotEmpty}');
 
-      final status = response.statusCode ?? 0;
-      final body = response.data is Map<String, dynamic>
-          ? response.data as Map<String, dynamic>
-          : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+          final response = await _dio.post(
+            graphqlEndpoint,
+            data: {
+              'query': query,
+              'variables': variables ?? <String, dynamic>{},
+            },
+            options: Options(
+              headers: {
+                if (token != null && token.isNotEmpty)
+                  'Authorization': 'Bearer $token',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              validateStatus: (_) => true,
+            ),
+          );
 
-      if (status >= 400) {
-        AppLogger.e('AniList', 'GraphQL HTTP $status op=$operation', error: {
-          'variables': variables,
-          'body': body,
-        });
-        throw Exception('AniList GraphQL HTTP $status');
+          final status = response.statusCode ?? 0;
+          final body = response.data is Map<String, dynamic>
+              ? response.data as Map<String, dynamic>
+              : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+
+          if (status == 429 && attempts < 4) {
+            final delayMs = 1200 * attempts;
+            _nextAllowedAt =
+                DateTime.now().add(Duration(milliseconds: delayMs));
+            AppLogger.w('AniList',
+                'GraphQL 429 op=$operation; backing off ${delayMs}ms');
+            continue;
+          }
+
+          if (status >= 400) {
+            AppLogger.e('AniList', 'GraphQL HTTP $status op=$operation',
+                error: {
+                  'variables': variables,
+                  'body': body,
+                });
+            throw Exception('AniList GraphQL HTTP $status');
+          }
+
+          if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
+            final first = (body['errors'] as List).first;
+            final message = first is Map ? (first['message'] ?? first) : first;
+            AppLogger.e('AniList', 'GraphQL logical error op=$operation',
+                error: {
+                  'message': message,
+                  'variables': variables,
+                });
+            throw Exception('AniList GraphQL error: $message');
+          }
+
+          return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
+        } on DioException catch (e, st) {
+          AppLogger.e('AniList', 'GraphQL DioException op=$operation',
+              error: {
+                'statusCode': e.response?.statusCode,
+                'response': e.response?.data,
+                'message': e.message,
+              },
+              stackTrace: st);
+          rethrow;
+        } catch (e, st) {
+          AppLogger.e('AniList', 'GraphQL request failed op=$operation',
+              error: e, stackTrace: st);
+          rethrow;
+        }
       }
-
-      if (body['errors'] is List && (body['errors'] as List).isNotEmpty) {
-        final first = (body['errors'] as List).first;
-        final message = first is Map ? (first['message'] ?? first) : first;
-        AppLogger.e('AniList', 'GraphQL logical error op=$operation', error: {
-          'message': message,
-          'variables': variables,
-        });
-        throw Exception('AniList GraphQL error: $message');
-      }
-
-      return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
-    } on DioException catch (e, st) {
-      AppLogger.e('AniList', 'GraphQL DioException op=$operation',
-          error: {
-            'statusCode': e.response?.statusCode,
-            'response': e.response?.data,
-            'message': e.message,
-          },
-          stackTrace: st);
-      rethrow;
-    } catch (e, st) {
-      AppLogger.e('AniList', 'GraphQL request failed op=$operation',
-          error: e, stackTrace: st);
-      rethrow;
-    }
+    });
   }
 
-  Future<AniListUser> me(String token) async {
+  Future<AniListUser> me(String token, {bool force = false}) async {
+    final cached = _viewerCache[token];
+    if (!force && cached != null && cached.isValid) return cached.value;
+
     const q = r'''
       query {
         Viewer {
@@ -200,22 +260,37 @@ class AniListClient {
       }
     ''';
     final data = await _graphql(query: q, token: token);
-    return AniListUser.fromJson(
+    final user = AniListUser.fromJson(
         (data['Viewer'] as Map<String, dynamic>? ?? const {}));
+    _viewerCache[token] = _CacheEntry<AniListUser>(
+        user, DateTime.now().add(const Duration(minutes: 5)));
+    return user;
   }
 
   Future<int> unreadNotificationCount(String token) async {
+    final cached = _unreadCache[token];
+    if (cached != null && cached.isValid) return cached.value;
+
     const q = r'''
       query {
         Viewer { unreadNotificationCount }
       }
     ''';
     final data = await _graphql(query: q, token: token);
-    return (data['Viewer']?['unreadNotificationCount'] as num?)?.toInt() ?? 0;
+    final value =
+        (data['Viewer']?['unreadNotificationCount'] as num?)?.toInt() ?? 0;
+    _unreadCache[token] = _CacheEntry<int>(
+      value,
+      DateTime.now().add(const Duration(seconds: 30)),
+    );
+    return value;
   }
 
-  Future<List<AniListLibraryEntry>> libraryCurrent(String token) async {
-    final user = await me(token);
+  Future<List<AniListLibraryEntry>> libraryCurrent(
+    String token, {
+    int? userId,
+  }) async {
+    final uid = userId ?? (await me(token)).id;
     const q = r'''
       query ($userId: Int) {
         MediaListCollection(
@@ -248,7 +323,7 @@ class AniListClient {
     final data = await _graphql(
       query: q,
       token: token,
-      variables: {'userId': user.id},
+      variables: {'userId': uid},
     );
     final lists = (data['MediaListCollection']?['lists'] as List? ?? const []);
     final out = <AniListLibraryEntry>[];
@@ -265,8 +340,11 @@ class AniListClient {
     return out;
   }
 
-  Future<List<AniListLibrarySection>> librarySections(String token) async {
-    final user = await me(token);
+  Future<List<AniListLibrarySection>> librarySections(
+    String token, {
+    int? userId,
+  }) async {
+    final uid = userId ?? (await me(token)).id;
     const q = r'''
       query ($userId: Int) {
         MediaListCollection(
@@ -301,7 +379,7 @@ class AniListClient {
       final data = await _graphql(
         query: q,
         token: token,
-        variables: {'userId': user.id},
+        variables: {'userId': uid},
       );
       final lists =
           (data['MediaListCollection']?['lists'] as List? ?? const []);
@@ -336,7 +414,7 @@ class AniListClient {
       AppLogger.w('AniList',
           'librarySections failed, falling back to current list only',
           error: e, stackTrace: st);
-      final current = await libraryCurrent(token);
+      final current = await libraryCurrent(token, userId: uid);
       if (current.isEmpty) return const [];
       return [AniListLibrarySection(title: 'Watching', items: current)];
     }

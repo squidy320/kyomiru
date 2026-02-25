@@ -170,64 +170,72 @@ class _HorizontalSection extends StatelessWidget {
                     MaterialPageRoute(
                         builder: (_) => DetailsScreen(mediaId: item.id)),
                   ),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(6),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: item.cover.best == null
-                                ? Container(color: const Color(0x22111111))
-                                : Image.network(item.cover.best!,
-                                    fit: BoxFit.cover),
-                          ),
-                        ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xAA0C1324),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              item.averageScore?.toString() ?? 'NR',
-                              style: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          left: 10,
-                          right: 10,
-                          bottom: 10,
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: const Color(0xAA0B0F1D),
-                            ),
-                            child: Text(
-                              item.title.best,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w800, fontSize: 16),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: _AnimePosterCard(media: item),
                 ),
               );
             },
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AnimePosterCard extends StatelessWidget {
+  const _AnimePosterCard({required this.media});
+
+  final AniListMedia media;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (media.cover.best != null)
+            Image.network(media.cover.best!, fit: BoxFit.cover)
+          else
+            Container(color: const Color(0x22111111)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Color(0xD80B0F1D)],
+                stops: [0.52, 1],
+              ),
+            ),
+          ),
+          Positioned(
+            top: 10,
+            right: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xD8000000),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                media.averageScore?.toString() ?? 'NR',
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Text(
+              media.title.best,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

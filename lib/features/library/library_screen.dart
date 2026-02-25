@@ -62,10 +62,10 @@ class _LibraryDataView extends ConsumerWidget {
     final client = ref.watch(anilistClientProvider);
 
     return FutureBuilder<List<dynamic>>(
-      future: Future.wait<dynamic>([
-        client.me(token),
-        client.librarySections(token),
-      ]),
+      future: client.me(token).then((u) async => [
+            u,
+            await client.librarySections(token, userId: u.id),
+          ]),
       builder: (context, snap) {
         final loading = snap.connectionState == ConnectionState.waiting;
         final hasError = snap.hasError;
@@ -124,6 +124,11 @@ class _LibrarySection extends StatelessWidget {
 
   final AniListLibrarySection section;
 
+  bool get _showProgress {
+    final t = section.title.toLowerCase();
+    return t.contains('current') || t.contains('watching');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -147,71 +152,11 @@ class _LibrarySection extends StatelessWidget {
                     MaterialPageRoute(
                         builder: (_) => DetailsScreen(mediaId: e.media.id)),
                   ),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(6),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: e.media.cover.best == null
-                                ? Container(color: const Color(0x22111111))
-                                : Image.network(e.media.cover.best!,
-                                    fit: BoxFit.cover),
-                          ),
-                        ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xAA0C1324),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              e.media.averageScore?.toString() ?? 'NR',
-                              style: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          left: 10,
-                          right: 10,
-                          bottom: 10,
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: const Color(0xAA0B0F1D),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  e.media.title.best,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Progress: ${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}',
-                                  style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFFCDD6F7),
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: _AnimePosterCard(
+                    media: e.media,
+                    progressText: _showProgress
+                        ? '${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'
+                        : null,
                   ),
                 ),
               );
@@ -219,6 +164,85 @@ class _LibrarySection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AnimePosterCard extends StatelessWidget {
+  const _AnimePosterCard({required this.media, this.progressText});
+
+  final AniListMedia media;
+  final String? progressText;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (media.cover.best != null)
+            Image.network(media.cover.best!, fit: BoxFit.cover)
+          else
+            Container(color: const Color(0x22111111)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Color(0xD80B0F1D)],
+                stops: [0.52, 1],
+              ),
+            ),
+          ),
+          Positioned(
+            top: 10,
+            right: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xD8000000),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                media.averageScore?.toString() ?? 'NR',
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  media.title.best,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 20),
+                ),
+                if (progressText != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Watched: $progressText',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: Color(0xFFE5E7EB),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
