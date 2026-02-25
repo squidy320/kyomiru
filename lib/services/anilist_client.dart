@@ -235,8 +235,8 @@ class AniListClient {
                 siteUrl
                 bannerImage
                 status
-            isAdult
-            genres
+                isAdult
+                genres
               }
             }
           }
@@ -244,35 +244,45 @@ class AniListClient {
       }
     ''';
 
-    final data = await _graphql(query: q, token: token);
-    final lists = (data['MediaListCollection']?['lists'] as List? ?? const []);
-    final out = <AniListLibrarySection>[];
+    try {
+      final data = await _graphql(query: q, token: token);
+      final lists =
+          (data['MediaListCollection']?['lists'] as List? ?? const []);
+      final out = <AniListLibrarySection>[];
 
-    for (final list in lists) {
-      if (list is! Map<String, dynamic>) continue;
-      final name = (list['name'] ?? 'List').toString();
-      final entries = (list['entries'] as List? ?? const []);
-      final items = entries
-          .whereType<Map<String, dynamic>>()
-          .map(AniListLibraryEntry.fromJson)
-          .toList();
-      if (items.isEmpty) continue;
-      out.add(AniListLibrarySection(title: name, items: items));
-    }
-
-    out.sort((a, b) {
-      int order(String s) {
-        final l = s.toLowerCase();
-        if (l.contains('current') || l.contains('watching')) return 0;
-        if (l.contains('planning') || l.contains('plan')) return 1;
-        if (l.contains('completed')) return 2;
-        return 99;
+      for (final list in lists) {
+        if (list is! Map<String, dynamic>) continue;
+        final name = (list['name'] ?? 'List').toString();
+        final entries = (list['entries'] as List? ?? const []);
+        final items = entries
+            .whereType<Map<String, dynamic>>()
+            .map(AniListLibraryEntry.fromJson)
+            .toList();
+        if (items.isEmpty) continue;
+        out.add(AniListLibrarySection(title: name, items: items));
       }
 
-      return order(a.title).compareTo(order(b.title));
-    });
+      out.sort((a, b) {
+        int order(String s) {
+          final l = s.toLowerCase();
+          if (l.contains('current') || l.contains('watching')) return 0;
+          if (l.contains('planning') || l.contains('plan')) return 1;
+          if (l.contains('completed')) return 2;
+          return 99;
+        }
 
-    return out;
+        return order(a.title).compareTo(order(b.title));
+      });
+
+      return out;
+    } catch (e, st) {
+      AppLogger.w('AniList',
+          'librarySections failed, falling back to current list only',
+          error: e, stackTrace: st);
+      final current = await libraryCurrent(token);
+      if (current.isEmpty) return const [];
+      return [AniListLibrarySection(title: 'Watching', items: current)];
+    }
   }
 
   Future<List<AniListMedia>> discoveryTrending() async {
@@ -438,7 +448,7 @@ class AniListClient {
     const q = r'''
       query {
         Page(page: 1, perPage: 30) {
-          notifications(resetNotificationCount: true) {
+          notifications {
             ... on AiringNotification {
               id
               type
@@ -450,8 +460,8 @@ class AniListClient {
                 coverImage { large extraLarge }
                 siteUrl
                 status
-            isAdult
-            genres
+                isAdult
+                genres
               }
             }
           }
@@ -459,12 +469,18 @@ class AniListClient {
       }
     ''';
 
-    final data = await _graphql(query: q, token: token);
-    final raw = (data['Page']?['notifications'] as List? ?? const []);
-    return raw
-        .whereType<Map<String, dynamic>>()
-        .map(AniListNotificationItem.fromJson)
-        .toList();
+    try {
+      final data = await _graphql(query: q, token: token);
+      final raw = (data['Page']?['notifications'] as List? ?? const []);
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(AniListNotificationItem.fromJson)
+          .toList();
+    } catch (e, st) {
+      AppLogger.w('AniList', 'notifications query failed, returning empty list',
+          error: e, stackTrace: st);
+      return const [];
+    }
   }
 
   String _season(int month) {
