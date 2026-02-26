@@ -68,6 +68,51 @@ jobs:
 
           test -f unsigned.ipa
 
+      - name: Normalize IPA binaries for sideload
+        run: |
+          set -e
+          rm -rf ipa_work
+          mkdir -p ipa_work
+          unzip -q unsigned.ipa -d ipa_work
+
+          APP_DIR="ipa_work/Payload/Runner.app"
+          FW_DIR="$APP_DIR/Frameworks"
+
+          # Remove existing code signatures; sideload tool will re-sign everything.
+          find "$APP_DIR" -name "_CodeSignature" -type d -prune -exec rm -rf {} +
+
+          # Strip simulator architectures and keep device-safe arm64 binaries.
+          find "$FW_DIR" -name "*.framework" -type d | while read -r fw; do
+            name=$(basename "$fw" .framework)
+            bin="$fw/$name"
+            if [ -f "$bin" ]; then
+              info=$(lipo -info "$bin" 2>/dev/null || true)
+              echo "[ARCH] $name -> $info"
+
+              # Remove simulator arches if present.
+              if echo "$info" | grep -q "x86_64"; then
+                lipo -remove x86_64 "$bin" -output "$bin" || true
+              fi
+              if echo "$info" | grep -q "i386"; then
+                lipo -remove i386 "$bin" -output "$bin" || true
+              fi
+
+              # Ensure arm64 exists after thinning.
+              if ! lipo -verify_arch arm64 "$bin" >/dev/null 2>&1; then
+                echo "Missing arm64 in $bin"
+                exit 1
+              fi
+
+              # Strip bitcode markers if present (safer for sideload re-signers).
+              xcrun bitcode_strip "$bin" -r -o "$bin" || true
+            fi
+          done
+
+          # Repack normalized IPA.
+          rm -f unsigned.ipa
+          (cd ipa_work && zip -qry ../unsigned.ipa Payload)
+          test -f unsigned.ipa
+
       - name: Verify IPA contents and framework sanity
         run: |
           rm -rf ipa_check
@@ -76,9 +121,9 @@ jobs:
           test -d ipa_check/Payload/Runner.app
           test -d ipa_check/Payload/Runner.app/Frameworks
 
-          # Ensure no manually injected mpv.framework is present.
+          # Ensure no manually injected lowercase mpv.framework (legacy manual embed pattern).
           if find ipa_check/Payload/Runner.app/Frameworks -maxdepth 2 -name "mpv.framework" | grep -q "mpv.framework"; then
-            echo "Found manually embedded mpv.framework in IPA. Failing build."
+            echo "Found manually embedded mpv.framework naming pattern. Failing build."
             exit 1
           fi
 
