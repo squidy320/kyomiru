@@ -477,8 +477,8 @@ class AniListClient {
 
     const q = r'''
       query ($currentSeason: MediaSeason, $currentYear: Int) {
-        trending: Page(page: 1, perPage: 20) {
-          media(type: ANIME, sort: TRENDING_DESC) {
+        topRated: Page(page: 1, perPage: 20) {
+          media(type: ANIME, sort: SCORE_DESC) {
             id
             episodes
             averageScore
@@ -536,7 +536,7 @@ class AniListClient {
     }
 
     return [
-      AniListDiscoverySection(title: 'Trending', items: listFrom('trending')),
+      AniListDiscoverySection(title: 'Top Rated', items: listFrom('topRated')),
       AniListDiscoverySection(
           title: 'New Releases', items: listFrom('newReleases')),
       AniListDiscoverySection(title: 'Hot Now', items: listFrom('hotNow')),
