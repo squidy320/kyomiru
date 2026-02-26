@@ -31,6 +31,9 @@ class AniListClient {
   final Map<String, _CacheEntry<AniListUser>> _viewerCache = {};
   final Map<String, _CacheEntry<int>> _unreadCache = {};
 
+  _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
+  _CacheEntry<List<AniListDiscoverySection>>? _discoverySectionsCache;
+
   Future<T> _serialize<T>(Future<T> Function() task) {
     final completer = Completer<T>();
     _serialQueue.add(() async {
@@ -463,6 +466,9 @@ class AniListClient {
   }
 
   Future<List<AniListMedia>> discoveryTrending() async {
+    final cached = _discoveryTrendingCache;
+    if (cached != null && cached.isValid) return cached.value;
+
     const q = r'''
       query {
         Page(page: 1, perPage: 24) {
@@ -484,13 +490,23 @@ class AniListClient {
 
     final data = await _graphql(query: q);
     final media = (data['Page']?['media'] as List? ?? const []);
-    return _sanitizeMediaList(media
+    final out = _sanitizeMediaList(media
         .whereType<Map<String, dynamic>>()
         .map(AniListMedia.fromJson)
         .toList());
+
+    _discoveryTrendingCache = _CacheEntry<List<AniListMedia>>(
+      out,
+      DateTime.now().add(const Duration(minutes: 3)),
+    );
+
+    return out;
   }
 
   Future<List<AniListDiscoverySection>> discoverySections() async {
+    final cached = _discoverySectionsCache;
+    if (cached != null && cached.isValid) return cached.value;
+
     final now = DateTime.now();
     final currentSeason = _season(now.month);
     final currentYear = now.year;
@@ -555,12 +571,19 @@ class AniListClient {
           .toList());
     }
 
-    return [
+    final out = [
       AniListDiscoverySection(title: 'Top Rated', items: listFrom('topRated')),
       AniListDiscoverySection(
           title: 'New Releases', items: listFrom('newReleases')),
       AniListDiscoverySection(title: 'Hot Now', items: listFrom('hotNow')),
     ];
+
+    _discoverySectionsCache = _CacheEntry<List<AniListDiscoverySection>>(
+      out,
+      DateTime.now().add(const Duration(minutes: 3)),
+    );
+
+    return out;
   }
 
   Future<List<AniListMedia>> searchAnime(String query) async {
@@ -847,3 +870,6 @@ class AniListClient {
     return 'FALL';
   }
 }
+
+
+

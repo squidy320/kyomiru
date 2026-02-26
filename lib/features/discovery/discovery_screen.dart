@@ -28,10 +28,20 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   Timer? _debounce;
   Timer? _heroTimer;
 
+  late Future<_DiscoveryPayload> _discoveryFuture;
+  _DiscoveryPayload? _cachedPayload;
+  int _lastTrendingSignature = 0;
+
   List<AniListMedia> _searchResults = const [];
   bool _searching = false;
   int _heroIndex = 0;
   Color _heroTint = const Color(0xFF1A2238);
+
+  @override
+  void initState() {
+    super.initState();
+    _discoveryFuture = _loadDiscovery();
+  }
 
   @override
   void dispose() {
@@ -40,6 +50,28 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     _heroController.dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  Future<_DiscoveryPayload> _loadDiscovery() async {
+    final client = ref.read(anilistClientProvider);
+    final values = await Future.wait([
+      client.discoveryTrending(),
+      client.discoverySections(),
+    ]);
+    final payload = _DiscoveryPayload(
+      trending: values[0] as List<AniListMedia>,
+      sections: values[1] as List<AniListDiscoverySection>,
+    );
+    _cachedPayload = payload;
+    return payload;
+  }
+
+  int _signature(List<AniListMedia> items) {
+    var sig = items.length;
+    for (final m in items.take(10)) {
+      sig = (sig * 31) ^ m.id;
+    }
+    return sig;
   }
 
   void _onSearchChanged(String value) {
@@ -77,7 +109,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     if (_heroIndex >= trending.length) {
       _heroIndex = 0;
     }
-    _ensureHeroTint(trending[_heroIndex]);
+    unawaited(_ensureHeroTint(trending[_heroIndex]));
     _startHeroTimer(trending.length);
   }
 
@@ -126,22 +158,18 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final client = ref.watch(anilistClientProvider);
     final showingSearch = _search.text.trim().isNotEmpty;
 
     return FutureBuilder<_DiscoveryPayload>(
-      future: Future.wait([
-        client.discoveryTrending(),
-        client.discoverySections(),
-      ]).then((v) => _DiscoveryPayload(
-          trending: v[0] as List<AniListMedia>,
-          sections: v[1] as List<AniListDiscoverySection>)),
+      future: _discoveryFuture,
       builder: (context, dataSnap) {
-        final payload = dataSnap.data;
+        final payload = dataSnap.data ?? _cachedPayload;
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
 
-        if (payload != null) {
+        final sig = _signature(trending);
+        if (trending.isNotEmpty && sig != _lastTrendingSignature) {
+          _lastTrendingSignature = sig;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             _syncHero(trending);
@@ -205,9 +233,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                       items: _searchResults,
                     ),
                 ] else ...[
-                  if (dataSnap.connectionState == ConnectionState.waiting)
+                  if (dataSnap.connectionState == ConnectionState.waiting &&
+                      payload == null)
                     const Center(child: CircularProgressIndicator())
-                  else if (dataSnap.hasError)
+                  else if (dataSnap.hasError && payload == null)
                     GlassCard(
                         child: Text('Discovery load failed: ${dataSnap.error}'))
                   else ...[
