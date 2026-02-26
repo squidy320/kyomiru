@@ -45,27 +45,44 @@ jobs:
           cd ios
           pod install --repo-update
 
-      - name: Build iOS archive (no codesign)
-        run: flutter build ipa --release --no-codesign
-
-      - name: Ensure unsigned IPA exists
+      - name: Build Runner.app (xcodebuild, no codesign)
         run: |
           set -e
-          rm -f unsigned.ipa
+          rm -rf build/ios/DerivedData
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -sdk iphoneos \
+            -derivedDataPath build/ios/DerivedData \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
 
-          if ls build/ios/ipa/*.ipa >/dev/null 2>&1; then
-            cp "$(ls build/ios/ipa/*.ipa | head -n 1)" unsigned.ipa
-            echo "Using IPA exported by flutter build ipa"
-          else
-            echo "No IPA exported (expected with --no-codesign on some toolchains); packaging from xcarchive"
-            APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
-            test -d "$APP_PATH"
-            rm -rf Payload
-            mkdir -p Payload
-            ditto "$APP_PATH" Payload/Runner.app
-            ditto -c -k --sequesterRsrc --keepParent Payload unsigned.ipa
+      - name: Package unsigned IPA (Luna-style)
+        run: |
+          set -e
+          APP_PATH="build/ios/DerivedData/Build/Products/Release-iphoneos/Runner.app"
+          test -d "$APP_PATH"
+
+          rm -rf Payload unsigned.ipa
+          cp -R "$APP_PATH" Runner.app
+
+          # Remove all pre-existing signatures/provisions.
+          find Runner.app -name "_CodeSignature" -type d -prune -exec rm -rf {} +
+          find Runner.app -name "embedded.mobileprovision" -type f -delete
+
+          # Optional strip for main binary.
+          if [ -f "Runner.app/Runner" ]; then
+            strip "Runner.app/Runner" 2>/dev/null || true
           fi
 
+          mkdir -p Payload
+          mv Runner.app Payload/Runner.app
+          (cd . && zip -qry unsigned.ipa Payload)
           test -f unsigned.ipa
 
       - name: Normalize IPA binaries for sideload
@@ -89,7 +106,6 @@ jobs:
               info=$(lipo -info "$bin" 2>/dev/null || true)
               echo "[ARCH] $name -> $info"
 
-              # Remove simulator arches if present.
               if echo "$info" | grep -q "x86_64"; then
                 lipo -remove x86_64 "$bin" -output "$bin" || true
               fi
@@ -97,7 +113,6 @@ jobs:
                 lipo -remove i386 "$bin" -output "$bin" || true
               fi
 
-              # Ensure arm64 exists after thinning.
               info_after=$(lipo -info "$bin" 2>/dev/null || true)
               echo "[ARCH_AFTER] $name -> $info_after"
               if ! echo "$info_after" | grep -Eq "(architecture: arm64|are: .*arm64)"; then
@@ -105,7 +120,6 @@ jobs:
                 exit 1
               fi
 
-              # Strip bitcode markers if present (safer for sideload re-signers).
               xcrun bitcode_strip "$bin" -r -o "$bin" || true
             fi
           done
@@ -136,4 +150,3 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: unsigned.ipa
-
