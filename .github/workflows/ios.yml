@@ -98,7 +98,9 @@ jobs:
               fi
 
               # Ensure arm64 exists after thinning.
-              if ! lipo -verify_arch arm64 "$bin" >/dev/null 2>&1; then
+              info_after=$(lipo -info "$bin" 2>/dev/null || true)
+              echo "[ARCH_AFTER] $name -> $info_after"
+              if ! echo "$info_after" | grep -Eq "(architecture: arm64|are: .*arm64)"; then
                 echo "Missing arm64 in $bin"
                 exit 1
               fi
@@ -134,3 +136,4 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: unsigned.ipa
+
