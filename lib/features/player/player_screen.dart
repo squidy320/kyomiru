@@ -3,8 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/app_logger.dart';
 import '../../core/apple_material_overlay.dart';
@@ -45,16 +44,11 @@ class _PlayerCandidate {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver {
-  Player? _player;
-  VideoController? _videoController;
+  VideoPlayerController? _controller;
 
   Timer? _persistTimer;
   Timer? _controlsHideTimer;
-  StreamSubscription<Duration>? _positionSub;
-  StreamSubscription<Duration>? _durationSub;
-  StreamSubscription<bool>? _playingSub;
-  StreamSubscription<bool>? _bufferingSub;
-  StreamSubscription<String>? _errorSub;
+  Timer? _uiTickTimer;
 
   bool _controlsVisible = true;
   bool _ready = false;
@@ -85,8 +79,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final p = _player;
-    if (p == null) return;
+    final c = _controller;
+    if (c == null) return;
 
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
@@ -96,7 +90,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     if (state == AppLifecycleState.resumed && _wasPlayingBeforeBackground) {
-      unawaited(p.play());
+      unawaited(c.play());
       _scheduleControlsAutoHide();
     }
   }
@@ -142,68 +136,72 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return out;
   }
 
-  Future<void> _attachPlayer(Player player) async {
-    await _positionSub?.cancel();
-    await _durationSub?.cancel();
-    await _playingSub?.cancel();
-    await _bufferingSub?.cancel();
-    await _errorSub?.cancel();
+  void _startUiTick() {
+    _uiTickTimer?.cancel();
+    _uiTickTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      final c = _controller;
+      if (!mounted || c == null) return;
+      final v = c.value;
 
-    final old = _player;
-    _player = player;
-    _videoController = VideoController(player);
+      if (v.hasError && !_hasRecoveredFromError && !widget.isLocal) {
+        _hasRecoveredFromError = true;
+        AppLogger.w('Player', 'video_player error', error: v.errorDescription);
+        unawaited(_recoverFromPlaybackError());
+      }
 
-    _positionSub = player.stream.position.listen((v) {
-      if (!mounted) return;
-      setState(() => _position = v);
+      if (_isScrubbing) return;
+      setState(() {
+        _position = v.position;
+        _duration = v.duration;
+        _isPlaying = v.isPlaying;
+        _isBuffering = v.isBuffering;
+      });
     });
-    _durationSub = player.stream.duration.listen((v) {
-      if (!mounted) return;
-      setState(() => _duration = v);
-    });
-    _playingSub = player.stream.playing.listen((v) {
-      if (!mounted) return;
-      setState(() => _isPlaying = v);
-    });
-    _bufferingSub = player.stream.buffering.listen((v) {
-      if (!mounted) return;
-      setState(() => _isBuffering = v);
-    });
-    _errorSub = player.stream.error.listen((msg) {
-      if (_hasRecoveredFromError || widget.isLocal) return;
-      _hasRecoveredFromError = true;
-      AppLogger.w('Player', 'media_kit stream error', error: msg);
-      unawaited(_recoverFromPlaybackError());
-    });
+  }
 
+  Future<void> _attachController(VideoPlayerController controller) async {
+    final old = _controller;
+    _controller = controller;
+    _startUiTick();
     await old?.dispose();
   }
 
-  Future<Player?> _openCandidate(_PlayerCandidate c) async {
-    final player = Player();
+  Future<VideoPlayerController?> _openCandidate(_PlayerCandidate c) async {
     try {
-      final media = Media(c.url, httpHeaders: c.headers);
-      await player.open(media, play: true);
-      return player;
+      final uri = Uri.parse(c.url);
+      final controller = VideoPlayerController.networkUrl(
+        uri,
+        httpHeaders: c.headers,
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: false,
+          allowBackgroundPlayback: true,
+        ),
+      );
+      await controller.initialize();
+      return controller;
     } catch (e, st) {
       AppLogger.w('Player', 'Init attempt failed for ${c.url}',
           error: e, stackTrace: st);
-      await player.dispose();
       return null;
     }
   }
 
-  Future<Player?> _openLocal(String rawUrl) async {
-    final player = Player();
+  Future<VideoPlayerController?> _openLocal(String rawUrl) async {
     try {
       final uri = Uri.parse(rawUrl);
       final file = uri.isScheme('file') ? File.fromUri(uri) : File(rawUrl);
-      await player.open(Media(file.path), play: true);
-      return player;
+      final controller = VideoPlayerController.file(
+        file,
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: false,
+          allowBackgroundPlayback: true,
+        ),
+      );
+      await controller.initialize();
+      return controller;
     } catch (e, st) {
       AppLogger.w('Player', 'Local source init failed for $rawUrl',
           error: e, stackTrace: st);
-      await player.dispose();
       return null;
     }
   }
@@ -211,10 +209,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<bool> _tryAttachCandidate(int index) async {
     if (index < 0 || index >= _candidates.length) return false;
     final c = _candidates[index];
-    final player = await _openCandidate(c);
-    if (player == null) return false;
+    final controller = await _openCandidate(c);
+    if (controller == null) return false;
     _activeCandidateIndex = index;
-    await _attachPlayer(player);
+    await _attachController(controller);
     return true;
   }
 
@@ -238,7 +236,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final local = await _openLocal(url);
       if (local != null) {
         attached = true;
-        await _attachPlayer(local);
+        await _attachController(local);
       }
     } else {
       _candidates = _buildCandidates(url);
@@ -262,16 +260,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
 
-    final p = _player!;
+    final c = _controller!;
     final store = ref.read(progressStoreProvider);
     final saved = store.read(widget.mediaId, widget.episodeNumber);
     if (saved != null && saved.positionMs > 0) {
       final seekMs = saved.positionMs;
-      await p.seek(Duration(milliseconds: seekMs));
+      await c.seekTo(Duration(milliseconds: seekMs));
     }
 
-    await p.setRate(_playbackSpeed);
-    await p.play();
+    await c.setPlaybackSpeed(_playbackSpeed);
+    await c.play();
 
     _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
       await _persistProgress();
@@ -306,13 +304,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final savedPos = _position;
       final attached = await _tryAttachCandidate(i);
       if (!attached) continue;
-      final p = _player;
-      if (p == null) continue;
+      final c = _controller;
+      if (c == null) continue;
       if (savedPos > Duration.zero) {
-        await p.seek(savedPos);
+        await c.seekTo(savedPos);
       }
-      await p.setRate(_playbackSpeed);
-      await p.play();
+      await c.setPlaybackSpeed(_playbackSpeed);
+      await c.play();
       AppLogger.w('Player', 'Recovered playback using candidate $i');
       if (mounted) {
         setState(() {
@@ -331,13 +329,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _seekRelative(Duration delta) async {
-    final p = _player;
-    if (p == null) return;
+    final c = _controller;
+    if (c == null) return;
     final target = _position + delta;
     Duration clamped = target;
     if (clamped < Duration.zero) clamped = Duration.zero;
     if (_duration > Duration.zero && clamped > _duration) clamped = _duration;
-    await p.seek(clamped);
+    await c.seekTo(clamped);
 
     final seconds = delta.inSeconds.abs();
     final sign = delta.isNegative ? '-' : '+';
@@ -364,24 +362,30 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _scheduleControlsAutoHide() {
     _controlsHideTimer?.cancel();
+    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      if (_isPlaying && !_isScrubbing) {
+        setState(() => _controlsVisible = false);
+      }
+    });
   }
 
   Future<void> _togglePlayPause() async {
-    final p = _player;
-    if (p == null) return;
+    final c = _controller;
+    if (c == null) return;
     if (_isPlaying) {
-      await p.pause();
+      await c.pause();
       _controlsHideTimer?.cancel();
     } else {
-      await p.play();
+      await c.play();
       _scheduleControlsAutoHide();
     }
   }
 
   Future<void> _setSpeed(double speed) async {
-    final p = _player;
-    if (p == null) return;
-    await p.setRate(speed);
+    final c = _controller;
+    if (c == null) return;
+    await c.setPlaybackSpeed(speed);
     if (!mounted) return;
     setState(() => _playbackSpeed = speed);
   }
@@ -407,19 +411,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _persistTimer?.cancel();
     _controlsHideTimer?.cancel();
-    _positionSub?.cancel();
-    _durationSub?.cancel();
-    _playingSub?.cancel();
-    _bufferingSub?.cancel();
-    _errorSub?.cancel();
+    _uiTickTimer?.cancel();
     unawaited(_persistProgress());
-    _player?.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final ready = _player != null && _ready;
+    final c = _controller;
+    final ready = c != null && _ready && c.value.isInitialized;
 
     final durationMs = ready ? _duration.inMilliseconds : 0;
     final positionMs = ready
@@ -469,8 +470,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               children: [
                                 Positioned.fill(
                                   child: AspectRatio(
-                                    aspectRatio: 16 / 9,
-                                    child: Video(controller: _videoController!),
+                                    aspectRatio: c.value.aspectRatio == 0
+                                        ? (16 / 9)
+                                        : c.value.aspectRatio,
+                                    child: VideoPlayer(c),
                                   ),
                                 ),
                                 if (_isBuffering)
@@ -658,8 +661,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   onChangeEnd: (v) async {
                                     _isScrubbing = false;
                                     _scrubValue = null;
-                                    await _player!.seek(
-                                        Duration(milliseconds: v.round()));
+                                    await _controller!
+                                        .seekTo(Duration(milliseconds: v.round()));
                                     _scheduleControlsAutoHide();
                                   },
                                 ),
@@ -736,3 +739,4 @@ class _AppleCircleButton extends StatelessWidget {
     );
   }
 }
+
