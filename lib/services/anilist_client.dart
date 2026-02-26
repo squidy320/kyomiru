@@ -24,7 +24,8 @@ class AniListClient {
   static const graphqlEndpoint = 'https://graphql.anilist.co';
   static const tokenEndpoint = 'https://anilist.co/api/v2/oauth/token';
 
-  Future<void> _requestChain = Future<void>.value();
+  final List<Future<void> Function()> _serialQueue = [];
+  bool _serialRunning = false;
   DateTime _nextAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   final Map<String, _CacheEntry<AniListUser>> _viewerCache = {};
@@ -32,15 +33,34 @@ class AniListClient {
 
   Future<T> _serialize<T>(Future<T> Function() task) {
     final completer = Completer<T>();
-    _requestChain = _requestChain.then((_) async {
+    _serialQueue.add(() async {
       try {
         final r = await task();
-        completer.complete(r);
+        if (!completer.isCompleted) completer.complete(r);
       } catch (e, st) {
-        completer.completeError(e, st);
+        if (!completer.isCompleted) completer.completeError(e, st);
       }
     });
+    _drainSerialQueue();
     return completer.future;
+  }
+
+  void _drainSerialQueue() {
+    if (_serialRunning) return;
+    _serialRunning = true;
+    unawaited(() async {
+      try {
+        while (_serialQueue.isNotEmpty) {
+          final next = _serialQueue.removeAt(0);
+          await next();
+        }
+      } finally {
+        _serialRunning = false;
+        if (_serialQueue.isNotEmpty) {
+          _drainSerialQueue();
+        }
+      }
+    }());
   }
 
   Future<void> _respectGate() async {

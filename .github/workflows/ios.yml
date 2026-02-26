@@ -1,0 +1,84 @@
+name: iOS IPA Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "lib/**"
+      - "ios/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/ios.yml"
+
+jobs:
+  build-ios:
+    name: Build Unsigned IPA (sideload)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter Version
+        run: flutter --version
+
+      - name: Clean
+        run: flutter clean
+
+      - name: Pub Get
+        run: flutter pub get
+
+      - name: Ensure iOS folder exists
+        run: |
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios .
+          fi
+
+      - name: Pod Install
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Verify Runner app output
+        run: |
+          test -d build/ios/iphoneos/Runner.app
+          test -f build/ios/iphoneos/Runner.app/Runner
+          test -d build/ios/iphoneos/Runner.app/Frameworks
+
+      - name: Build IPA from Runner.app
+        run: |
+          rm -rf Payload unsigned.ipa ipa_check
+          mkdir -p Payload
+          ditto build/ios/iphoneos/Runner.app Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent Payload unsigned.ipa
+
+      - name: Verify IPA contents and framework sanity
+        run: |
+          mkdir -p ipa_check
+          unzip -q unsigned.ipa -d ipa_check
+          test -d ipa_check/Payload/Runner.app
+          test -d ipa_check/Payload/Runner.app/Frameworks
+
+          # Ensure no manually injected mpv.framework is present.
+          if find ipa_check/Payload/Runner.app/Frameworks -maxdepth 2 -name "mpv.framework" | grep -q "mpv.framework"; then
+            echo "Found manually embedded mpv.framework in IPA. Failing build."
+            exit 1
+          fi
+
+          # Print framework list for visibility.
+          ls -la ipa_check/Payload/Runner.app/Frameworks
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: unsigned.ipa
