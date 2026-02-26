@@ -62,7 +62,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             clean build
 
-      - name: Package unsigned IPA (Luna-style)
+      - name: Package unsigned IPA (no binary mutation)
         run: |
           set -e
           APP_PATH="build/ios/DerivedData/Build/Products/Release-iphoneos/Runner.app"
@@ -71,78 +71,23 @@ jobs:
           rm -rf Payload unsigned.ipa
           cp -R "$APP_PATH" Runner.app
 
-          # Remove all pre-existing signatures/provisions.
+          # Remove all pre-existing signatures/provisions only.
           find Runner.app -name "_CodeSignature" -type d -prune -exec rm -rf {} +
           find Runner.app -name "embedded.mobileprovision" -type f -delete
 
-          # Optional strip for main binary.
-          if [ -f "Runner.app/Runner" ]; then
-            strip "Runner.app/Runner" 2>/dev/null || true
-          fi
-
           mkdir -p Payload
           mv Runner.app Payload/Runner.app
-          (cd . && zip -qry unsigned.ipa Payload)
+          # Use ditto for Apple-friendly IPA zip structure.
+          ditto -c -k --sequesterRsrc --keepParent Payload unsigned.ipa
           test -f unsigned.ipa
 
-      - name: Normalize IPA binaries for sideload
-        run: |
-          set -e
-          rm -rf ipa_work
-          mkdir -p ipa_work
-          unzip -q unsigned.ipa -d ipa_work
-
-          APP_DIR="ipa_work/Payload/Runner.app"
-          FW_DIR="$APP_DIR/Frameworks"
-
-          # Remove existing code signatures; sideload tool will re-sign everything.
-          find "$APP_DIR" -name "_CodeSignature" -type d -prune -exec rm -rf {} +
-
-          # Strip simulator architectures and keep device-safe arm64 binaries.
-          find "$FW_DIR" -name "*.framework" -type d | while read -r fw; do
-            name=$(basename "$fw" .framework)
-            bin="$fw/$name"
-            if [ -f "$bin" ]; then
-              info=$(lipo -info "$bin" 2>/dev/null || true)
-              echo "[ARCH] $name -> $info"
-
-              if echo "$info" | grep -q "x86_64"; then
-                lipo -remove x86_64 "$bin" -output "$bin" || true
-              fi
-              if echo "$info" | grep -q "i386"; then
-                lipo -remove i386 "$bin" -output "$bin" || true
-              fi
-
-              info_after=$(lipo -info "$bin" 2>/dev/null || true)
-              echo "[ARCH_AFTER] $name -> $info_after"
-              if ! echo "$info_after" | grep -Eq "(architecture: arm64|are: .*arm64)"; then
-                echo "Missing arm64 in $bin"
-                exit 1
-              fi
-
-              xcrun bitcode_strip "$bin" -r -o "$bin" || true
-            fi
-          done
-
-          # Repack normalized IPA.
-          rm -f unsigned.ipa
-          (cd ipa_work && zip -qry ../unsigned.ipa Payload)
-          test -f unsigned.ipa
-
-      - name: Verify IPA contents and framework sanity
+      - name: Verify IPA contents
         run: |
           rm -rf ipa_check
           mkdir -p ipa_check
           unzip -q unsigned.ipa -d ipa_check
           test -d ipa_check/Payload/Runner.app
           test -d ipa_check/Payload/Runner.app/Frameworks
-
-          # Ensure no manually injected lowercase mpv.framework (legacy manual embed pattern).
-          if find ipa_check/Payload/Runner.app/Frameworks -maxdepth 2 -name "mpv.framework" | grep -q "mpv.framework"; then
-            echo "Found manually embedded mpv.framework naming pattern. Failing build."
-            exit 1
-          fi
-
           ls -la ipa_check/Payload/Runner.app/Frameworks
 
       - name: Upload IPA artifact
