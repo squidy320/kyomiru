@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:palette_generator/palette_generator.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/theme/app_theme.dart';
@@ -36,6 +35,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   bool _searching = false;
   int _heroIndex = 0;
   Color _heroTint = const Color(0xFF1A2238);
+  bool _heroAnimating = false;
 
   @override
   void initState() {
@@ -116,14 +116,17 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   void _startHeroTimer(int count) {
     _heroTimer?.cancel();
     if (count <= 1) return;
-    _heroTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted || !_heroController.hasClients) return;
+    _heroTimer = Timer.periodic(const Duration(seconds: 7), (_) {
+      if (!mounted || !_heroController.hasClients || _heroAnimating) return;
+      _heroAnimating = true;
       final next = (_heroIndex + 1) % count;
-      _heroController.animateToPage(
+      _heroController
+          .animateToPage(
         next,
         duration: const Duration(milliseconds: 420),
         curve: Curves.easeOutCubic,
-      );
+      )
+          .whenComplete(() => _heroAnimating = false);
     });
   }
 
@@ -135,25 +138,18 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       return;
     }
 
-    final image = media.bannerImage ?? media.cover.best;
-    if (image == null || image.isEmpty) return;
-
-    try {
-      final palette = await PaletteGenerator.fromImageProvider(
-        NetworkImage(image),
-        size: const Size(96, 96),
-        maximumColorCount: 12,
-      );
-      final color = palette.vibrantColor?.color ??
-          palette.dominantColor?.color ??
-          palette.darkMutedColor?.color ??
-          const Color(0xFF1A2238);
-      _heroColorCache[media.id] = color;
-      if (!mounted) return;
-      setState(() => _heroTint = color);
-    } catch (_) {
-      // Ignore palette failures; keep current tint.
-    }
+    const palette = <Color>[
+      Color(0xFF1A2238),
+      Color(0xFF1C2B4A),
+      Color(0xFF2A203E),
+      Color(0xFF1F3A36),
+      Color(0xFF3A2A1F),
+      Color(0xFF22263E),
+    ];
+    final color = palette[media.id % palette.length];
+    _heroColorCache[media.id] = color;
+    if (!mounted) return;
+    setState(() => _heroTint = color);
   }
 
   @override
@@ -305,7 +301,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   if (image != null)
-                    Image.network(image, fit: BoxFit.cover)
+                    Image.network(image, fit: BoxFit.contain, filterQuality: FilterQuality.medium)
                   else
                     const ColoredBox(color: Color(0x22111111)),
                   const DecoratedBox(
@@ -506,3 +502,6 @@ class _DiscoveryPayload {
   final List<AniListMedia> trending;
   final List<AniListDiscoverySection> sections;
 }
+
+
+
