@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -92,6 +94,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
     final settings = ref.watch(appSettingsProvider);
     final currentUser = ref.watch(currentUserProvider).valueOrNull;
+    final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
 
     if (unread > _lastServerUnread) {
       _lastServerUnread = unread;
@@ -102,20 +105,74 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
 
     final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
+    final activeColor = Theme.of(context).colorScheme.primary;
+
+    Widget iOSAlertsIcon() {
+      final avatar = currentUser?.avatar;
+      final selected = _index == 2;
+      final borderColor = selected ? activeColor : const Color(0x33FFFFFF);
+      final base = Container(
+        width: 22,
+        height: 22,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: borderColor, width: 1),
+          image: (avatar != null && avatar.isNotEmpty)
+              ? DecorationImage(image: NetworkImage(avatar), fit: BoxFit.cover)
+              : null,
+          color: (avatar == null || avatar.isEmpty)
+              ? const Color(0x44161D32)
+              : Colors.transparent,
+        ),
+        child: (avatar == null || avatar.isEmpty)
+            ? Icon(Icons.person_rounded,
+                size: 15,
+                color: selected ? activeColor : const Color(0xFFCAD0DD))
+            : null,
+      );
+      return Badge(
+        isLabelVisible: displayUnread > 0,
+        smallSize: 8,
+        child: base,
+      );
+    }
 
     return Scaffold(
-      extendBody: true,
+      extendBody: !isIOS,
       body: GlassScaffoldBackground(child: _pages[_index]),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        child: _PillBottomBar(
-          compact: settings.compactBar,
-          index: _index,
-          unread: displayUnread,
-          userAvatar: currentUser?.avatar,
-          onTap: _onTabTap,
-        ),
-      ),
+      bottomNavigationBar: isIOS
+          ? CupertinoTabBar(
+              currentIndex: _index,
+              onTap: _onTabTap,
+              activeColor: activeColor,
+              inactiveColor: const Color(0xFFCAD0DD),
+              backgroundColor: const Color(0xEE101423),
+              border: const Border(
+                top: BorderSide(color: Color(0x22000000), width: 0.5),
+              ),
+              items: [
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.library_books_outlined), label: 'Library'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.auto_awesome_outlined),
+                    label: 'Discovery'),
+                BottomNavigationBarItem(icon: iOSAlertsIcon(), label: 'Alerts'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.download_outlined), label: 'Downloads'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.settings_outlined), label: 'Settings'),
+              ],
+            )
+          : SafeArea(
+              minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _PillBottomBar(
+                compact: settings.compactBar,
+                index: _index,
+                unread: displayUnread,
+                userAvatar: currentUser?.avatar,
+                onTap: _onTabTap,
+              ),
+            ),
     );
   }
 }
