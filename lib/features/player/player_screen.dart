@@ -66,6 +66,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   String? _initError;
   String? _skipIndicator;
   double? _scrubValue;
+  Color? _gestureFlashColor;
 
   List<_PlayerCandidate> _candidates = const [];
   int _activeCandidateIndex = -1;
@@ -351,6 +352,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
   }
 
+
+  void _flashGesture(Color color) {
+    setState(() => _gestureFlashColor = color);
+    Future<void>.delayed(const Duration(milliseconds: 160), () {
+      if (!mounted) return;
+      setState(() => _gestureFlashColor = null);
+    });
+  }
   void _toggleControls() {
     setState(() => _controlsVisible = !_controlsVisible);
     if (_controlsVisible) {
@@ -362,7 +371,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _scheduleControlsAutoHide() {
     _controlsHideTimer?.cancel();
-    _controlsHideTimer = Timer(const Duration(seconds: 3), () {
+    _controlsHideTimer = Timer(const Duration(seconds: 5), () {
       if (!mounted) return;
       if (_isPlaying && !_isScrubbing) {
         setState(() => _controlsVisible = false);
@@ -456,9 +465,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   _speedBeforeHold = _playbackSpeed;
                   await _setSpeed(2.0);
                   _showSkipIndicator('2x');
+                  _flashGesture(const Color(0x55FFD54F));
                 },
                 onLongPressEnd: (_) async {
                   await _setSpeed(_speedBeforeHold);
+                  _flashGesture(const Color(0x33FFFFFF));
                 },
                 child: Center(
                   child: ready
@@ -495,6 +506,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 ),
               ),
             ),
+            if (_gestureFlashColor != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _gestureFlashColor == null ? 0 : 1,
+                    duration: const Duration(milliseconds: 110),
+                    child: ColoredBox(color: _gestureFlashColor!),
+                  ),
+                ),
+              ),
             if (_skipIndicator != null)
               Positioned.fill(
                 child: IgnorePointer(
@@ -739,4 +760,5 @@ class _AppleCircleButton extends StatelessWidget {
     );
   }
 }
+
 
