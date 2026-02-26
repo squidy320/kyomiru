@@ -45,19 +45,34 @@ jobs:
           cd ios
           pod install --repo-update
 
-      - name: Build IPA (no codesign)
+      - name: Build iOS archive (no codesign)
         run: flutter build ipa --release --no-codesign
 
-      - name: Verify IPA output exists
+      - name: Ensure unsigned IPA exists
         run: |
-          test -f build/ios/ipa/*.ipa
+          set -e
+          rm -f unsigned.ipa
+
+          if ls build/ios/ipa/*.ipa >/dev/null 2>&1; then
+            cp "$(ls build/ios/ipa/*.ipa | head -n 1)" unsigned.ipa
+            echo "Using IPA exported by flutter build ipa"
+          else
+            echo "No IPA exported (expected with --no-codesign on some toolchains); packaging from xcarchive"
+            APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
+            test -d "$APP_PATH"
+            rm -rf Payload
+            mkdir -p Payload
+            ditto "$APP_PATH" Payload/Runner.app
+            ditto -c -k --sequesterRsrc --keepParent Payload unsigned.ipa
+          fi
+
+          test -f unsigned.ipa
 
       - name: Verify IPA contents and framework sanity
         run: |
           rm -rf ipa_check
           mkdir -p ipa_check
-          IPA_PATH=$(ls build/ios/ipa/*.ipa | head -n 1)
-          unzip -q "$IPA_PATH" -d ipa_check
+          unzip -q unsigned.ipa -d ipa_check
           test -d ipa_check/Payload/Runner.app
           test -d ipa_check/Payload/Runner.app/Frameworks
 
@@ -67,11 +82,10 @@ jobs:
             exit 1
           fi
 
-          # Print frameworks for visibility/debugging.
           ls -la ipa_check/Payload/Runner.app/Frameworks
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
-          path: build/ios/ipa/*.ipa
+          path: unsigned.ipa
