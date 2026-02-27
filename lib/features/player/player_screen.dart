@@ -49,11 +49,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver {
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
+
   Timer? _persistTimer;
   Timer? _uiPollTimer;
+  Timer? _overlayHideTimer;
 
   bool _isInitializing = true;
+  bool _overlayVisible = true;
   String? _initError;
+
   List<_PlayerCandidate> _candidates = const [];
   int _activeCandidateIndex = -1;
 
@@ -62,13 +66,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _isDragging = false;
   double _dragValueSec = 0;
 
-  double? _introStartSec;
-  double? _introEndSec;
+  // AniSkip opening range (seconds)
+  double? opStart;
+  double? opEnd;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_fetchAniSkipData());
     _init();
   }
 
@@ -170,7 +176,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  Future<void> _fetchIntroRange() async {
+  Future<void> _fetchAniSkipData() async {
     final malId = widget.malId;
     if (malId == null || malId <= 0) return;
 
@@ -185,10 +191,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final data = res.data;
       if (data is! Map<String, dynamic>) return;
       final results = (data['results'] as List?) ?? const [];
+
       for (final item in results) {
         if (item is! Map<String, dynamic>) continue;
-        final type = (item['skip_type'] ?? '').toString().toLowerCase();
-        if (type != 'op') continue;
+        if ((item['skip_type'] ?? '').toString().toLowerCase() != 'op') continue;
         final interval = item['interval'];
         if (interval is! Map<String, dynamic>) continue;
 
@@ -198,15 +204,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
         if (!mounted) return;
         setState(() {
-          _introStartSec = start;
-          _introEndSec = end;
+          opStart = start;
+          opEnd = end;
         });
         AppLogger.i('AniSkip',
             'Loaded OP timestamps media=${widget.mediaId} ep=${widget.episodeNumber} start=$start end=$end');
         return;
       }
     } catch (e, st) {
-      AppLogger.w('AniSkip', 'Failed to load intro timestamps',
+      AppLogger.w('AniSkip', 'Failed to fetch skip-times',
           error: e, stackTrace: st);
     }
   }
@@ -229,6 +235,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
   }
 
+  void _scheduleOverlayAutoHide() {
+    _overlayHideTimer?.cancel();
+    _overlayHideTimer = Timer(const Duration(seconds: 3), () {
+      final c = _videoController;
+      if (!mounted || c == null) return;
+      if (c.value.isPlaying) {
+        setState(() => _overlayVisible = false);
+      }
+    });
+  }
+
+  void _registerInteraction() {
+    if (!_overlayVisible) {
+      setState(() => _overlayVisible = true);
+    }
+    _scheduleOverlayAutoHide();
+  }
+
+  void _handleSurfaceTap() {
+    if (_overlayVisible) {
+      setState(() => _overlayVisible = false);
+      _overlayHideTimer?.cancel();
+      return;
+    }
+    _registerInteraction();
+  }
+
   Future<void> _bindController(VideoPlayerController controller) async {
     await _disposeControllers();
 
@@ -236,6 +269,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       videoPlayerController: controller,
       autoInitialize: false,
       autoPlay: false,
+      showControls: false,
       allowFullScreen: true,
       allowMuting: true,
       allowedScreenSleep: false,
@@ -280,6 +314,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
 
     _startUiPoll();
+    _scheduleOverlayAutoHide();
   }
 
   Future<void> _init() async {
@@ -324,7 +359,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     await _bindController(selected);
-    unawaited(_fetchIntroRange());
 
     AppLogger.i(
       'Player',
@@ -352,26 +386,54 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         );
   }
 
-  bool get _isInsideIntro {
-    final s = _introStartSec;
-    final e = _introEndSec;
+  Future<void> _seekByRatio(double ratio) async {
+    final c = _videoController;
+    if (c == null || _durationSec <= 0) return;
+    final targetMs = (_durationSec * ratio.clamp(0.0, 1.0) * 1000).round();
+    await c.seekTo(Duration(milliseconds: targetMs));
+  }
+
+  Future<void> _seekRelative(Duration delta) async {
+    final c = _videoController;
+    if (c == null) return;
+    final pos = c.value.position;
+    final dur = c.value.duration;
+    var target = pos + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (dur > Duration.zero && target > dur) target = dur;
+    await c.seekTo(target);
+    _registerInteraction();
+  }
+
+  Future<void> _togglePlayPause() async {
+    final c = _videoController;
+    if (c == null) return;
+    if (c.value.isPlaying) {
+      await c.pause();
+      setState(() => _overlayVisible = true);
+      _overlayHideTimer?.cancel();
+    } else {
+      await c.play();
+      _registerInteraction();
+    }
+  }
+
+  bool get _isWithinOpeningRange {
+    final s = opStart;
+    final e = opEnd;
     if (s == null || e == null) return false;
-    return _currentSec >= s && _currentSec <= e;
+    final posSec = _videoController?.value.position.inMilliseconds.toDouble() ??
+        (_currentSec * 1000);
+    final current = posSec / 1000.0;
+    return current >= s && current <= e;
   }
 
   Future<void> _skipIntro() async {
     final c = _videoController;
-    final e = _introEndSec;
-    if (c == null || e == null) return;
-    await c.seekTo(Duration(milliseconds: (e * 1000).round()));
-  }
-
-  Future<void> _seekByRatio(double ratio) async {
-    final c = _videoController;
-    if (c == null || _durationSec <= 0) return;
-    final clamped = ratio.clamp(0.0, 1.0);
-    final targetMs = (_durationSec * clamped * 1000).round();
-    await c.seekTo(Duration(milliseconds: targetMs));
+    final end = opEnd;
+    if (c == null || end == null) return;
+    await c.seekTo(Duration(milliseconds: (end * 1000).round()));
+    _registerInteraction();
   }
 
   String _fmt(double sec) {
@@ -388,6 +450,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _persistTimer?.cancel();
     _uiPollTimer?.cancel();
+    _overlayHideTimer?.cancel();
     unawaited(_persistProgress());
     unawaited(_disposeControllers());
     super.dispose();
@@ -397,6 +460,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget build(BuildContext context) {
     final showCustomProgress = _chewieController != null && _durationSec > 0;
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
+    final isPlaying = _videoController?.value.isPlaying ?? false;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -419,139 +483,224 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               )
             else if (_chewieController != null)
               Positioned.fill(
-                child: Chewie(controller: _chewieController!),
-              ),
-            if (_isInsideIntro)
-              Positioned(
-                right: 16,
-                bottom: 74,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E1E1E),
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  ),
-                  onPressed: _skipIntro,
-                  icon: const Icon(Icons.skip_next_rounded),
-                  label: const Text('Skip Intro'),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _handleSurfaceTap,
+                  child: Chewie(controller: _chewieController!),
                 ),
               ),
-            if (showCustomProgress)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 20,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            AnimatedOpacity(
+              opacity: _overlayVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 220),
+              child: IgnorePointer(
+                ignoring: !_overlayVisible,
+                child: Stack(
                   children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: (details) {
-                        final box = context.findRenderObject() as RenderBox?;
-                        if (box == null) return;
-                        final local = box.globalToLocal(details.globalPosition);
-                        final ratio = local.dx / box.size.width;
-                        unawaited(_seekByRatio(ratio));
-                      },
-                      onHorizontalDragStart: (d) {
-                        setState(() {
-                          _isDragging = true;
-                          _dragValueSec = uiCurrent;
-                        });
-                      },
-                      onHorizontalDragUpdate: (details) {
-                        final box = context.findRenderObject() as RenderBox?;
-                        if (box == null || _durationSec <= 0) return;
-                        final local = box.globalToLocal(details.globalPosition);
-                        final ratio = (local.dx / box.size.width).clamp(0.0, 1.0);
-                        setState(() => _dragValueSec = _durationSec * ratio);
-                      },
-                      onHorizontalDragEnd: (_) {
-                        final ratio = _durationSec <= 0 ? 0.0 : _dragValueSec / _durationSec;
-                        setState(() => _isDragging = false);
-                        unawaited(_seekByRatio(ratio));
-                      },
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final width = constraints.maxWidth;
-                          final safeDuration = _durationSec <= 0 ? 1.0 : _durationSec;
-                          final playedRatio = (uiCurrent / safeDuration).clamp(0.0, 1.0);
-                          final playedWidth = width * playedRatio;
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: IconButton(
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black54,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.center,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black38,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () => _seekRelative(const Duration(seconds: -10)),
+                            icon: const Icon(Icons.replay_10_rounded),
+                          ),
+                          const SizedBox(width: 14),
+                          IconButton(
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black45,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: _togglePlayPause,
+                            icon: Icon(
+                              isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          IconButton(
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black38,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () => _seekRelative(const Duration(seconds: 10)),
+                            icon: const Icon(Icons.forward_10_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (showCustomProgress)
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 18,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTapDown: (details) {
+                                final box = context.findRenderObject() as RenderBox?;
+                                if (box == null) return;
+                                final ratio =
+                                    (details.localPosition.dx / box.size.width)
+                                        .clamp(0.0, 1.0);
+                                unawaited(_seekByRatio(ratio));
+                                _registerInteraction();
+                              },
+                              onHorizontalDragStart: (_) {
+                                _registerInteraction();
+                                setState(() {
+                                  _isDragging = true;
+                                  _dragValueSec = uiCurrent;
+                                });
+                              },
+                              onHorizontalDragUpdate: (details) {
+                                final box = context.findRenderObject() as RenderBox?;
+                                if (box == null || _durationSec <= 0) return;
+                                final localDx = details.localPosition.dx;
+                                final ratio =
+                                    (localDx / box.size.width).clamp(0.0, 1.0);
+                                setState(() => _dragValueSec = _durationSec * ratio);
+                              },
+                              onHorizontalDragEnd: (_) {
+                                final ratio =
+                                    _durationSec <= 0 ? 0.0 : _dragValueSec / _durationSec;
+                                setState(() => _isDragging = false);
+                                unawaited(_seekByRatio(ratio));
+                                _registerInteraction();
+                              },
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final width = constraints.maxWidth;
+                                  final safeDuration =
+                                      _durationSec <= 0 ? 1.0 : _durationSec;
+                                  final playedRatio =
+                                      (uiCurrent / safeDuration).clamp(0.0, 1.0);
+                                  final playedWidth = width * playedRatio;
 
-                          final introStart = _introStartSec;
-                          final introEnd = _introEndSec;
-                          final hasIntro = introStart != null && introEnd != null && introEnd > introStart;
-                          final introLeft = hasIntro
-                              ? (introStart / safeDuration) * width
-                              : 0.0;
-                          final introWidth = hasIntro
-                              ? ((introEnd - introStart) / safeDuration) * width
-                              : 0.0;
+                                  final start = opStart;
+                                  final end = opEnd;
+                                  final hasOpening =
+                                      start != null && end != null && end > start;
 
-                          return SizedBox(
-                            height: 16,
-                            child: Stack(
+                                  final openingLeft = hasOpening
+                                      ? (start / safeDuration) * width
+                                      : 0.0;
+                                  final openingWidth = hasOpening
+                                      ? ((end - start) / safeDuration) * width
+                                      : 0.0;
+
+                                  return SizedBox(
+                                    height: 16,
+                                    child: Stack(
+                                      children: [
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          top: 5,
+                                          child: Container(
+                                            height: 6,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white24,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                          ),
+                                        ),
+                                        if (hasOpening)
+                                          Positioned(
+                                            left: openingLeft.clamp(0.0, width),
+                                            top: 5,
+                                            child: Container(
+                                              height: 6,
+                                              width: openingWidth.clamp(0.0, width),
+                                              decoration: BoxDecoration(
+                                                color: Colors.yellow
+                                                    .withValues(alpha: 0.3),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                            ),
+                                          ),
+                                        Positioned(
+                                          left: 0,
+                                          top: 5,
+                                          child: Container(
+                                            height: 6,
+                                            width: playedWidth,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            Row(
                               children: [
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  top: 5,
-                                  child: Container(
-                                    height: 6,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white24,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
+                                Text(
+                                  _fmt(uiCurrent),
+                                  style: const TextStyle(
+                                      color: Colors.white70, fontSize: 12),
                                 ),
-                                if (hasIntro)
-                                  Positioned(
-                                    left: introLeft.clamp(0.0, width),
-                                    top: 5,
-                                    child: Container(
-                                      height: 6,
-                                      width: introWidth.clamp(0.0, width),
-                                      decoration: BoxDecoration(
-                                        color: Colors.yellow.withValues(alpha: 0.3),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                    ),
-                                  ),
-                                Positioned(
-                                  left: 0,
-                                  top: 5,
-                                  child: Container(
-                                    height: 6,
-                                    width: playedWidth,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
+                                const Spacer(),
+                                Text(
+                                  '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
+                                  style: const TextStyle(
+                                      color: Colors.white70, fontSize: 12),
                                 ),
                               ],
                             ),
-                          );
-                        },
+                          ],
+                        ),
                       ),
-                    ),
-                    Row(
-                      children: [
-                        Text(
-                          _fmt(uiCurrent),
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    Positioned(
+                      right: 12,
+                      bottom: 74,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 180),
+                        opacity: _isWithinOpeningRange ? 1.0 : 0.0,
+                        child: IgnorePointer(
+                          ignoring: !_isWithinOpeningRange,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E1E1E),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                            ),
+                            onPressed: _skipIntro,
+                            icon: const Icon(Icons.skip_next_rounded),
+                            label: const Text('Skip Intro'),
+                          ),
                         ),
-                        const Spacer(),
-                        Text(
-                          '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
               ),
+            ),
           ],
         ),
       ),
