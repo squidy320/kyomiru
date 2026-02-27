@@ -1,4 +1,4 @@
-﻿name: kyomiru_flutter
+name: kyomiru_flutter
 description: Kyomiru Flutter rewrite.
 publish_to: none
 version: 1.0.0+1
@@ -21,10 +21,8 @@ dependencies:
   connectivity_plus: ^6.1.0
   liquid_glass_renderer: ^0.2.0-dev.4
   palette_generator: ^0.3.3+6
-  media_kit: ^1.1.11
-  media_kit_video: ^1.2.5
-  media_kit_libs_video: ^1.0.5
-
+  video_player: ^2.8.1
+  chewie: ^1.7.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -32,5 +30,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
 
 
