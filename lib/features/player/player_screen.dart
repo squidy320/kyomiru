@@ -178,23 +178,43 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _fetchAniSkipData() async {
     final malId = widget.malId;
-    if (malId == null || malId <= 0) return;
+    if (malId == null || malId <= 0) {
+      AppLogger.w(
+        'AniSkip',
+        'Skipping fetch: missing MAL id for media=${widget.mediaId} ep=${widget.episodeNumber}',
+      );
+      return;
+    }
 
     final url =
         'https://api.aniskip.com/v1/skip-times/$malId/${widget.episodeNumber}?types[]=op';
 
     try {
       final dio = Dio();
-      final res = await dio.get(url, options: Options(validateStatus: (_) => true));
+      AppLogger.i('AniSkip', 'Fetching OP timestamps url=$url');
+      final res = await dio.get(
+        url,
+        options: Options(validateStatus: (_) => true),
+      );
+      AppLogger.i('AniSkip', 'Response status=${res.statusCode}');
       if ((res.statusCode ?? 0) >= 400) return;
 
       final data = res.data;
       if (data is! Map<String, dynamic>) return;
       final results = (data['results'] as List?) ?? const [];
 
+      if (results.isEmpty) {
+        AppLogger.w(
+          'AniSkip',
+          'No AniSkip results for media=${widget.mediaId} ep=${widget.episodeNumber}',
+        );
+      }
+
       for (final item in results) {
         if (item is! Map<String, dynamic>) continue;
-        if ((item['skip_type'] ?? '').toString().toLowerCase() != 'op') continue;
+        if ((item['skip_type'] ?? '').toString().toLowerCase() != 'op') {
+          continue;
+        }
         final interval = item['interval'];
         if (interval is! Map<String, dynamic>) continue;
 
@@ -207,16 +227,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           opStart = start;
           opEnd = end;
         });
-        AppLogger.i('AniSkip',
-            'Loaded OP timestamps media=${widget.mediaId} ep=${widget.episodeNumber} start=$start end=$end');
+        AppLogger.i(
+          'AniSkip',
+          'Loaded OP timestamps media=${widget.mediaId} ep=${widget.episodeNumber} start=$start end=$end',
+        );
         return;
       }
+
+      AppLogger.w(
+        'AniSkip',
+        'No OP range found in AniSkip results for media=${widget.mediaId} ep=${widget.episodeNumber}',
+      );
     } catch (e, st) {
       AppLogger.w('AniSkip', 'Failed to fetch skip-times',
           error: e, stackTrace: st);
     }
   }
-
   void _startUiPoll() {
     _uiPollTimer?.cancel();
     _uiPollTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
@@ -450,9 +476,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _persistTimer?.cancel();
     _uiPollTimer?.cancel();
-    _overlayHideTimer?.cancel();
-    unawaited(_persistProgress());
-    unawaited(_disposeControllers());
+    _overlayHideTimer?.cancel();    unawaited(_disposeControllers());
     super.dispose();
   }
 
@@ -707,5 +731,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
+
+
 
 
