@@ -23,6 +23,9 @@ dependencies:
   palette_generator: ^0.3.3+6
   video_player: ^2.8.1
   chewie: ^1.7.1
+  shimmer: ^3.0.0
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -30,6 +33,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+
+
 
 
 

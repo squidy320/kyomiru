@@ -8,17 +8,17 @@ import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/glass_widgets.dart';
-import '../core/haptics.dart';
-import '../core/image_cache.dart';
-import '../core/theme/app_theme.dart';
-import '../features/discovery/discovery_screen.dart';
-import '../features/downloads/downloads_screen.dart';
-import '../features/library/library_screen.dart';
-import '../features/settings/settings_screen.dart';
-import '../models/anilist_models.dart';
-import '../state/app_settings_state.dart';
-import '../state/auth_state.dart';
+import 'core/glass_widgets.dart';
+import 'core/haptics.dart';
+import 'core/image_cache.dart';
+import 'core/theme/app_theme.dart';
+import 'features/discovery/discovery_screen.dart';
+import 'features/downloads/downloads_screen.dart';
+import 'features/library/library_screen.dart';
+import 'features/settings/settings_screen.dart';
+import 'models/anilist_models.dart';
+import 'state/app_settings_state.dart';
+import 'state/auth_state.dart';
 
 class KyomiruApp extends ConsumerWidget {
   const KyomiruApp({super.key});
@@ -523,4 +523,5 @@ class _NotificationsSkeleton extends StatelessWidget {
     );
   }
 }
+
 

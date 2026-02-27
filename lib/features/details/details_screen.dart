@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
+import '../../core/haptics.dart';
+import '../../core/image_cache.dart';
 import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
@@ -27,6 +31,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   SoraAnimeMatch? _manualMatch;
   Future<_PaheData>? _paheFuture;
   int? _paheMediaId;
+  int? _prefetchedForMediaId;
 
   Future<_PaheData> _loadPaheData(AniListMedia media) async {
     final match = _manualMatch ?? await _sora.autoMatchTitle(media.title.best);
@@ -83,6 +88,26 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     });
   }
 
+  void _prefetchPlaybackData(AniListMedia media, List<SoraEpisode> episodes) {
+    if (_prefetchedForMediaId == media.id) return;
+    _prefetchedForMediaId = media.id;
+
+    final firstThree = episodes.take(3).toList();
+    final aniSkip = ref.read(aniSkipServiceProvider);
+
+    for (final ep in firstThree) {
+      unawaited(aniSkip.prefetchOpeningRange(
+        mediaId: media.id,
+        episode: ep.number,
+        malId: media.idMal,
+      ));
+      unawaited(_sora.getSourcesForEpisode(
+        ep.playUrl,
+        anilistId: media.id,
+        episodeNumber: ep.number,
+      ));
+    }
+  }
   String _episodeSpecificTitle(AniListMedia media, int episodeNumber) {
     final streamMeta = media.streamingEpisodes
         .where((se) => se.guessedEpisodeNumber == episodeNumber)
@@ -248,8 +273,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       future: client.mediaDetails(widget.mediaId),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-              body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: _DetailsLoadingSkeleton());
         }
         if (snap.hasError || snap.data == null) {
           return Scaffold(
@@ -301,9 +325,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                     future: _paheFuture,
                     builder: (context, paheSnap) {
                       if (paheSnap.connectionState == ConnectionState.waiting) {
-                        return const GlassCard(
-                            child: Text(
-                                'Matching AnimePahe and loading episodes...'));
+                        return const _EpisodeListLoadingSkeleton();
                       }
 
                       final data = paheSnap.data;
@@ -337,6 +359,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       }
 
                       final episodes = data.episodes;
+                      _prefetchPlaybackData(media, episodes);
                       return Column(
                         children: [
                           GlassCard(
@@ -476,7 +499,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         image: thumb == null
                                             ? null
                                             : DecorationImage(
-                                                image: NetworkImage(thumb),
+                                                image: KyomiruImageCache.provider(thumb),
                                                 fit: BoxFit.cover,
                                               ),
                                       ),
@@ -575,6 +598,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     : _pickSourceByPreference(
                                                         sources, settings);
                                             if (selected == null) return;
+                                            final fallback = sources
+                                                .map((s) => PlayerSourceOption(
+                                                      url: s.url,
+                                                      headers: s.headers,
+                                                    ))
+                                                .toList();
                                             if (!context.mounted) return;
                                             Navigator.of(context).push(
                                               MaterialPageRoute(
@@ -590,7 +619,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                       media.cover.best ??
                                                           media.bannerImage,
                                                   mediaTitle: media.title.best,
-                                                    malId: media.idMal,
+                                                  malId: media.idMal,
+                                                  fallbackSources: fallback,
                                                 ),
                                               ),
                                             );
@@ -831,7 +861,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
             children: [
               if (bg != null)
                 Positioned.fill(
-                  child: Image.network(bg, fit: BoxFit.cover),
+                  child: KyomiruImageCache.image(bg, fit: BoxFit.cover),
                 ),
               Positioned.fill(
                 child: Container(color: const Color(0xCC0B1020)),
@@ -967,7 +997,7 @@ class _Header extends StatelessWidget {
             decoration: BoxDecoration(
               image: media.bannerImage != null
                   ? DecorationImage(
-                      image: NetworkImage(media.bannerImage!),
+                      image: KyomiruImageCache.provider(media.bannerImage!),
                       fit: BoxFit.cover,
                     )
                   : null,
@@ -998,7 +1028,7 @@ class _Header extends StatelessWidget {
                   image: media.cover.best == null
                       ? null
                       : DecorationImage(
-                          image: NetworkImage(media.cover.best!),
+                          image: KyomiruImageCache.provider(media.cover.best!),
                           fit: BoxFit.cover),
                 ),
               ),
@@ -1033,7 +1063,10 @@ class _TabPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        hapticTap();
+        onTap();
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
@@ -1092,4 +1125,66 @@ class _PaheData {
   final SoraAnimeMatch? match;
   final List<SoraEpisode> episodes;
 }
+
+
+
+
+
+
+
+
+
+class _DetailsLoadingSkeleton extends StatelessWidget {
+  const _DetailsLoadingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Shimmer.fromColors(
+          baseColor: const Color(0xFF333333),
+          highlightColor: const Color(0xFF555555),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(height: 220, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18))),
+              const SizedBox(height: 12),
+              Container(height: 38, width: 240, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10))),
+              const SizedBox(height: 12),
+              for (var i = 0; i < 4; i++) ...[
+                Container(height: 84, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14))),
+                const SizedBox(height: 8),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EpisodeListLoadingSkeleton extends StatelessWidget {
+  const _EpisodeListLoadingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFF333333),
+      highlightColor: const Color(0xFF555555),
+      child: Column(
+        children: List.generate(
+          5,
+          (index) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            height: 84,
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
 

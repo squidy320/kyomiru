@@ -28,8 +28,14 @@ class AniListClient {
   bool _serialRunning = false;
   DateTime _nextAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
+  static const Duration _staleTtl = Duration(minutes: 30);
+  final Set<String> _refreshing = <String>{};
+
   final Map<String, _CacheEntry<AniListUser>> _viewerCache = {};
   final Map<String, _CacheEntry<int>> _unreadCache = {};
+  final Map<String, _CacheEntry<List<AniListLibraryEntry>>> _libraryCurrentCache = {};
+  final Map<String, _CacheEntry<List<AniListLibrarySection>>> _librarySectionsCache = {};
+  final Map<String, _CacheEntry<List<AniListNotificationItem>>> _notificationsCache = {};
 
   _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
   _CacheEntry<List<AniListDiscoverySection>>? _discoverySectionsCache;
@@ -71,8 +77,20 @@ class AniListClient {
     if (now.isBefore(_nextAllowedAt)) {
       await Future<void>.delayed(_nextAllowedAt.difference(now));
     }
-    // steady throttle to avoid accidental bursts
     _nextAllowedAt = DateTime.now().add(const Duration(milliseconds: 250));
+  }
+
+  void _refreshInBackground(String key, Future<void> Function() task) {
+    if (_refreshing.contains(key)) return;
+    _refreshing.add(key);
+    unawaited(() async {
+      try {
+        await task();
+      } catch (_) {
+      } finally {
+        _refreshing.remove(key);
+      }
+    }());
   }
 
   String buildAuthUrl({
@@ -270,8 +288,22 @@ class AniListClient {
 
   Future<AniListUser> me(String token, {bool force = false}) async {
     final cached = _viewerCache[token];
-    if (!force && cached != null && cached.isValid) return cached.value;
+    if (!force && cached != null) {
+      if (cached.isValid) return cached.value;
+      _refreshInBackground('me:$token', () async {
+        final fresh = await _fetchMe(token);
+        _viewerCache[token] = _CacheEntry<AniListUser>(
+          fresh,
+          DateTime.now().add(_staleTtl),
+        );
+      });
+      return cached.value;
+    }
 
+    return _fetchMe(token);
+  }
+
+  Future<AniListUser> _fetchMe(String token) async {
     const q = r'''
       query {
         Viewer {
@@ -284,9 +316,12 @@ class AniListClient {
     ''';
     final data = await _graphql(query: q, token: token);
     final user = AniListUser.fromJson(
-        (data['Viewer'] as Map<String, dynamic>? ?? const {}));
+      (data['Viewer'] as Map<String, dynamic>? ?? const {}),
+    );
     _viewerCache[token] = _CacheEntry<AniListUser>(
-        user, DateTime.now().add(const Duration(minutes: 5)));
+      user,
+      DateTime.now().add(_staleTtl),
+    );
     return user;
   }
 
@@ -323,6 +358,7 @@ class AniListClient {
     try {
       await _graphql(query: q, token: token);
       clearUnreadCache(token);
+      _notificationsCache.remove(token);
       AppLogger.i('AniList', 'Marked notifications as read');
     } catch (e, st) {
       // Non-fatal; some API variants may not expose this mutation.
@@ -336,6 +372,17 @@ class AniListClient {
     int? userId,
   }) async {
     final uid = userId ?? (await me(token)).id;
+    final cacheKey = '$token:$uid';
+    final cached = _libraryCurrentCache[cacheKey];
+    if (cached != null) {
+      if (cached.isValid) return cached.value;
+      _refreshInBackground('libraryCurrent:' + cacheKey, () async {
+        _libraryCurrentCache.remove(cacheKey);
+        final fresh = await libraryCurrent(token, userId: uid);
+        _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(fresh, DateTime.now().add(_staleTtl));
+      });
+      return cached.value;
+    }
     const q = r'''
       query ($userId: Int) {
         MediaListCollection(
@@ -383,6 +430,7 @@ class AniListClient {
         }
       }
     }
+    _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(out, DateTime.now().add(_staleTtl));
     return out;
   }
 
@@ -391,6 +439,17 @@ class AniListClient {
     int? userId,
   }) async {
     final uid = userId ?? (await me(token)).id;
+    final cacheKey = '$token:$uid';
+    final cached = _librarySectionsCache[cacheKey];
+    if (cached != null) {
+      if (cached.isValid) return cached.value;
+      _refreshInBackground('librarySections:' + cacheKey, () async {
+        _librarySectionsCache.remove(cacheKey);
+        final fresh = await librarySections(token, userId: uid);
+        _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(fresh, DateTime.now().add(_staleTtl));
+      });
+      return cached.value;
+    }
     const q = r'''
       query ($userId: Int) {
         MediaListCollection(
@@ -456,6 +515,7 @@ class AniListClient {
         return order(a.title).compareTo(order(b.title));
       });
 
+      _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(out, DateTime.now().add(_staleTtl));
       return out;
     } catch (e, st) {
       AppLogger.w('AniList',
@@ -463,13 +523,22 @@ class AniListClient {
           error: e, stackTrace: st);
       final current = await libraryCurrent(token, userId: uid);
       if (current.isEmpty) return const [];
-      return [AniListLibrarySection(title: 'Watching', items: current)];
+      final fallback = [AniListLibrarySection(title: 'Watching', items: current)];
+      _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(fallback, DateTime.now().add(_staleTtl));
+      return fallback;
     }
   }
 
   Future<List<AniListMedia>> discoveryTrending() async {
     final cached = _discoveryTrendingCache;
-    if (cached != null && cached.isValid) return cached.value;
+    if (cached != null) {
+      if (cached.isValid) return cached.value;
+      _refreshInBackground('discoveryTrending', () async {
+        _discoveryTrendingCache = null;
+        await discoveryTrending();
+      });
+      return cached.value;
+    }
 
     const q = r'''
       query {
@@ -499,7 +568,7 @@ class AniListClient {
 
     _discoveryTrendingCache = _CacheEntry<List<AniListMedia>>(
       out,
-      DateTime.now().add(const Duration(minutes: 3)),
+      DateTime.now().add(_staleTtl),
     );
 
     return out;
@@ -507,7 +576,14 @@ class AniListClient {
 
   Future<List<AniListDiscoverySection>> discoverySections() async {
     final cached = _discoverySectionsCache;
-    if (cached != null && cached.isValid) return cached.value;
+    if (cached != null) {
+      if (cached.isValid) return cached.value;
+      _refreshInBackground('discoverySections', () async {
+        _discoverySectionsCache = null;
+        await discoverySections();
+      });
+      return cached.value;
+    }
 
     final now = DateTime.now();
     final currentSeason = _season(now.month);
@@ -582,7 +658,7 @@ class AniListClient {
 
     _discoverySectionsCache = _CacheEntry<List<AniListDiscoverySection>>(
       out,
-      DateTime.now().add(const Duration(minutes: 3)),
+      DateTime.now().add(_staleTtl),
     );
 
     return out;
@@ -665,6 +741,15 @@ class AniListClient {
   }
 
   Future<List<AniListNotificationItem>> notifications(String token) async {
+    final cached = _notificationsCache[token];
+    if (cached != null) {
+      if (cached.isValid) return cached.value;
+      _refreshInBackground('notifications:' + token, () async {
+        _notificationsCache.remove(token);
+        await notifications(token);
+      });
+      return cached.value;
+    }
     const qPrimary = r'''
       query NotificationsPrimary {
         Page(page: 1, perPage: 50) {
@@ -769,6 +854,7 @@ class AniListClient {
           .where((n) => n.id != 0)
           .toList();
       AppLogger.i('AniList', 'notifications loaded count=${out.length}');
+      _notificationsCache[token] = _CacheEntry<List<AniListNotificationItem>>(out, DateTime.now().add(_staleTtl));
       return out;
     } catch (e, st) {
       AppLogger.w(
@@ -789,7 +875,8 @@ class AniListClient {
           'AniList',
           'notifications fallback loaded count=${out.length}',
         );
-        return out;
+        _notificationsCache[token] = _CacheEntry<List<AniListNotificationItem>>(out, DateTime.now().add(_staleTtl));
+      return out;
       } catch (e2, st2) {
         AppLogger.w(
           'AniList',
@@ -875,6 +962,24 @@ class AniListClient {
     return 'FALL';
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

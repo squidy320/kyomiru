@@ -1,24 +1,46 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
+import '../../core/haptics.dart';
+import '../../core/image_cache.dart';
 import '../../features/auth/anilist_login_webview_screen.dart';
 import '../../features/details/details_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 
-const double _kCardWidth = 156;
-const double _kCardHeight = 236;
+const double _kCardWidth = 152;
+const double _kCardHeight = 232;
 
-class LibraryScreen extends ConsumerWidget {
+class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends ConsumerState<LibraryScreen> with AutomaticKeepAliveClientMixin {
+  String _selected = 'All';
+  int _refreshTick = 0;
+
+  Future<void> _refresh() async {
+    setState(() => _refreshTick++);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
     final auth = ref.watch(authControllerProvider);
 
     if (auth.loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const _LibrarySkeleton();
     }
 
     if (auth.token == null || auth.token!.isEmpty) {
@@ -26,89 +48,118 @@ class LibraryScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
           children: [
-            const Text('Library',
-                style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
-            const Text('All your AniList collections',
-                style: TextStyle(color: Color(0xFFA1A8BC))),
+            Text('Library', style: Theme.of(context).textTheme.displaySmall),
+            const Text('All your AniList collections', style: TextStyle(color: Color(0xFFA1A8BC))),
             const SizedBox(height: 12),
             const GlassCard(
-              child: Text(
-                  'No account connected. Sign in with AniList to sync lists and tracking.'),
+              child: Text('No account connected. Sign in with AniList to sync lists and tracking.'),
             ),
             const SizedBox(height: 12),
             GlassButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => const AniListLoginWebViewScreen()),
-              ),
-              child: const Text('Connect AniList',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+              onPressed: () {
+                hapticTap();
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AniListLoginWebViewScreen()),
+                );
+              },
+              child: const Text('Connect AniList', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
       );
     }
 
-    return _LibraryDataView(token: auth.token!);
+    return _LibraryDataView(
+      key: ValueKey('$_selected-$_refreshTick'),
+      token: auth.token!,
+      selected: _selected,
+      onSelect: (value) {
+        hapticTap();
+        setState(() => _selected = value);
+      },
+      onRefresh: _refresh,
+    );
   }
 }
 
 class _LibraryDataView extends ConsumerWidget {
-  const _LibraryDataView({required this.token});
+  const _LibraryDataView({
+    super.key,
+    required this.token,
+    required this.selected,
+    required this.onSelect,
+    required this.onRefresh,
+  });
 
   final String token;
+  final String selected;
+  final ValueChanged<String> onSelect;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
 
     return FutureBuilder<List<dynamic>>(
-      future: client.me(token).then((u) async => [
-            u,
-            await client.librarySections(token, userId: u.id),
-          ]),
+      future: client.me(token).then((u) async => [u, await client.librarySections(token, userId: u.id)]),
       builder: (context, snap) {
         final loading = snap.connectionState == ConnectionState.waiting;
         final hasError = snap.hasError;
-        final user =
-            !loading && !hasError ? snap.data![0] as AniListUser : null;
+        final user = !loading && !hasError ? snap.data![0] as AniListUser : null;
         final sections = !loading && !hasError
             ? snap.data![1] as List<AniListLibrarySection>
             : const <AniListLibrarySection>[];
 
-        return SafeArea(
+        final chips = <String>['All', ...sections.map((s) => s.title)];
+        final filtered = selected == 'All' ? sections : sections.where((s) => s.title == selected).toList();
+
+        return RefreshIndicator(
+          onRefresh: onRefresh,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Library',
-                            style: TextStyle(
-                                fontSize: 34, fontWeight: FontWeight.w900)),
-                        Text('All your AniList collections',
-                            style: TextStyle(color: Color(0xFFA1A8BC))),
+                        Text('Library', style: Theme.of(context).textTheme.displaySmall),
+                        const Text('All your AniList collections', style: TextStyle(color: Color(0xFFA1A8BC))),
                       ],
                     ),
                   ),
                   if (user?.avatar != null)
-                    CircleAvatar(
-                        radius: 18,
-                        backgroundImage: NetworkImage(user!.avatar!)),
+                    CircleAvatar(radius: 18, backgroundImage: KyomiruImageCache.provider(user!.avatar!)),
                 ],
               ),
               const SizedBox(height: 12),
+              SizedBox(
+                height: 38,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: chips.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final chip = chips[index];
+                    final active = selected == chip;
+                    return ChoiceChip(
+                      label: Text(chip),
+                      selected: active,
+                      onSelected: (_) => onSelect(chip),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
               if (loading)
-                const Center(child: CircularProgressIndicator())
+                const _LibrarySkeletonBody()
               else if (hasError)
                 GlassCard(child: Text('Failed loading library: ${snap.error}'))
               else if (sections.isEmpty)
                 const GlassCard(child: Text('No library items found.'))
               else
-                ...sections.map((section) => Padding(
+                ...filtered.map((section) => Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: _LibrarySection(section: section),
                     )),
@@ -135,8 +186,7 @@ class _LibrarySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('${section.title} (${section.items.length})',
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+        Text('${section.title} (${section.items.length})', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         SizedBox(
           height: _kCardHeight,
@@ -149,10 +199,10 @@ class _LibrarySection extends StatelessWidget {
               return SizedBox(
                 width: _kCardWidth,
                 child: GestureDetector(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                        builder: (_) => DetailsScreen(mediaId: e.media.id)),
-                  ),
+                  onTap: () {
+                    hapticTap();
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetailsScreen(mediaId: e.media.id)));
+                  },
                   child: _AnimePosterCard(
                     media: e.media,
                     progressText: _showProgress
@@ -178,12 +228,12 @@ class _AnimePosterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(18),
       child: Stack(
         fit: StackFit.expand,
         children: [
           if (media.cover.best != null)
-            Image.network(media.cover.best!, fit: BoxFit.cover)
+            KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
           else
             Container(color: const Color(0x22111111)),
           const DecoratedBox(
@@ -191,53 +241,47 @@ class _AnimePosterCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xD80B0F1D)],
+                colors: [Colors.transparent, Color(0xE6000000)],
                 stops: [0.52, 1],
               ),
             ),
           ),
           Positioned(
-            top: 10,
-            right: 10,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xD8000000),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                media.averageScore?.toString() ?? 'NR',
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            top: 8,
+            right: 8,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                      const SizedBox(width: 3),
+                      Text(media.averageScore?.toString() ?? 'NR', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
           Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
+            left: 10,
+            right: 10,
+            bottom: 10,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  media.title.best,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w900, fontSize: 20),
-                ),
+                Text(media.title.best, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                 if (progressText != null) ...[
                   const SizedBox(height: 2),
-                  Text(
-                    'Watched: $progressText',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                      color: Color(0xFFE5E7EB),
-                    ),
-                  ),
+                  Text('Watched: $progressText', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w400, fontSize: 12, color: Color(0xFFE5E7EB))),
                 ],
               ],
             ),
@@ -247,3 +291,62 @@ class _AnimePosterCard extends StatelessWidget {
     );
   }
 }
+
+class _LibrarySkeleton extends StatelessWidget {
+  const _LibrarySkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14, 14, 14, 100),
+        child: _LibrarySkeletonBody(),
+      ),
+    );
+  }
+}
+
+class _LibrarySkeletonBody extends StatelessWidget {
+  const _LibrarySkeletonBody();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFF333333),
+      highlightColor: const Color(0xFF555555),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(height: 28, width: 180, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10))),
+          const SizedBox(height: 8),
+          Container(height: 16, width: 220, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+          const SizedBox(height: 14),
+          for (var i = 0; i < 2; i++) ...[
+            Container(height: 22, width: 170, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: _kCardHeight,
+              child: Row(
+                children: List.generate(
+                  3,
+                  (index) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Container(
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+
+

@@ -1,16 +1,19 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/haptics.dart';
+import '../../core/image_cache.dart';
 import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 import '../details/details_screen.dart';
 
-const double _kCardWidth = 156;
-const double _kCardHeight = 236;
+const double _kCardWidth = 152;
+const double _kCardHeight = 232;
 
 class DiscoveryScreen extends ConsumerStatefulWidget {
   const DiscoveryScreen({super.key});
@@ -19,23 +22,19 @@ class DiscoveryScreen extends ConsumerStatefulWidget {
   ConsumerState<DiscoveryScreen> createState() => _DiscoveryScreenState();
 }
 
-class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
+class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> with AutomaticKeepAliveClientMixin {
   final TextEditingController _search = TextEditingController();
-  final PageController _heroController = PageController(viewportFraction: 1);
-  final Map<int, Color> _heroColorCache = {};
+  final PageController _heroController = PageController();
 
   Timer? _debounce;
   Timer? _heroTimer;
 
   late Future<_DiscoveryPayload> _discoveryFuture;
   _DiscoveryPayload? _cachedPayload;
-  int _lastTrendingSignature = 0;
 
   List<AniListMedia> _searchResults = const [];
   bool _searching = false;
   int _heroIndex = 0;
-  Color _heroTint = const Color(0xFF1A2238);
-  bool _heroAnimating = false;
 
   @override
   void initState() {
@@ -52,6 +51,13 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     super.dispose();
   }
 
+  Future<void> _refresh() async {
+    setState(() {
+      _discoveryFuture = _loadDiscovery();
+    });
+    await _discoveryFuture;
+  }
+
   Future<_DiscoveryPayload> _loadDiscovery() async {
     final client = ref.read(anilistClientProvider);
     final values = await Future.wait([
@@ -63,15 +69,22 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       sections: values[1] as List<AniListDiscoverySection>,
     );
     _cachedPayload = payload;
+    _startHeroTimer(payload.trending.length);
     return payload;
   }
 
-  int _signature(List<AniListMedia> items) {
-    var sig = items.length;
-    for (final m in items.take(10)) {
-      sig = (sig * 31) ^ m.id;
-    }
-    return sig;
+  void _startHeroTimer(int count) {
+    _heroTimer?.cancel();
+    if (count <= 1) return;
+    _heroTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted || !_heroController.hasClients) return;
+      final next = (_heroIndex + 1) % count;
+      _heroController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   void _onSearchChanged(String value) {
@@ -87,8 +100,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       }
       setState(() => _searching = true);
       try {
-        final items =
-            await ref.read(anilistClientProvider).searchAnime(value.trim());
+        final items = await ref.read(anilistClientProvider).searchAnime(value.trim());
         if (!mounted) return;
         setState(() {
           _searchResults = items;
@@ -101,59 +113,12 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     });
   }
 
-  void _syncHero(List<AniListMedia> trending) {
-    if (trending.isEmpty) {
-      _heroTimer?.cancel();
-      return;
-    }
-    if (_heroIndex >= trending.length) {
-      _heroIndex = 0;
-    }
-    unawaited(_ensureHeroTint(trending[_heroIndex]));
-    _startHeroTimer(trending.length);
-  }
-
-  void _startHeroTimer(int count) {
-    _heroTimer?.cancel();
-    if (count <= 1) return;
-    _heroTimer = Timer.periodic(const Duration(seconds: 7), (_) {
-      if (!mounted || !_heroController.hasClients || _heroAnimating) return;
-      _heroAnimating = true;
-      final next = (_heroIndex + 1) % count;
-      _heroController
-          .animateToPage(
-        next,
-        duration: const Duration(milliseconds: 420),
-        curve: Curves.easeOutCubic,
-      )
-          .whenComplete(() => _heroAnimating = false);
-    });
-  }
-
-  Future<void> _ensureHeroTint(AniListMedia media) async {
-    final cached = _heroColorCache[media.id];
-    if (cached != null) {
-      if (!mounted) return;
-      setState(() => _heroTint = cached);
-      return;
-    }
-
-    const palette = <Color>[
-      Color(0xFF1A2238),
-      Color(0xFF1C2B4A),
-      Color(0xFF2A203E),
-      Color(0xFF1F3A36),
-      Color(0xFF3A2A1F),
-      Color(0xFF22263E),
-    ];
-    final color = palette[media.id % palette.length];
-    _heroColorCache[media.id] = color;
-    if (!mounted) return;
-    setState(() => _heroTint = color);
-  }
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final showingSearch = _search.text.trim().isNotEmpty;
 
     return FutureBuilder<_DiscoveryPayload>(
@@ -163,39 +128,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
 
-        final sig = _signature(trending);
-        if (trending.isNotEmpty && sig != _lastTrendingSignature) {
-          _lastTrendingSignature = sig;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            _syncHero(trending);
-          });
-        }
-
         return SafeArea(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 280),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  _heroTint.withValues(alpha: 0.36),
-                  AppColors.background,
-                  AppColors.background,
-                ],
-                stops: const [0, 0.45, 1],
-              ),
-            ),
+          child: RefreshIndicator(
+            onRefresh: _refresh,
             child: ListView(
               padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
               children: [
-                const Text('Discovery',
-                    style:
-                        TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
+                Text('Discovery', style: Theme.of(context).textTheme.displaySmall),
                 const SizedBox(height: 4),
-                const Text('Top rated, new releases, and hot anime',
-                    style: TextStyle(color: Color(0xFFA1A8BC))),
+                const Text('Top rated, new releases, and hot anime', style: TextStyle(color: Color(0xFFA1A8BC))),
                 const SizedBox(height: 10),
                 GlassCard(
                   padding: const EdgeInsets.all(8),
@@ -209,6 +150,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                           ? null
                           : IconButton(
                               onPressed: () {
+                                hapticTap();
                                 _search.clear();
                                 setState(() => _searchResults = const []);
                               },
@@ -220,21 +162,16 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                 const SizedBox(height: 12),
                 if (showingSearch) ...[
                   if (_searching)
-                    const Center(child: CircularProgressIndicator())
+                    const _DiscoverySkeleton()
                   else if (_searchResults.isEmpty)
                     const GlassCard(child: Text('No results.'))
                   else
-                    _HorizontalSection(
-                      title: 'Search Results',
-                      items: _searchResults,
-                    ),
+                    _HorizontalSection(title: 'Search Results', items: _searchResults),
                 ] else ...[
-                  if (dataSnap.connectionState == ConnectionState.waiting &&
-                      payload == null)
-                    const Center(child: CircularProgressIndicator())
+                  if (dataSnap.connectionState == ConnectionState.waiting && payload == null)
+                    const _DiscoverySkeleton()
                   else if (dataSnap.hasError && payload == null)
-                    GlassCard(
-                        child: Text('Discovery load failed: ${dataSnap.error}'))
+                    GlassCard(child: Text('Discovery load failed: ${dataSnap.error}'))
                   else ...[
                     if (trending.isNotEmpty)
                       Padding(
@@ -242,19 +179,13 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                         child: _DiscoveryHeroCarousel(
                           items: trending,
                           controller: _heroController,
-                          onPageChanged: (index) {
-                            setState(() => _heroIndex = index);
-                            _ensureHeroTint(trending[index]);
-                          },
+                          onPageChanged: (index) => setState(() => _heroIndex = index),
                         ),
                       ),
                     for (final section in sections)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 14),
-                        child: _HorizontalSection(
-                          title: section.title,
-                          items: section.items,
-                        ),
+                        child: _HorizontalSection(title: section.title, items: section.items),
                       ),
                   ],
                 ],
@@ -281,7 +212,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 330,
+      height: 320,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: PageView.builder(
@@ -292,16 +223,17 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
             final media = items[index];
             final image = media.bannerImage ?? media.cover.best;
             return GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => DetailsScreen(mediaId: media.id),
-                ),
-              ),
+              onTap: () {
+                hapticTap();
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => DetailsScreen(mediaId: media.id)),
+                );
+              },
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   if (image != null)
-                    Image.network(image, fit: BoxFit.contain, filterQuality: FilterQuality.medium)
+                    KyomiruImageCache.image(image, fit: BoxFit.cover)
                   else
                     const ColoredBox(color: Color(0x22111111)),
                   const DecoratedBox(
@@ -309,77 +241,30 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Color(0x11000000), Color(0xE60A0F1C)],
+                        colors: [Color(0x11000000), Color(0xE6000000)],
                         stops: [0.38, 1],
                       ),
                     ),
                   ),
                   Positioned(
-                    top: 14,
-                    left: 14,
+                    top: 12,
+                    left: 12,
                     child: GlassContainer(
                       borderRadius: 999,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      child: const Text(
-                        'Trending Now',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      child: const Text('Trending Now', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
                     ),
                   ),
-                  Positioned(
-                    top: 14,
-                    right: 14,
-                    child: GlassContainer(
-                      borderRadius: 999,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.star_rounded,
-                              size: 14, color: Colors.amber),
-                          const SizedBox(width: 4),
-                          Text(
-                            media.averageScore?.toString() ?? 'NR',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w800, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  Positioned(top: 12, right: 12, child: _ScorePill(score: media.averageScore)),
                   Positioned(
                     left: 14,
                     right: 14,
-                    bottom: 16,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          media.title.best,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 31,
-                            height: 1,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        GlassContainer(
-                          borderRadius: 14,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 9),
-                          child: const Text(
-                            'Open Details',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w800, fontSize: 14),
-                          ),
-                        ),
-                      ],
+                    bottom: 14,
+                    child: Text(
+                      media.title.best,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 26, height: 1.1, fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -400,16 +285,12 @@ class _HorizontalSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (items.isEmpty) return const SizedBox.shrink();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-        ),
+        Text(title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         SizedBox(
           height: _kCardHeight,
@@ -422,10 +303,12 @@ class _HorizontalSection extends StatelessWidget {
               return SizedBox(
                 width: _kCardWidth,
                 child: GestureDetector(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                        builder: (_) => DetailsScreen(mediaId: item.id)),
-                  ),
+                  onTap: () {
+                    hapticTap();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => DetailsScreen(mediaId: item.id)),
+                    );
+                  },
                   child: _AnimePosterCard(media: item),
                 ),
               );
@@ -445,12 +328,12 @@ class _AnimePosterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(18),
       child: Stack(
         fit: StackFit.expand,
         children: [
           if (media.cover.best != null)
-            Image.network(media.cover.best!, fit: BoxFit.cover)
+            KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
           else
             Container(color: const Color(0x22111111)),
           const DecoratedBox(
@@ -458,38 +341,94 @@ class _AnimePosterCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xD80B0F1D)],
-                stops: [0.52, 1],
+                colors: [Colors.transparent, Color(0xE6000000)],
+                stops: [0.54, 1],
               ),
             ),
           ),
+          Positioned(top: 8, right: 8, child: _ScorePill(score: media.averageScore)),
           Positioned(
-            top: 10,
+            left: 10,
             right: 10,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xD8000000),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                media.averageScore?.toString() ?? 'NR',
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
+            bottom: 10,
             child: Text(
               media.title.best,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScorePill extends StatelessWidget {
+  const _ScorePill({required this.score});
+
+  final int? score;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+              const SizedBox(width: 3),
+              Text(score?.toString() ?? 'NR', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoverySkeleton extends StatelessWidget {
+  const _DiscoverySkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFF333333),
+      highlightColor: const Color(0xFF555555),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(height: 28, width: 190, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10))),
+          const SizedBox(height: 10),
+          Container(height: 180, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18))),
+          const SizedBox(height: 12),
+          for (var i = 0; i < 2; i++) ...[
+            Container(height: 22, width: 160, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: _kCardHeight,
+              child: Row(
+                children: List.generate(
+                  3,
+                  (index) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16))),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
         ],
       ),
     );

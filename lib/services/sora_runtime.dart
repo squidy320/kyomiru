@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -5,10 +6,31 @@ import 'package:dio/dio.dart';
 import '../core/app_logger.dart';
 import '../models/sora_models.dart';
 
+class _RuntimeCacheEntry<T> {
+  const _RuntimeCacheEntry({required this.value, required this.expiresAt});
+
+  final T value;
+  final DateTime expiresAt;
+
+  bool get isFresh => DateTime.now().isBefore(expiresAt);
+}
+
 class SoraRuntime {
-  SoraRuntime({Dio? dio}) : _dio = dio ?? Dio();
+  SoraRuntime({Dio? dio}) : _dio = dio ?? Dio() {
+    _dio.interceptors.add(InterceptorsWrapper(
+      onError: (e, handler) {
+        AppLogger.e('SoraRuntime', 'Module/network request failed',
+            error: e.message);
+        handler.next(e);
+      },
+    ));
+  }
 
   final Dio _dio;
+  static const Duration _cacheTtl = Duration(minutes: 30);
+  final Set<String> _refreshing = <String>{};
+  final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
+  final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
 
   static const _baseUrl = 'https://animepahe.si';
   static const _jormExtractUrl =
@@ -27,6 +49,19 @@ class SoraRuntime {
       }
     }
     throw lastError ?? Exception('Request failed');
+  }
+
+  void _refreshInBackground(String key, Future<void> Function() task) {
+    if (_refreshing.contains(key)) return;
+    _refreshing.add(key);
+    unawaited(() async {
+      try {
+        await task();
+      } catch (_) {
+      } finally {
+        _refreshing.remove(key);
+      }
+    }());
   }
 
   Map<String, String> _cookieMap(String? cookieHeader) {
@@ -213,6 +248,16 @@ class SoraRuntime {
     final session = match.session.trim();
     if (session.isEmpty) return const [];
 
+    final cached = _episodesCache[session];
+    if (cached != null) {
+      if (cached.isFresh) return cached.value;
+      _refreshInBackground('episodes:' + session, () async {
+        _episodesCache.remove(session);
+        await getEpisodes(match);
+      });
+      return cached.value;
+    }
+
     Future<Map<String, dynamic>> fetchPage(int page) async {
       final data = await _fetchJsonOrHtml(
           '$_baseUrl/api?m=release&id=$session&sort=episode_asc&page=$page');
@@ -255,6 +300,7 @@ class SoraRuntime {
         .toList()
       ..sort((a, b) => a.number.compareTo(b.number));
 
+    _episodesCache[session] = _RuntimeCacheEntry<List<SoraEpisode>>(value: episodes, expiresAt: DateTime.now().add(_cacheTtl));
     return episodes;
   }
 
@@ -277,6 +323,20 @@ class SoraRuntime {
     }
     final session = segments[segments.length - 2];
     final episodeSession = segments.last;
+    final cacheKey = '$session/$episodeSession';
+    final cached = _sourcesCache[cacheKey];
+    if (cached != null) {
+      if (cached.isFresh) return cached.value;
+      _refreshInBackground('sources:' + cacheKey, () async {
+        _sourcesCache.remove(cacheKey);
+        await getSourcesForEpisode(
+          playUrl,
+          anilistId: anilistId,
+          episodeNumber: episodeNumber,
+        );
+      });
+      return cached.value;
+    }
 
     final fromJorm = await _extractViaJorm(session, episodeSession,
         anilistId: anilistId, episodeNumber: episodeNumber);
@@ -288,6 +348,7 @@ class SoraRuntime {
     if (jormClean.isNotEmpty) {
       AppLogger.i('SoraRuntime',
           'Jorm extracted ${jormClean.length} source(s) for $session/$episodeSession');
+      _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(value: jormClean, expiresAt: DateTime.now().add(_cacheTtl));
       return jormClean;
     }
 
@@ -300,17 +361,22 @@ class SoraRuntime {
     if (localClean.isNotEmpty) {
       AppLogger.i('SoraRuntime',
           'Local fallback extracted ${localClean.length} source(s) for $session/$episodeSession');
+      _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(value: localClean, expiresAt: DateTime.now().add(_cacheTtl));
       return localClean;
     }
 
     // Last-resort retry without AniList context for unstable extractors.
     if (anilistId != null || episodeNumber != null) {
       final retry = await _extractViaJorm(session, episodeSession);
-      return _dedupSources(retry
+      final retryClean = _dedupSources(retry
           .where((s) => s.url.trim().isNotEmpty)
           .where((s) =>
               s.url.startsWith('http://') || s.url.startsWith('https://'))
           .toList());
+      if (retryClean.isNotEmpty) {
+        _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(value: retryClean, expiresAt: DateTime.now().add(_cacheTtl));
+      }
+      return retryClean;
     }
 
     AppLogger.w(
@@ -696,3 +762,11 @@ class _LocalSource {
   final int resolution;
   final String audio;
 }
+
+
+
+
+
+
+
+

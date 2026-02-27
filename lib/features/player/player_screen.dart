@@ -1,14 +1,23 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:chewie/chewie.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/app_logger.dart';
+import '../../core/haptics.dart';
+import '../../services/progress_store.dart';
 import '../../state/auth_state.dart';
+
+class PlayerSourceOption {
+  const PlayerSourceOption({required this.url, this.headers = const {}});
+
+  final String url;
+  final Map<String, String> headers;
+}
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
@@ -22,6 +31,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     this.isLocal = false,
     this.backgroundImageUrl,
     this.malId,
+    this.fallbackSources = const [],
   });
 
   final int mediaId;
@@ -33,6 +43,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final bool isLocal;
   final String? backgroundImageUrl;
   final int? malId;
+  final List<PlayerSourceOption> fallbackSources;
 
   @override
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
@@ -47,6 +58,7 @@ class _PlayerCandidate {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver {
+  late final ProgressStore _progressStore;
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
 
@@ -66,13 +78,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _isDragging = false;
   double _dragValueSec = 0;
 
-  // AniSkip opening range (seconds)
   double? opStart;
   double? opEnd;
 
   @override
   void initState() {
     super.initState();
+    _progressStore = ref.read(progressStoreProvider);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_fetchAniSkipData());
     _init();
@@ -106,7 +118,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         .replaceAll('uwu.m3u8', 'owo.m3u8');
   }
 
-  List<_PlayerCandidate> _buildCandidates(String url) {
+  List<_PlayerCandidate> _buildCandidates(
+    String url,
+    List<PlayerSourceOption> fallbackSources,
+  ) {
     final out = <_PlayerCandidate>[];
     final seen = <String>{};
 
@@ -126,6 +141,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     add(normalized, baseHeaders);
     add(url, const {});
     add(normalized, const {});
+
+    for (final s in fallbackSources) {
+      add(s.url, s.headers);
+      add(_normalizeHlsUrl(s.url), s.headers);
+      add(s.url, const {});
+    }
 
     return out;
   }
@@ -177,72 +198,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _fetchAniSkipData() async {
-    final malId = widget.malId;
-    if (malId == null || malId <= 0) {
-      AppLogger.w(
-        'AniSkip',
-        'Skipping fetch: missing MAL id for media=${widget.mediaId} ep=${widget.episodeNumber}',
-      );
-      return;
-    }
-
-    final url =
-        'https://api.aniskip.com/v1/skip-times/$malId/${widget.episodeNumber}?types[]=op';
-
-    try {
-      final dio = Dio();
-      AppLogger.i('AniSkip', 'Fetching OP timestamps url=$url');
-      final res = await dio.get(
-        url,
-        options: Options(validateStatus: (_) => true),
-      );
-      AppLogger.i('AniSkip', 'Response status=${res.statusCode}');
-      if ((res.statusCode ?? 0) >= 400) return;
-
-      final data = res.data;
-      if (data is! Map<String, dynamic>) return;
-      final results = (data['results'] as List?) ?? const [];
-
-      if (results.isEmpty) {
-        AppLogger.w(
-          'AniSkip',
-          'No AniSkip results for media=${widget.mediaId} ep=${widget.episodeNumber}',
+    final range = await ref.read(aniSkipServiceProvider).getOpeningRange(
+          mediaId: widget.mediaId,
+          episode: widget.episodeNumber,
+          malId: widget.malId,
         );
-      }
-
-      for (final item in results) {
-        if (item is! Map<String, dynamic>) continue;
-        if ((item['skip_type'] ?? '').toString().toLowerCase() != 'op') {
-          continue;
-        }
-        final interval = item['interval'];
-        if (interval is! Map<String, dynamic>) continue;
-
-        final start = (interval['start_time'] as num?)?.toDouble();
-        final end = (interval['end_time'] as num?)?.toDouble();
-        if (start == null || end == null || end <= start) continue;
-
-        if (!mounted) return;
-        setState(() {
-          opStart = start;
-          opEnd = end;
-        });
-        AppLogger.i(
-          'AniSkip',
-          'Loaded OP timestamps media=${widget.mediaId} ep=${widget.episodeNumber} start=$start end=$end',
-        );
-        return;
-      }
-
-      AppLogger.w(
-        'AniSkip',
-        'No OP range found in AniSkip results for media=${widget.mediaId} ep=${widget.episodeNumber}',
-      );
-    } catch (e, st) {
-      AppLogger.w('AniSkip', 'Failed to fetch skip-times',
-          error: e, stackTrace: st);
-    }
+    if (!mounted || range == null) return;
+    setState(() {
+      opStart = range.start;
+      opEnd = range.end;
+    });
   }
+
   void _startUiPoll() {
     _uiPollTimer?.cancel();
     _uiPollTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
@@ -299,18 +266,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       allowFullScreen: true,
       allowMuting: true,
       allowedScreenSleep: false,
-      materialProgressColors: ChewieProgressColors(
-        playedColor: Colors.white,
-        handleColor: Colors.white,
-        backgroundColor: Colors.white24,
-        bufferedColor: Colors.white38,
-      ),
-      cupertinoProgressColors: ChewieProgressColors(
-        playedColor: Colors.white,
-        handleColor: Colors.white,
-        backgroundColor: Colors.white24,
-        bufferedColor: Colors.white38,
-      ),
       errorBuilder: (context, errorMessage) => Center(
         child: Text(
           errorMessage,
@@ -320,8 +275,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
 
-    final store = ref.read(progressStoreProvider);
-    final saved = store.read(widget.mediaId, widget.episodeNumber);
+    final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
     if (saved != null && saved.positionMs > 0) {
       final seek = Duration(milliseconds: saved.positionMs);
       if (seek < controller.value.duration) {
@@ -358,7 +312,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (widget.isLocal) {
       selected = await _createLocalController(url);
     } else {
-      _candidates = _buildCandidates(url);
+      _candidates = _buildCandidates(url, widget.fallbackSources);
       for (var i = 0; i < _candidates.length; i++) {
         final controller = await _createNetworkController(_candidates[i]);
         if (controller != null) {
@@ -388,7 +342,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     AppLogger.i(
       'Player',
-      'Playback initialized for media ${widget.mediaId} ep ${widget.episodeNumber} candidate=$_activeCandidateIndex',
+      'Playback initialized for media ${widget.mediaId} ep ${widget.episodeNumber} candidate=$_activeCandidateIndex/${_candidates.length}',
     );
 
     if (!mounted) return;
@@ -404,7 +358,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final value = controller.value;
     if (!value.isInitialized || value.duration.inMilliseconds <= 0) return;
 
-    await ref.read(progressStoreProvider).write(
+    await _progressStore.write(
           mediaId: widget.mediaId,
           episode: widget.episodeNumber,
           positionMs: value.position.inMilliseconds,
@@ -448,9 +402,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final s = opStart;
     final e = opEnd;
     if (s == null || e == null) return false;
-    final posSec = _videoController?.value.position.inMilliseconds.toDouble() ??
-        (_currentSec * 1000);
-    final current = posSec / 1000.0;
+    final current = _currentSec;
     return current >= s && current <= e;
   }
 
@@ -499,10 +451,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    _initError!,
-                    style: const TextStyle(color: Colors.white70),
-                    textAlign: TextAlign.center,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _initError!,
+                        style: const TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.tonal(
+                        onPressed: () {
+                          hapticTap();
+                          setState(() {
+                            _isInitializing = true;
+                            _initError = null;
+                          });
+                          _init();
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
                   ),
                 ),
               )
@@ -529,46 +498,103 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           backgroundColor: Colors.black54,
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () { hapticTap(); Navigator.of(context).pop(); },
                         icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                    ),
+                                        const Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0x99000000), Color(0x00000000)],
+                            ),
+                          ),
+                          child: SizedBox(height: 120),
+                        ),
+                      ),
+                    ),
+                    const Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0x00000000), Color(0xBB000000)],
+                            ),
+                          ),
+                          child: SizedBox(height: 160),
+                        ),
                       ),
                     ),
                     Align(
                       alignment: Alignment.center,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black38,
-                              foregroundColor: Colors.white,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
                             ),
-                            onPressed: () => _seekRelative(const Duration(seconds: -10)),
-                            icon: const Icon(Icons.replay_10_rounded),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black38,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  onPressed: () {
+                                    hapticTap();
+                                    _seekRelative(const Duration(seconds: -10));
+                                  },
+                                  icon: const Icon(Icons.replay_10_rounded),
+                                ),
+                                const SizedBox(width: 10),
+                                IconButton(
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black45,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  onPressed: () {
+                                    hapticTap();
+                                    _togglePlayPause();
+                                  },
+                                  icon: Icon(
+                                    isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                IconButton(
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black38,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  onPressed: () {
+                                    hapticTap();
+                                    _seekRelative(const Duration(seconds: 10));
+                                  },
+                                  icon: const Icon(Icons.forward_10_rounded),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(width: 14),
-                          IconButton(
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black45,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: _togglePlayPause,
-                            icon: Icon(
-                              isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          IconButton(
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black38,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: () => _seekRelative(const Duration(seconds: 10)),
-                            icon: const Icon(Icons.forward_10_rounded),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                     if (showCustomProgress)
@@ -606,8 +632,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 setState(() => _dragValueSec = _durationSec * ratio);
                               },
                               onHorizontalDragEnd: (_) {
-                                final ratio =
-                                    _durationSec <= 0 ? 0.0 : _dragValueSec / _durationSec;
+                                final ratio = _durationSec <= 0
+                                    ? 0.0
+                                    : _dragValueSec / _durationSec;
                                 setState(() => _isDragging = false);
                                 unawaited(_seekByRatio(ratio));
                                 _registerInteraction();
@@ -634,45 +661,59 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                       : 0.0;
 
                                   return SizedBox(
-                                    height: 16,
+                                    height: 34,
                                     child: Stack(
+                                      clipBehavior: Clip.none,
                                       children: [
                                         Positioned(
                                           left: 0,
                                           right: 0,
-                                          top: 5,
+                                          top: 16,
                                           child: Container(
-                                            height: 6,
+                                            height: 8,
                                             decoration: BoxDecoration(
                                               color: Colors.white24,
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius: BorderRadius.circular(6),
                                             ),
                                           ),
                                         ),
                                         if (hasOpening)
                                           Positioned(
                                             left: openingLeft.clamp(0.0, width),
-                                            top: 5,
+                                            top: 16,
                                             child: Container(
-                                              height: 6,
+                                              height: 8,
                                               width: openingWidth.clamp(0.0, width),
                                               decoration: BoxDecoration(
-                                                color: Colors.yellow
-                                                    .withValues(alpha: 0.3),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
+                                                color: Colors.yellow.withValues(alpha: 0.3),
+                                                borderRadius: BorderRadius.circular(6),
                                               ),
                                             ),
                                           ),
                                         Positioned(
                                           left: 0,
-                                          top: 5,
+                                          top: 16,
                                           child: Container(
-                                            height: 6,
+                                            height: 8,
                                             width: playedWidth,
                                             decoration: BoxDecoration(
                                               color: Colors.white,
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          left: (playedWidth - 26).clamp(0.0, (width - 52).clamp(0.0, width)),
+                                          top: -2,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black87,
+                                              borderRadius: BorderRadius.circular(999),
+                                            ),
+                                            child: Text(
+                                              _fmt(uiCurrent),
+                                              style: const TextStyle(color: Colors.white, fontSize: 10),
                                             ),
                                           ),
                                         ),
@@ -715,7 +756,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14, vertical: 10),
                             ),
-                            onPressed: _skipIntro,
+                            onPressed: () { hapticTap(); _skipIntro(); },
                             icon: const Icon(Icons.skip_next_rounded),
                             label: const Text('Skip Intro'),
                           ),
@@ -732,6 +773,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
+
+
+
+
+
 
 
 

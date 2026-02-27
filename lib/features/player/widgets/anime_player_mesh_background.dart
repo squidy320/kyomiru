@@ -1,6 +1,7 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../core/image_cache.dart';
 import 'package:palette_generator/palette_generator.dart';
 
 class AnimePlayerMeshBackground extends StatefulWidget {
@@ -61,7 +62,7 @@ class _AnimePlayerMeshBackgroundState extends State<AnimePlayerMeshBackground>
     if (widget.imageProvider != null) return widget.imageProvider;
     final raw = widget.backgroundImageUrl;
     if (raw == null || raw.trim().isEmpty) return null;
-    return NetworkImage(raw.trim());
+    return KyomiruImageCache.provider(raw.trim());
   }
 
   Future<void> _extractPalette() async {
@@ -195,3 +196,4 @@ class _MeshGradientPainter extends CustomPainter {
     return oldDelegate.t != t || oldDelegate.colors != colors;
   }
 }
+

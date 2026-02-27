@@ -1,31 +1,31 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../../state/app_settings_state.dart';
 
 class AppColors {
-  static const background = Color(0xFF040714);
-  static const backgroundSoft = Color(0xFF091327);
-  static const surface = Color(0xFF0D1224);
-  static const surfaceSoft = Color(0xFF141C33);
-  static const text = Color(0xFFF4F7FF);
-  static const textMuted = Color(0xFF9AA5C1);
+  static const background = Color(0xFF000000);
+  static const backgroundSoft = Color(0xFF0B0B0D);
+  static const surface = Color(0xFF1C1C1E);
+  static const surfaceSoft = Color(0xFF232326);
+  static const text = Color(0xFFF5F5F7);
+  static const textMuted = Color(0xFF9A9AA0);
 }
 
 const _accentMap = {
-  'Midnight': Color(0xFF7C6CFF),
-  'Ocean': Color(0xFF26B9FF),
-  'Rose': Color(0xFFFF5FA2),
-  'Emerald': Color(0xFF3DDC97),
-  'Sunset': Color(0xFFFF8A3D),
+  'Midnight': Color(0xFF7A5CFF),
+  'Ocean': Color(0xFF37A6FF),
+  'Rose': Color(0xFFFF5D8F),
+  'Emerald': Color(0xFF3AD79F),
+  'Sunset': Color(0xFFFF8D52),
 };
 
 ThemeData buildKyomiruTheme(AppSettings settings) {
   final base = ThemeData.dark(useMaterial3: true);
   final accent = _accentMap[settings.theme] ?? _accentMap['Midnight']!;
-  final bg = settings.oled ? const Color(0xFF000000) : AppColors.background;
 
   return base.copyWith(
-    scaffoldBackgroundColor: bg,
+    useMaterial3: true,
+    scaffoldBackgroundColor: AppColors.background,
     splashFactory: settings.touchOutline
         ? InkSparkle.splashFactory
         : NoSplash.splashFactory,
@@ -33,6 +33,7 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       primary: accent,
       secondary: accent,
       surface: AppColors.surface,
+      surfaceContainerHighest: AppColors.surfaceSoft,
       onSurface: AppColors.text,
     ),
     appBarTheme: AppBarTheme(
@@ -42,7 +43,8 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       centerTitle: true,
       titleTextStyle: base.textTheme.titleLarge?.copyWith(
         color: AppColors.text,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w700,
+        fontSize: 22,
       ),
       iconTheme: const IconThemeData(color: AppColors.text),
     ),
@@ -52,11 +54,20 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
           displayColor: AppColors.text,
         )
         .copyWith(
-          titleLarge:
-              const TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+          displaySmall:
+              const TextStyle(fontWeight: FontWeight.w700, fontSize: 28),
+          headlineMedium:
+              const TextStyle(fontWeight: FontWeight.w700, fontSize: 24),
+          titleLarge: const TextStyle(fontWeight: FontWeight.w700, fontSize: 22),
           titleMedium:
-              const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-          bodyMedium: const TextStyle(fontSize: 14, height: 1.25),
+              const TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+          bodyLarge:
+              const TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+          bodyMedium: const TextStyle(
+            fontSize: 14,
+            height: 1.3,
+            fontWeight: FontWeight.w400,
+          ),
           bodySmall: const TextStyle(fontSize: 12, color: AppColors.textMuted),
         ),
     cardColor: AppColors.surface,
@@ -68,14 +79,14 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       ),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: const Color(0xFF12182A).withValues(alpha: 0.94),
+      backgroundColor: const Color(0xFF1C1C1E).withValues(alpha: 0.96),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       filled: true,
-      fillColor: const Color(0x6611182B),
+      fillColor: const Color(0x661C1C1E),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide.none,

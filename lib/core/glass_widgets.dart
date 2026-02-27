@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/app_settings_state.dart';
 import 'glass_theme.dart';
+import 'haptics.dart';
 
 class GlassContainer extends ConsumerStatefulWidget {
   const GlassContainer({
@@ -152,7 +153,11 @@ class GlassButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onPressed,
+      onTap: () {
+        if (onPressed == null) return;
+        hapticTap();
+        onPressed!();
+      },
       borderRadius: BorderRadius.circular(borderRadius),
       child: GlassContainer(
         borderRadius: borderRadius,
@@ -260,3 +265,4 @@ class GlassScaffoldBackground extends ConsumerWidget {
     );
   }
 }
+

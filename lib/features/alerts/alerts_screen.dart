@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/glass_widgets.dart';
+import '../../core/haptics.dart';
+import '../../core/image_cache.dart';
 import '../../features/auth/anilist_login_webview_screen.dart';
 import '../../features/details/details_screen.dart';
 import '../../models/anilist_models.dart';
@@ -34,10 +36,10 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
                 child: Text('Connect AniList to see notifications.')),
             const SizedBox(height: 12),
             GlassButton(
-              onPressed: () => Navigator.of(context).push(
+              onPressed: () { hapticTap(); Navigator.of(context).push(
                 MaterialPageRoute(
                     builder: (_) => const AniListLoginWebViewScreen()),
-              ),
+                                ); },
               child: const Text('Connect AniList',
                   style: TextStyle(fontWeight: FontWeight.w700)),
             ),
@@ -142,16 +144,19 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media?.cover.best ?? item.userAvatar;
-    final subtitle = '${item.type.toLowerCase()} Â· ${_timeAgo(item.createdAt)}';
+    final subtitle = '\ • \';
 
     return GestureDetector(
       onTap: item.media == null
           ? null
-          : () => Navigator.of(context).push(
+          : () {
+              hapticTap();
+              Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => DetailsScreen(mediaId: item.media!.id),
                 ),
-              ),
+              );
+            },
       child: GlassCard(
         borderRadius: 14,
         child: Row(
@@ -168,7 +173,7 @@ class _NotificationTile extends StatelessWidget {
                         child: Icon(Icons.notifications_outlined,
                             color: Color(0xFFA1A8BC)),
                       )
-                    : Image.network(imageUrl, fit: BoxFit.cover),
+                    : KyomiruImageCache.image(imageUrl, fit: BoxFit.cover),
               ),
             ),
             const SizedBox(width: 12),
@@ -203,3 +208,6 @@ class _NotificationTile extends StatelessWidget {
     );
   }
 }
+
+
+

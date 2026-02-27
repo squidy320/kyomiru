@@ -1,12 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/anilist_client.dart';
+import '../services/aniskip_service.dart';
 import '../services/auth_store.dart';
 import '../services/progress_store.dart';
 
 final anilistClientProvider = Provider<AniListClient>((ref) => AniListClient());
 final authStoreProvider = Provider<AuthStore>((ref) => AuthStore());
 final progressStoreProvider = Provider<ProgressStore>((ref) => ProgressStore());
+final aniSkipServiceProvider = Provider<AniSkipService>((ref) => AniSkipService());
 
 class AuthState {
   final String? token;
@@ -61,3 +63,4 @@ final currentUserProvider = FutureProvider((ref) async {
   if (token == null || token.isEmpty) return null;
   return ref.watch(anilistClientProvider).me(token);
 });
+
