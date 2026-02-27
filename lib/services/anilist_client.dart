@@ -349,6 +349,7 @@ class AniListClient {
               progress
               media {
                 id
+                idMal
                 episodes
                 averageScore
                 title { romaji english native }
@@ -404,6 +405,7 @@ class AniListClient {
               progress
               media {
                 id
+                idMal
                 episodes
                 averageScore
                 title { romaji english native }
@@ -640,6 +642,7 @@ class AniListClient {
               relationType
               node {
                 id
+                idMal
                 episodes
                 averageScore
                 title { romaji english native }
@@ -675,6 +678,7 @@ class AniListClient {
               contexts
               media {
                 id
+                idMal
                 episodes
                 averageScore
                 title { romaji english native }
@@ -739,6 +743,7 @@ class AniListClient {
               contexts
               media {
                 id
+                idMal
                 episodes
                 averageScore
                 title { romaji english native }
@@ -870,6 +875,7 @@ class AniListClient {
     return 'FALL';
   }
 }
+
 
 
 

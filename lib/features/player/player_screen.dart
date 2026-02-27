@@ -152,7 +152,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           allowBackgroundPlayback: false,
         ),
       );
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 6));
       return controller;
     } catch (e, st) {
       AppLogger.w('Player', 'Init attempt failed for ${c.url}',
@@ -167,7 +167,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final file =
           (uri != null && uri.isScheme('file')) ? File.fromUri(uri) : File(rawUrl);
       final controller = VideoPlayerController.file(file);
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 6));
       return controller;
     } catch (e, st) {
       AppLogger.w('Player', 'Local source init failed for $rawUrl',
@@ -476,7 +476,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _persistTimer?.cancel();
     _uiPollTimer?.cancel();
-    _overlayHideTimer?.cancel();    unawaited(_disposeControllers());
+    _overlayHideTimer?.cancel();
+    unawaited(_disposeControllers());
     super.dispose();
   }
 
@@ -731,6 +732,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
+
 
 
 
