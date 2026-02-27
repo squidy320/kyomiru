@@ -542,8 +542,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     backgroundImageUrl:
                                                         media.cover.best ??
                                                             media.bannerImage,
-                                                    mediaTitle:
-                                                        media.title.best,
+                                                    mediaTitle: media.title.best,
+                                                    malId: media.idMal,
                                                   ),
                                                 ),
                                               );
@@ -590,6 +590,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                       media.cover.best ??
                                                           media.bannerImage,
                                                   mediaTitle: media.title.best,
+                                                    malId: media.idMal,
                                                 ),
                                               ),
                                             );
@@ -1091,3 +1092,4 @@ class _PaheData {
   final SoraAnimeMatch? match;
   final List<SoraEpisode> episodes;
 }
+
