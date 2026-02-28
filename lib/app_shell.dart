@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/cupertino.dart';
@@ -167,42 +166,39 @@ class _PillBottomBar extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(40),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.5),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.1),
-              width: 1,
-            ),
+      child: Container(
+        height: 64,
+        decoration: BoxDecoration(
+          color: const Color(0xFA1E1E1E),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.1),
+            width: 1,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              for (var i = 0; i < items.length; i++)
-                Expanded(
-                  child: InkWell(
-                    onTap: () => onTap(i),
-                    child: SizedBox(
-                      height: double.infinity,
-                      child: Center(
-                        child: Badge(
-                          isLabelVisible: i == 2 && unread > 0,
-                          smallSize: 8,
-                          child: Icon(
-                            i == index ? items[i].active : items[i].inactive,
-                            color: i == index ? Colors.white : Colors.white54,
-                            size: 24,
-                          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            for (var i = 0; i < items.length; i++)
+              Expanded(
+                child: InkWell(
+                  onTap: () => onTap(i),
+                  child: SizedBox(
+                    height: double.infinity,
+                    child: Center(
+                      child: Badge(
+                        isLabelVisible: i == 2 && unread > 0,
+                        smallSize: 8,
+                        child: Icon(
+                          i == index ? items[i].active : items[i].inactive,
+                          color: i == index ? Colors.white : Colors.white54,
+                          size: 24,
                         ),
                       ),
                     ),
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );

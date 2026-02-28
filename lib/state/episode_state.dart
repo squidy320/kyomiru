@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/sora_models.dart';
 import '../services/sora_runtime.dart';
+import 'app_settings_state.dart';
 
 class EpisodeQuery {
   const EpisodeQuery({
@@ -104,11 +105,46 @@ final episodeProvider =
 final episodeSourcesProvider =
     FutureProvider.autoDispose.family<List<SoraSource>, EpisodeSourceQuery>(
         (ref, query) async {
+  final settings = ref.watch(appSettingsProvider);
   final runtime = ref.watch(soraRuntimeProvider);
   await runtime.initialize();
-  return runtime.getSourcesForEpisode(
+  final sources = await runtime.getSourcesForEpisode(
     query.playUrl,
     anilistId: query.anilistId,
     episodeNumber: query.episodeNumber,
   );
+  if (sources.isEmpty) return sources;
+
+  final audio = settings.defaultAudio.toLowerCase();
+  final quality = settings.defaultQuality.toLowerCase();
+  final sorted = [...sources];
+  int qualityRank(String q) {
+    final m = RegExp(r'(\d+)').firstMatch(q);
+    return int.tryParse(m?.group(1) ?? '') ?? 0;
+  }
+
+  int scoreFor(SoraSource s) {
+    var score = 0;
+    final sourceAudio = s.subOrDub.toLowerCase();
+    final sourceQuality = s.quality.toLowerCase();
+    final sourceFormat = s.format.toLowerCase();
+    if (sourceFormat == 'm3u8' && sourceQuality.contains('auto')) {
+      score += 1000;
+    }
+    if (audio == 'any' || sourceAudio == audio) {
+      score += 500;
+    }
+    if (quality == 'auto' || sourceQuality.contains(quality)) {
+      score += 300;
+    }
+    score += qualityRank(s.quality);
+    return score;
+  }
+
+  sorted.sort((a, b) {
+    final scoreDiff = scoreFor(b).compareTo(scoreFor(a));
+    if (scoreDiff != 0) return scoreDiff;
+    return qualityRank(b.quality).compareTo(qualityRank(a.quality));
+  });
+  return sorted;
 });

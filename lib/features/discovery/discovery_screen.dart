@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -476,27 +475,20 @@ class _ScorePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
-              const SizedBox(width: 3),
-              Text(score?.toString() ?? 'NR',
-                  style: const TextStyle(
-                      fontSize: 11, fontWeight: FontWeight.w700)),
-            ],
-          ),
-        ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFA1E1E1E),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+          const SizedBox(width: 3),
+          Text(score?.toString() ?? 'NR',
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+        ],
       ),
     );
   }

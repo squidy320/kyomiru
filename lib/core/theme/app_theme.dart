@@ -22,13 +22,13 @@ const _accentMap = {
 ThemeData buildKyomiruTheme(AppSettings settings) {
   final base = ThemeData.dark(useMaterial3: true);
   final accent = _accentMap[settings.theme] ?? _accentMap['Midnight']!;
+  final appBg =
+      settings.isOledBlack ? Colors.black : const Color(0xFF121212);
 
   return base.copyWith(
     useMaterial3: true,
-    scaffoldBackgroundColor: AppColors.background,
-    splashFactory: settings.touchOutline
-        ? InkSparkle.splashFactory
-        : NoSplash.splashFactory,
+    scaffoldBackgroundColor: appBg,
+    splashFactory: InkSparkle.splashFactory,
     colorScheme: base.colorScheme.copyWith(
       primary: accent,
       secondary: accent,
@@ -37,8 +37,8 @@ ThemeData buildKyomiruTheme(AppSettings settings) {
       onSurface: AppColors.text,
     ),
     appBarTheme: AppBarTheme(
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
+      backgroundColor: appBg,
+      surfaceTintColor: appBg,
       elevation: 0,
       centerTitle: true,
       titleTextStyle: base.textTheme.titleLarge?.copyWith(

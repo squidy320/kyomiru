@@ -65,28 +65,28 @@ class StreamsSettingsScreen extends ConsumerWidget {
                       children: [
                         chip(
                           label: '1080p',
-                          selected: settings.preferredQuality == '1080p',
-                          onTap: () => controller.setPreferredQuality('1080p'),
+                          selected: settings.defaultQuality == '1080p',
+                          onTap: () => controller.setDefaultQuality('1080p'),
                         ),
                         chip(
                           label: '720p',
-                          selected: settings.preferredQuality == '720p',
-                          onTap: () => controller.setPreferredQuality('720p'),
+                          selected: settings.defaultQuality == '720p',
+                          onTap: () => controller.setDefaultQuality('720p'),
                         ),
                         chip(
                           label: '480p',
-                          selected: settings.preferredQuality == '480p',
-                          onTap: () => controller.setPreferredQuality('480p'),
+                          selected: settings.defaultQuality == '480p',
+                          onTap: () => controller.setDefaultQuality('480p'),
                         ),
                         chip(
                           label: '360p',
-                          selected: settings.preferredQuality == '360p',
-                          onTap: () => controller.setPreferredQuality('360p'),
+                          selected: settings.defaultQuality == '360p',
+                          onTap: () => controller.setDefaultQuality('360p'),
                         ),
                         chip(
                           label: 'Auto',
-                          selected: settings.preferredQuality == 'auto',
-                          onTap: () => controller.setPreferredQuality('auto'),
+                          selected: settings.defaultQuality == 'auto',
+                          onTap: () => controller.setDefaultQuality('auto'),
                         ),
                       ],
                     ),
@@ -100,18 +100,18 @@ class StreamsSettingsScreen extends ConsumerWidget {
                       children: [
                         chip(
                           label: 'Sub',
-                          selected: settings.preferredAudio == 'sub',
-                          onTap: () => controller.setPreferredAudio('sub'),
+                          selected: settings.defaultAudio == 'Sub',
+                          onTap: () => controller.setDefaultAudio('Sub'),
                         ),
                         chip(
                           label: 'Dub',
-                          selected: settings.preferredAudio == 'dub',
-                          onTap: () => controller.setPreferredAudio('dub'),
+                          selected: settings.defaultAudio == 'Dub',
+                          onTap: () => controller.setDefaultAudio('Dub'),
                         ),
                         chip(
                           label: 'Any',
-                          selected: settings.preferredAudio == 'any',
-                          onTap: () => controller.setPreferredAudio('any'),
+                          selected: settings.defaultAudio == 'Any',
+                          onTap: () => controller.setDefaultAudio('Any'),
                         ),
                       ],
                     ),

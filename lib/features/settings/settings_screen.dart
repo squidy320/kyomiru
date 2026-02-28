@@ -101,9 +101,11 @@ class SettingsScreen extends ConsumerWidget {
                         onValueChanged: (value) {
                           if (value == null) return;
                           hapticTap();
-                          ref
-                              .read(librarySourceProvider.notifier)
-                              .setSource(value);
+                          ref.read(appSettingsProvider.notifier).setLibrarySource(
+                                value == LibrarySource.local
+                                    ? 'Local'
+                                    : 'AniList',
+                              );
                         },
                       ),
                     ),

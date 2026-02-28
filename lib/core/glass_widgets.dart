@@ -1,10 +1,7 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/app_settings_state.dart';
-import 'glass_theme.dart';
 import 'haptics.dart';
 
 class GlassContainer extends ConsumerStatefulWidget {
@@ -51,51 +48,24 @@ class _GlassContainerState extends ConsumerState<GlassContainer> {
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final brightness = Theme.of(context).brightness;
-    final allowTransparency = GlassTheme.allowsTransparency(context, settings);
-    final sigma =
-        GlassTheme.blurSigma(context, settings, override: widget.blur);
-
-    final surface = ClipRRect(
-      borderRadius: BorderRadius.circular(widget.borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: GlassTheme.fillColor(brightness),
-            gradient: GlassTheme.fillGradient(brightness),
-            borderRadius: BorderRadius.circular(widget.borderRadius),
-            border: Border.all(
-              color: Colors.white.withValues(
-                  alpha: brightness == Brightness.dark ? 0.30 : 0.40),
-              width: 0.85,
-            ),
-            boxShadow: GlassTheme.layeredShadows(brightness),
-          ),
-          child: Padding(
-            padding: widget.padding,
-            child: widget.child,
-          ),
-        ),
-      ),
-    );
-
-    final fallback = DecoratedBox(
+    final solid = DecoratedBox(
       decoration: BoxDecoration(
-        color: GlassTheme.fallbackSurface(brightness),
+        color: settings.oled
+            ? const Color(0xFF000000)
+            : (brightness == Brightness.dark
+                ? const Color(0xFA1E1E1E)
+                : const Color(0xFA222222)),
         borderRadius: BorderRadius.circular(widget.borderRadius),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.14),
-          width: 0.8,
+          color: Colors.white.withValues(alpha: 0.10),
+          width: 1,
         ),
-        boxShadow: GlassTheme.layeredShadows(brightness),
       ),
       child: Padding(
         padding: widget.padding,
         child: widget.child,
       ),
     );
-
-    final child = allowTransparency ? surface : fallback;
 
     return Container(
       margin: widget.margin,
@@ -104,10 +74,10 @@ class _GlassContainerState extends ConsumerState<GlassContainer> {
         curve: Curves.easeOutCubic,
         opacity: _visible,
         child: AnimatedScale(
-          duration: widget.duration,
-          curve: Curves.easeOutCubic,
-          scale: 0.985 + (_visible * 0.015),
-          child: child,
+        duration: widget.duration,
+        curve: Curves.easeOutCubic,
+        scale: 0.985 + (_visible * 0.015),
+          child: solid,
         ),
       ),
     );
@@ -232,34 +202,6 @@ class GlassScaffoldBackground extends ConsumerWidget {
     return Stack(
       children: [
         Container(color: background),
-        Positioned(
-          top: -100,
-          left: -60,
-          child: Container(
-            width: 240,
-            height: 240,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [Color(0x337C6CFF), Colors.transparent],
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          bottom: -140,
-          right: -80,
-          child: Container(
-            width: 280,
-            height: 280,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [Color(0x3326B9FF), Colors.transparent],
-              ),
-            ),
-          ),
-        ),
         child,
       ],
     );

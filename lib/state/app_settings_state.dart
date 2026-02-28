@@ -1,139 +1,108 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
   const AppSettings({
     this.theme = 'Midnight',
-    this.oled = true,
-    this.compactBar = true,
-    this.touchOutline = true,
-    this.glass = 'Auto',
-    this.intensity = 'High',
-    this.preferredQuality = '720p',
-    this.preferredAudio = 'sub',
+    this.isOledBlack = true,
+    this.defaultQuality = '720p',
+    this.defaultAudio = 'Sub',
+    this.librarySource = 'AniList',
     this.chooseStreamEveryTime = false,
   });
 
   final String theme;
-  final bool oled;
-  final bool compactBar;
-  final bool touchOutline;
-  final String glass;
-  final String intensity;
-  final String preferredQuality;
-  final String preferredAudio;
+  final bool isOledBlack;
+  final String defaultQuality;
+  final String defaultAudio;
+  final String librarySource;
   final bool chooseStreamEveryTime;
+
+  // Backward-compatible aliases used across existing UI/business logic.
+  bool get oled => isOledBlack;
+  String get preferredQuality => defaultQuality;
+  String get preferredAudio => defaultAudio.toLowerCase();
+  bool get compactBar => true;
+  bool get touchOutline => true;
+  String get glass => 'Off';
+  String get intensity => 'Low';
 
   AppSettings copyWith({
     String? theme,
-    bool? oled,
-    bool? compactBar,
-    bool? touchOutline,
-    String? glass,
-    String? intensity,
-    String? preferredQuality,
-    String? preferredAudio,
+    bool? isOledBlack,
+    String? defaultQuality,
+    String? defaultAudio,
+    String? librarySource,
     bool? chooseStreamEveryTime,
   }) {
     return AppSettings(
       theme: theme ?? this.theme,
-      oled: oled ?? this.oled,
-      compactBar: compactBar ?? this.compactBar,
-      touchOutline: touchOutline ?? this.touchOutline,
-      glass: glass ?? this.glass,
-      intensity: intensity ?? this.intensity,
-      preferredQuality: preferredQuality ?? this.preferredQuality,
-      preferredAudio: preferredAudio ?? this.preferredAudio,
+      isOledBlack: isOledBlack ?? this.isOledBlack,
+      defaultQuality: defaultQuality ?? this.defaultQuality,
+      defaultAudio: defaultAudio ?? this.defaultAudio,
+      librarySource: librarySource ?? this.librarySource,
       chooseStreamEveryTime:
           chooseStreamEveryTime ?? this.chooseStreamEveryTime,
     );
   }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'theme': theme,
-      'oled': oled,
-      'compactBar': compactBar,
-      'touchOutline': touchOutline,
-      'glass': glass,
-      'intensity': intensity,
-      'preferredQuality': preferredQuality,
-      'preferredAudio': preferredAudio,
-      'chooseStreamEveryTime': chooseStreamEveryTime,
-    };
-  }
-
-  static AppSettings fromJson(Map<dynamic, dynamic>? json) {
-    if (json == null) return const AppSettings();
-    return AppSettings(
-      theme: (json['theme'] as String?) ?? 'Midnight',
-      oled: (json['oled'] as bool?) ?? true,
-      compactBar: (json['compactBar'] as bool?) ?? true,
-      touchOutline: (json['touchOutline'] as bool?) ?? true,
-      glass: (json['glass'] as String?) ?? 'Auto',
-      intensity: (json['intensity'] as String?) ?? 'High',
-      preferredQuality: (json['preferredQuality'] as String?) ?? '720p',
-      preferredAudio: (json['preferredAudio'] as String?) ?? 'sub',
-      chooseStreamEveryTime: (json['chooseStreamEveryTime'] as bool?) ?? false,
-    );
-  }
 }
 
-class AppSettingsController extends StateNotifier<AppSettings> {
-  AppSettingsController() : super(const AppSettings()) {
+class SettingsNotifier extends StateNotifier<AppSettings> {
+  SettingsNotifier() : super(const AppSettings()) {
     _load();
   }
 
-  static const _key = 'ui';
+  static const _kTheme = 'settings.theme';
+  static const _kOled = 'settings.isOledBlack';
+  static const _kQuality = 'settings.defaultQuality';
+  static const _kAudio = 'settings.defaultAudio';
+  static const _kLibrarySource = 'settings.librarySource';
+  static const _kChooseEveryTime = 'settings.chooseStreamEveryTime';
 
-  Box get _box => Hive.box('app_settings');
-
-  void _load() {
-    final data = _box.get(_key);
-    if (data is Map) {
-      state = AppSettings.fromJson(data);
-    }
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = AppSettings(
+      theme: prefs.getString(_kTheme) ?? 'Midnight',
+      isOledBlack: prefs.getBool(_kOled) ?? true,
+      defaultQuality: prefs.getString(_kQuality) ?? '720p',
+      defaultAudio: prefs.getString(_kAudio) ?? 'Sub',
+      librarySource: prefs.getString(_kLibrarySource) ?? 'AniList',
+      chooseStreamEveryTime: prefs.getBool(_kChooseEveryTime) ?? false,
+    );
   }
 
-  Future<void> _save() => _box.put(_key, state.toJson());
+  Future<void> _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kTheme, state.theme);
+    await prefs.setBool(_kOled, state.isOledBlack);
+    await prefs.setString(_kQuality, state.defaultQuality);
+    await prefs.setString(_kAudio, state.defaultAudio);
+    await prefs.setString(_kLibrarySource, state.librarySource);
+    await prefs.setBool(_kChooseEveryTime, state.chooseStreamEveryTime);
+  }
 
   Future<void> setTheme(String value) async {
     state = state.copyWith(theme: value);
     await _save();
   }
 
-  Future<void> setOled(bool value) async {
-    state = state.copyWith(oled: value);
+  Future<void> setOledBlack(bool value) async {
+    state = state.copyWith(isOledBlack: value);
     await _save();
   }
 
-  Future<void> setCompactBar(bool value) async {
-    state = state.copyWith(compactBar: value);
+  Future<void> setDefaultQuality(String value) async {
+    state = state.copyWith(defaultQuality: value);
     await _save();
   }
 
-  Future<void> setTouchOutline(bool value) async {
-    state = state.copyWith(touchOutline: value);
+  Future<void> setDefaultAudio(String value) async {
+    state = state.copyWith(defaultAudio: value);
     await _save();
   }
 
-  Future<void> setGlass(String value) async {
-    state = state.copyWith(glass: value);
-    await _save();
-  }
-
-  Future<void> setIntensity(String value) async {
-    state = state.copyWith(intensity: value);
-    await _save();
-  }
-
-  Future<void> setPreferredQuality(String value) async {
-    state = state.copyWith(preferredQuality: value);
-    await _save();
-  }
-
-  Future<void> setPreferredAudio(String value) async {
-    state = state.copyWith(preferredAudio: value);
+  Future<void> setLibrarySource(String value) async {
+    state = state.copyWith(librarySource: value);
     await _save();
   }
 
@@ -142,6 +111,16 @@ class AppSettingsController extends StateNotifier<AppSettings> {
     await _save();
   }
 
+  // Legacy method names for compatibility.
+  Future<void> setOled(bool value) => setOledBlack(value);
+  Future<void> setPreferredQuality(String value) => setDefaultQuality(value);
+  Future<void> setPreferredAudio(String value) => setDefaultAudio(
+      value.isEmpty ? 'Sub' : '${value[0].toUpperCase()}${value.substring(1).toLowerCase()}');
+  Future<void> setCompactBar(bool value) async {}
+  Future<void> setTouchOutline(bool value) async {}
+  Future<void> setGlass(String value) async {}
+  Future<void> setIntensity(String value) async {}
+
   Future<void> reset() async {
     state = const AppSettings();
     await _save();
@@ -149,5 +128,6 @@ class AppSettingsController extends StateNotifier<AppSettings> {
 }
 
 final appSettingsProvider =
-    StateNotifierProvider<AppSettingsController, AppSettings>(
-        (ref) => AppSettingsController());
+    StateNotifierProvider<SettingsNotifier, AppSettings>(
+  (ref) => SettingsNotifier(),
+);

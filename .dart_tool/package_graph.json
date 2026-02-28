@@ -20,6 +20,7 @@
         "hive_flutter",
         "liquid_glass_renderer",
         "palette_generator",
+        "path",
         "path_provider",
         "share_plus",
         "shared_preferences",
@@ -58,6 +59,11 @@
         "test_api",
         "vector_math"
       ]
+    },
+    {
+      "name": "path",
+      "version": "1.9.1",
+      "dependencies": []
     },
     {
       "name": "shared_preferences",
@@ -354,11 +360,6 @@
         "clock",
         "collection"
       ]
-    },
-    {
-      "name": "path",
-      "version": "1.9.1",
-      "dependencies": []
     },
     {
       "name": "matcher",

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -187,36 +186,30 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             context: context,
             barrierDismissible: false,
             builder: (_) => Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.12),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'Loading stream...',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ],
-                    ),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFA1E1E1E),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.10),
                   ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'Loading stream...',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -808,18 +801,31 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             icon: const Icon(Icons.close),
                                           )
                                         else if (done)
-                                          IconButton.filledTonal(
-                                            style: IconButton.styleFrom(
-                                                minimumSize: const Size(30, 30),
-                                                padding: EdgeInsets.zero,
-                                                visualDensity:
-                                                    VisualDensity.compact),
-                                            onPressed: () => ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .delete(media.id, ep.number),
-                                            icon: const Icon(
-                                                Icons.delete_outline),
+                                          Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton.filledTonal(
+                                                tooltip: 'Delete Download',
+                                                style: IconButton.styleFrom(
+                                                    minimumSize: const Size(30, 30),
+                                                    padding: EdgeInsets.zero,
+                                                    visualDensity:
+                                                        VisualDensity.compact),
+                                                onPressed: () => ref
+                                                    .read(downloadControllerProvider
+                                                        .notifier)
+                                                    .delete(media.id, ep.number),
+                                                icon: const Icon(
+                                                    Icons.check_circle_rounded),
+                                              ),
+                                              const Text(
+                                                'Downloaded',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  color: Color(0xFF86EFAC),
+                                                ),
+                                              ),
+                                            ],
                                           )
                                         else
                                           IconButton.filledTonal(

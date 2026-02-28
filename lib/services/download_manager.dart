@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/app_logger.dart';
@@ -25,6 +26,11 @@ class DownloadItem {
     this.taskId,
     this.resumable = false,
     this.error,
+    this.downloadedBytes = 0,
+    this.totalBytes = 0,
+    this.speedBitsPerSecond = 0,
+    this.lastPositionMs = 0,
+    this.lastDurationMs = 0,
   });
 
   final int mediaId;
@@ -39,6 +45,11 @@ class DownloadItem {
   final String? taskId;
   final bool resumable;
   final String? error;
+  final int downloadedBytes;
+  final int totalBytes;
+  final double speedBitsPerSecond;
+  final int lastPositionMs;
+  final int lastDurationMs;
 
   String get key => '$mediaId:$episode';
 
@@ -55,6 +66,11 @@ class DownloadItem {
         'taskId': taskId,
         'resumable': resumable,
         'error': error,
+        'downloadedBytes': downloadedBytes,
+        'totalBytes': totalBytes,
+        'speedBitsPerSecond': speedBitsPerSecond,
+        'lastPositionMs': lastPositionMs,
+        'lastDurationMs': lastDurationMs,
       };
 
   static DownloadItem fromJson(Map<dynamic, dynamic> map) {
@@ -82,6 +98,12 @@ class DownloadItem {
       taskId: map['taskId']?.toString(),
       resumable: map['resumable'] == true,
       error: map['error']?.toString(),
+      downloadedBytes: (map['downloadedBytes'] as num?)?.toInt() ?? 0,
+      totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
+      speedBitsPerSecond:
+          (map['speedBitsPerSecond'] as num?)?.toDouble() ?? 0,
+      lastPositionMs: (map['lastPositionMs'] as num?)?.toInt() ?? 0,
+      lastDurationMs: (map['lastDurationMs'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -98,6 +120,11 @@ class DownloadItem {
     String? taskId,
     bool? resumable,
     String? error,
+    int? downloadedBytes,
+    int? totalBytes,
+    double? speedBitsPerSecond,
+    int? lastPositionMs,
+    int? lastDurationMs,
     bool clearError = false,
   }) {
     return DownloadItem(
@@ -113,7 +140,40 @@ class DownloadItem {
       taskId: taskId ?? this.taskId,
       resumable: resumable ?? this.resumable,
       error: clearError ? null : (error ?? this.error),
+      downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+      totalBytes: totalBytes ?? this.totalBytes,
+      speedBitsPerSecond: speedBitsPerSecond ?? this.speedBitsPerSecond,
+      lastPositionMs: lastPositionMs ?? this.lastPositionMs,
+      lastDurationMs: lastDurationMs ?? this.lastDurationMs,
     );
+  }
+}
+
+class _SpeedSample {
+  const _SpeedSample(this.timeMs, this.bytes);
+  final int timeMs;
+  final int bytes;
+}
+
+class _SpeedWindow {
+  final List<_SpeedSample> _samples = <_SpeedSample>[];
+
+  void addBytes(int bytes) {
+    if (bytes <= 0) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _samples.add(_SpeedSample(now, bytes));
+    _trim(now);
+  }
+
+  double bitsPerSecond() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _trim(now);
+    final bytes = _samples.fold<int>(0, (sum, e) => sum + e.bytes);
+    return bytes * 8.0;
+  }
+
+  void _trim(int nowMs) {
+    _samples.removeWhere((e) => nowMs - e.timeMs > 1000);
   }
 }
 
@@ -170,6 +230,8 @@ class DownloadController extends StateNotifier<DownloadState> {
   final Dio _dio;
   final Box _box;
   final Map<String, CancelToken> _cancelTokens = {};
+  final Map<String, _SpeedWindow> _speedWindows = {};
+  final Map<String, int> _lastUiEmitMs = {};
   static const MethodChannel _mediaScanChannel =
       MethodChannel('kyomiru/media_scan');
 
@@ -191,6 +253,14 @@ class DownloadController extends StateNotifier<DownloadState> {
     await _box.put(item.key, item.toJson());
   }
 
+  Future<void> _emitDownloadUpdate(DownloadItem item, {bool force = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = _lastUiEmitMs[item.key] ?? 0;
+    if (!force && (now - last) < 220) return;
+    _lastUiEmitMs[item.key] = now;
+    await _saveItem(item);
+  }
+
   Future<void> delete(int mediaId, int episode) async {
     final key = '$mediaId:$episode';
     final existing = state.items[key];
@@ -210,6 +280,8 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (token != null && !token.isCancelled) {
       token.cancel('deleted');
     }
+    _speedWindows.remove(key);
+    _lastUiEmitMs.remove(key);
     await _box.delete(key);
     final updated = {...state.items}..remove(key);
     state = DownloadState(items: updated);
@@ -269,6 +341,23 @@ class DownloadController extends StateNotifier<DownloadState> {
     token?.cancel('cancelled by user');
   }
 
+  Future<void> setLocalPlaybackPosition(
+    int mediaId,
+    int episode, {
+    required int positionMs,
+    required int durationMs,
+  }) async {
+    final key = '$mediaId:$episode';
+    final item = state.items[key];
+    if (item == null) return;
+    await _saveItem(
+      item.copyWith(
+        lastPositionMs: positionMs,
+        lastDurationMs: durationMs,
+      ),
+    );
+  }
+
   Future<void> resume(int mediaId, int episode) async {
     final item = state.items['$mediaId:$episode'];
     if (item == null) return;
@@ -301,6 +390,7 @@ class DownloadController extends StateNotifier<DownloadState> {
 
     final existingPath = await localManifestPath(mediaId, episode);
     if (existingPath != null) {
+      final storedPath = await _toStoredRelativePath(existingPath);
       await _saveItem(DownloadItem(
         mediaId: mediaId,
         episode: episode,
@@ -308,7 +398,7 @@ class DownloadController extends StateNotifier<DownloadState> {
         coverImageUrl: coverImageUrl,
         status: 'done',
         progress: 1,
-        localFilePath: existingPath,
+        localFilePath: storedPath,
         sourceUrl: source.url,
         headers: source.headers,
       ));
@@ -316,20 +406,25 @@ class DownloadController extends StateNotifier<DownloadState> {
     }
 
     final root = await _downloadsRoot();
-    final animeDir = Directory('${root.path}/${_safe(animeTitle)}');
+    final safeTitle = _safe(animeTitle);
+    final animeDir = Directory(p.join(root.path, safeTitle));
     if (!await animeDir.exists()) {
       await animeDir.create(recursive: true);
     }
-    final epDir = Directory('${animeDir.path}/Episode $episode');
+    final epDir = Directory(p.join(animeDir.path, 'Episode $episode'));
     if (!await epDir.exists()) {
       await epDir.create(recursive: true);
     }
-    final manifestRelativePath =
-        '${_safe(animeTitle)}/Episode $episode/Episode $episode.m3u8';
-    final manifestPath = '${epDir.path}/Episode $episode.m3u8';
+    final manifestRelativePath = p.join(
+      safeTitle,
+      'Episode $episode',
+      'Episode $episode.m3u8',
+    );
+    final manifestPath = p.join(epDir.path, 'Episode $episode.m3u8');
 
     final token = CancelToken();
     _cancelTokens[key] = token;
+    _speedWindows[key] = _SpeedWindow();
 
     await _saveItem(DownloadItem(
       mediaId: mediaId,
@@ -342,6 +437,9 @@ class DownloadController extends StateNotifier<DownloadState> {
       sourceUrl: source.url,
       headers: source.headers,
       resumable: true,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      speedBitsPerSecond: 0,
     ));
 
     try {
@@ -366,29 +464,67 @@ class DownloadController extends StateNotifier<DownloadState> {
         }
       }
 
-      final total = segmentLines.length + keyUris.length;
+      final totalUnits = segmentLines.length + keyUris.length;
       var completed = 0;
       final rewritten = <String>[];
       final keyMap = <String, String>{};
+      var downloadedBytes = 0;
+      var knownTotalBytes = 0;
 
       for (var i = 0; i < keyUris.length; i++) {
         final uri = resolved.url.resolve(keyUris[i]);
         final keyName = 'key_${i.toString().padLeft(2, '0')}.bin';
-        final keyPath = '${epDir.path}/$keyName';
+        final keyPath = p.join(epDir.path, keyName);
+        var lastReceived = 0;
+        var currentTotal = 0;
         await _dio.downloadUri(
           uri,
           keyPath,
           options: Options(headers: source.headers),
           cancelToken: token,
+          onReceiveProgress: (received, total) {
+            final delta = received - lastReceived;
+            if (delta > 0) {
+              _speedWindows[key]?.addBytes(delta);
+            }
+            lastReceived = received;
+            if (total > 0) currentTotal = total;
+            final item = state.items[key];
+            if (item == null) return;
+            final unitProgress =
+                total > 0 ? (received / total).clamp(0.0, 1.0) : 0.0;
+            final progress = totalUnits <= 0
+                ? 0.0
+                : ((completed + unitProgress) / totalUnits).clamp(0.0, 1.0);
+            _emitDownloadUpdate(
+              item.copyWith(
+                status: 'downloading',
+                progress: progress,
+                downloadedBytes: downloadedBytes + received,
+                totalBytes: knownTotalBytes + (currentTotal > 0 ? currentTotal : 0),
+                speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
+              ),
+            );
+          },
         );
+        final fileBytes = await File(keyPath).length();
+        downloadedBytes += fileBytes;
+        knownTotalBytes += currentTotal > 0 ? currentTotal : fileBytes;
         keyMap[keyUris[i]] = keyName;
         completed++;
-        await _saveItem(
-          state.items[key]!.copyWith(
-            progress: total <= 0 ? 0 : completed / total,
-            status: 'downloading',
-          ),
-        );
+        final item = state.items[key];
+        if (item != null) {
+          await _emitDownloadUpdate(
+            item.copyWith(
+              progress: totalUnits <= 0 ? 0 : completed / totalUnits,
+              status: 'downloading',
+              downloadedBytes: downloadedBytes,
+              totalBytes: knownTotalBytes,
+              speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
+            ),
+            force: true,
+          );
+        }
       }
 
       var segIndex = 0;
@@ -412,23 +548,59 @@ class DownloadController extends StateNotifier<DownloadState> {
             ? 'ts'
             : (segUri.pathSegments.last.split('.').last);
         final name = 'seg_${segIndex.toString().padLeft(5, '0')}.$ext';
-        final segPath = '${epDir.path}/$name';
+        final segPath = p.join(epDir.path, name);
+        var lastReceived = 0;
+        var currentTotal = 0;
         await _dio.downloadUri(
           segUri,
           segPath,
           options: Options(headers: source.headers),
           cancelToken: token,
+          onReceiveProgress: (received, total) {
+            final delta = received - lastReceived;
+            if (delta > 0) {
+              _speedWindows[key]?.addBytes(delta);
+            }
+            lastReceived = received;
+            if (total > 0) currentTotal = total;
+            final item = state.items[key];
+            if (item == null) return;
+            final unitProgress =
+                total > 0 ? (received / total).clamp(0.0, 1.0) : 0.0;
+            final progress = totalUnits <= 0
+                ? 0.0
+                : ((completed + unitProgress) / totalUnits).clamp(0.0, 1.0);
+            _emitDownloadUpdate(
+              item.copyWith(
+                status: 'downloading',
+                progress: progress,
+                downloadedBytes: downloadedBytes + received,
+                totalBytes: knownTotalBytes + (currentTotal > 0 ? currentTotal : 0),
+                speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
+              ),
+            );
+          },
         );
+        final fileBytes = await File(segPath).length();
+        downloadedBytes += fileBytes;
+        knownTotalBytes += currentTotal > 0 ? currentTotal : fileBytes;
         rewritten.add(name);
         segIndex++;
         completed++;
 
-        await _saveItem(
-          state.items[key]!.copyWith(
-            progress: total <= 0 ? 0 : completed / total,
-            status: 'downloading',
-          ),
-        );
+        final item = state.items[key];
+        if (item != null) {
+          await _emitDownloadUpdate(
+            item.copyWith(
+              progress: totalUnits <= 0 ? 0 : completed / totalUnits,
+              status: 'downloading',
+              downloadedBytes: downloadedBytes,
+              totalBytes: knownTotalBytes,
+              speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
+            ),
+            force: true,
+          );
+        }
       }
 
       await File(manifestPath).writeAsString(rewritten.join('\n'));
@@ -438,6 +610,7 @@ class DownloadController extends StateNotifier<DownloadState> {
           status: 'done',
           progress: 1,
           resumable: false,
+          speedBitsPerSecond: 0,
           clearError: true,
         ),
       );
@@ -449,11 +622,13 @@ class DownloadController extends StateNotifier<DownloadState> {
         state.items[key]!.copyWith(
           status: cancelled ? 'cancelled' : 'error',
           resumable: true,
+          speedBitsPerSecond: 0,
           error: e.toString(),
         ),
       );
     } finally {
       _cancelTokens.remove(key);
+      _speedWindows.remove(key);
     }
   }
 
@@ -470,6 +645,9 @@ class DownloadController extends StateNotifier<DownloadState> {
 
     final root = await _downloadsRoot();
     final rootPath = root.path.replaceAll('\\', '/');
+    final docsPath = (await getApplicationDocumentsDirectory())
+        .path
+        .replaceAll('\\', '/');
 
     final isAbsoluteUnix = path.startsWith('/');
     final isAbsoluteWin = RegExp(r'^[A-Za-z]:/').hasMatch(path);
@@ -477,10 +655,11 @@ class DownloadController extends StateNotifier<DownloadState> {
       if (await File(path).exists()) return path;
 
       if (Platform.isIOS) {
-        final docsIx = path.lastIndexOf('/Documents/');
-        if (docsIx >= 0) {
-          final suffix = path.substring(docsIx + '/Documents/'.length);
-          final fixed = '${(await getApplicationDocumentsDirectory()).path}/$suffix';
+        final marker = '/Documents/Kyomiru/AnimePahe/';
+        final markerIndex = path.lastIndexOf(marker);
+        if (markerIndex >= 0) {
+          final suffix = path.substring(markerIndex + '/Documents/'.length);
+          final fixed = p.join(docsPath, suffix).replaceAll('\\', '/');
           if (await File(fixed).exists()) return fixed;
         }
       }
@@ -493,7 +672,22 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (cleaned.startsWith('AnimePahe/')) {
       cleaned = cleaned.substring('AnimePahe/'.length);
     }
-    return '$rootPath/$cleaned';
+    return p.join(rootPath, cleaned).replaceAll('\\', '/');
+  }
+
+  Future<String> _toStoredRelativePath(String absolutePath) async {
+    final normalized = absolutePath.replaceAll('\\', '/');
+    final root = await _downloadsRoot();
+    final rootPath = root.path.replaceAll('\\', '/');
+    if (normalized.startsWith('$rootPath/')) {
+      return normalized.substring(rootPath.length + 1);
+    }
+    final marker = '/Kyomiru/AnimePahe/';
+    final markerIndex = normalized.lastIndexOf(marker);
+    if (markerIndex >= 0) {
+      return normalized.substring(markerIndex + marker.length);
+    }
+    return normalized;
   }
 
   Future<_ResolvedPlaylist> _resolveMediaPlaylist(
@@ -561,7 +755,7 @@ class DownloadController extends StateNotifier<DownloadState> {
     } else {
       base = await getApplicationDocumentsDirectory();
     }
-    final dir = Directory('${base.path}/Kyomiru/AnimePahe');
+    final dir = Directory(p.join(base.path, 'Kyomiru', 'AnimePahe'));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

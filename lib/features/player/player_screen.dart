@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:chewie/chewie.dart';
 import 'package:dio/dio.dart';
@@ -529,7 +528,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _maybeAutoUpdateTracking() async {
     if (_autoTrackingSyncTriggered) return;
     if (_durationSec <= 0 || _currentSec <= 0) return;
-    if (_currentSec / _durationSec < 0.9) return;
+    if (_currentSec / _durationSec < 0.85) return;
 
     final source = ref.read(librarySourceProvider);
     if (source == LibrarySource.local) {
@@ -635,8 +634,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
 
     final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-    if (saved != null && saved.positionMs > 0) {
-      final seek = Duration(milliseconds: saved.positionMs);
+    var initialPositionMs = saved?.positionMs ?? 0;
+    if (initialPositionMs <= 0 && widget.isLocal) {
+      final downloadItem =
+          ref.read(downloadControllerProvider).item(widget.mediaId, widget.episodeNumber);
+      initialPositionMs = downloadItem?.lastPositionMs ?? 0;
+    }
+    if (initialPositionMs > 0) {
+      final seek = Duration(milliseconds: initialPositionMs);
       if (seek < controller.value.duration) {
         await controller.seekTo(seek);
       }
@@ -816,6 +821,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       positionMs: value.position.inMilliseconds,
       durationMs: value.duration.inMilliseconds,
     );
+    if (widget.isLocal) {
+      await ref.read(downloadControllerProvider.notifier).setLocalPlaybackPosition(
+            widget.mediaId,
+            widget.episodeNumber,
+            positionMs: value.position.inMilliseconds,
+            durationMs: value.duration.inMilliseconds,
+          );
+    }
   }
 
   Future<void> _seekByRatio(double ratio) async {
@@ -1051,22 +1064,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       Positioned(
                         top: 8,
                         right: 8,
-                        child: ClipRRect(
+                        child: Material(
+                          color: const Color(0xFA1E1E1E),
                           borderRadius: BorderRadius.circular(999),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                            child: Material(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              child: InkWell(
-                                onTap: _enterPip,
-                                child: const Padding(
-                                  padding: EdgeInsets.all(10),
-                                  child: Icon(
-                                    Icons.picture_in_picture_alt_rounded,
-                                    color: Colors.white,
-                                    size: 18,
-                                  ),
-                                ),
+                          child: InkWell(
+                            onTap: _enterPip,
+                            borderRadius: BorderRadius.circular(999),
+                            child: const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: Icon(
+                                Icons.picture_in_picture_alt_rounded,
+                                color: Colors.white,
+                                size: 18,
                               ),
                             ),
                           ),
@@ -1074,40 +1083,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       ),
                     Align(
                       alignment: Alignment.center,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.22)),
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.10)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black45,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () {
+                                hapticTap();
+                                _togglePlayPause();
+                              },
+                              icon: Icon(
+                                isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black45,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () {
-                                    hapticTap();
-                                    _togglePlayPause();
-                                  },
-                                  icon: Icon(
-                                    isPlaying
-                                        ? Icons.pause_rounded
-                                        : Icons.play_arrow_rounded,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          ],
                         ),
                       ),
                     ),
@@ -1293,47 +1296,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         opacity: _isWithinOpeningRange ? 1.0 : 0.0,
                         child: IgnorePointer(
                           ignoring: !_isWithinOpeningRange,
-                          child: ClipRRect(
+                          child: Material(
+                            color: const Color(0xFA1E1E1E),
                             borderRadius: BorderRadius.circular(999),
-                            child: BackdropFilter(
-                              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                              child: Material(
-                                color: Colors.black.withValues(alpha: 0.45),
-                                child: InkWell(
-                                  onTap: _skipIntro,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      border: Border.all(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                      ),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.skip_next_rounded,
-                                          color: Colors.white,
-                                          size: 16,
-                                        ),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'Skip Intro',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                            child: InkWell(
+                              onTap: _skipIntro,
+                              borderRadius: BorderRadius.circular(999),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.10),
                                   ),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.skip_next_rounded,
+                                      color: Colors.white,
+                                      size: 16,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Skip Intro',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1347,31 +1344,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             ),
             if (_isHorizontalSeeking)
               Center(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.45),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.16),
-                        ),
-                      ),
-                      child: Text(
-                        '${_fmt(_horizontalSeekSec)} / ${_fmt(_durationSec)}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFA1E1E1E),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.10),
+                    ),
+                  ),
+                  child: Text(
+                    '${_fmt(_horizontalSeekSec)} / ${_fmt(_durationSec)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
                     ),
                   ),
                 ),
