@@ -656,6 +656,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     if (widget.isLocal) {
       selected = await _createLocalController(url);
+      if (selected == null && widget.fallbackSources.isNotEmpty) {
+        _candidates = _buildCandidates(
+          widget.fallbackSources.first.url,
+          widget.fallbackSources,
+        );
+        for (var i = 0; i < _candidates.length; i++) {
+          final controller = await _createNetworkController(_candidates[i]);
+          if (controller != null) {
+            selected = controller;
+            _activeCandidateIndex = i;
+            break;
+          }
+        }
+      }
     } else {
       _candidates = _buildCandidates(url, widget.fallbackSources);
       for (var i = 0; i < _candidates.length; i++) {
@@ -833,7 +847,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    ref.invalidate(episodeProvider);
     _persistTimer?.cancel();
     _uiPollTimer?.cancel();
     _overlayHideTimer?.cancel();
@@ -865,7 +878,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (_, __) {
-        ref.invalidate(episodeProvider);
+        if (mounted) {
+          ref.invalidate(episodeProvider);
+        }
       },
       child: Scaffold(
         backgroundColor: Colors.black,

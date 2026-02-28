@@ -27,8 +27,12 @@ class SoraRuntime {
             ) {
     _dio.interceptors.add(InterceptorsWrapper(
       onError: (e, handler) {
-        AppLogger.e('SoraRuntime', 'Module/network request failed',
-            error: e.message);
+        if (e.type == DioExceptionType.cancel) {
+          AppLogger.d('SoraRuntime', 'Request cancelled');
+        } else {
+          AppLogger.e('SoraRuntime', 'Module/network request failed',
+              error: e.message);
+        }
         handler.next(e);
       },
     ));
@@ -383,6 +387,7 @@ class SoraRuntime {
     int? anilistId,
     int? episodeNumber,
   }) async {
+    if (_disposed) return const [];
     if (playUrl.isEmpty) {
       AppLogger.w(
           'SoraRuntime', 'getSourcesForEpisode called with empty playUrl');
@@ -412,50 +417,63 @@ class SoraRuntime {
       return cached.value;
     }
 
-    final fromJorm = await _extractViaJorm(session, episodeSession,
-        anilistId: anilistId, episodeNumber: episodeNumber);
-    final jormClean = _dedupSources(fromJorm
-        .where((s) => s.url.trim().isNotEmpty)
-        .where(
-            (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
-        .toList());
-    if (jormClean.isNotEmpty) {
-      AppLogger.i('SoraRuntime',
-          'Jorm extracted ${jormClean.length} source(s) for $session/$episodeSession');
-      _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(value: jormClean, expiresAt: DateTime.now().add(_cacheTtl));
-      return jormClean;
-    }
-
-    final local = await _extractViaLocalFallback(session, episodeSession);
-    final localClean = _dedupSources(local
-        .where((s) => s.url.trim().isNotEmpty)
-        .where(
-            (s) => s.url.startsWith('http://') || s.url.startsWith('https://'))
-        .toList());
-    if (localClean.isNotEmpty) {
-      AppLogger.i('SoraRuntime',
-          'Local fallback extracted ${localClean.length} source(s) for $session/$episodeSession');
-      _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(value: localClean, expiresAt: DateTime.now().add(_cacheTtl));
-      return localClean;
-    }
-
-    // Last-resort retry without AniList context for unstable extractors.
-    if (anilistId != null || episodeNumber != null) {
-      final retry = await _extractViaJorm(session, episodeSession);
-      final retryClean = _dedupSources(retry
+    try {
+      final fromJorm = await _extractViaJorm(session, episodeSession,
+          anilistId: anilistId, episodeNumber: episodeNumber);
+      final jormClean = _dedupSources(fromJorm
           .where((s) => s.url.trim().isNotEmpty)
           .where((s) =>
               s.url.startsWith('http://') || s.url.startsWith('https://'))
           .toList());
-      if (retryClean.isNotEmpty) {
-        _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(value: retryClean, expiresAt: DateTime.now().add(_cacheTtl));
+      if (jormClean.isNotEmpty) {
+        AppLogger.i('SoraRuntime',
+            'Jorm extracted ${jormClean.length} source(s) for $session/$episodeSession');
+        _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(
+            value: jormClean, expiresAt: DateTime.now().add(_cacheTtl));
+        return jormClean;
       }
-      return retryClean;
-    }
 
-    AppLogger.w(
-        'SoraRuntime', 'No sources extracted for $session/$episodeSession');
-    return const [];
+      final local = await _extractViaLocalFallback(session, episodeSession);
+      final localClean = _dedupSources(local
+          .where((s) => s.url.trim().isNotEmpty)
+          .where((s) =>
+              s.url.startsWith('http://') || s.url.startsWith('https://'))
+          .toList());
+      if (localClean.isNotEmpty) {
+        AppLogger.i('SoraRuntime',
+            'Local fallback extracted ${localClean.length} source(s) for $session/$episodeSession');
+        _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(
+            value: localClean, expiresAt: DateTime.now().add(_cacheTtl));
+        return localClean;
+      }
+
+      // Last-resort retry without AniList context for unstable extractors.
+      if (anilistId != null || episodeNumber != null) {
+        final retry = await _extractViaJorm(session, episodeSession);
+        final retryClean = _dedupSources(retry
+            .where((s) => s.url.trim().isNotEmpty)
+            .where((s) =>
+                s.url.startsWith('http://') || s.url.startsWith('https://'))
+            .toList());
+        if (retryClean.isNotEmpty) {
+          _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(
+              value: retryClean, expiresAt: DateTime.now().add(_cacheTtl));
+        }
+        return retryClean;
+      }
+
+      AppLogger.w(
+          'SoraRuntime', 'No sources extracted for $session/$episodeSession');
+      return const [];
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel || _disposed) {
+        return const [];
+      }
+      rethrow;
+    } catch (_) {
+      if (_disposed) return const [];
+      rethrow;
+    }
   }
 
   Future<List<SoraSource>> _extractViaJorm(
@@ -562,8 +580,20 @@ class SoraRuntime {
 
   Future<List<SoraSource>> _extractViaLocalFallback(
       String session, String episodeSession) async {
+    if (_disposed) return const [];
     final episodeUrl = '$_baseUrl/play/$session/$episodeSession';
-    final html = await _fetchJsonOrHtml(episodeUrl);
+    dynamic html;
+    try {
+      html = await _fetchJsonOrHtml(episodeUrl);
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel || _disposed) {
+        return const [];
+      }
+      rethrow;
+    } catch (_) {
+      if (_disposed) return const [];
+      rethrow;
+    }
     if (html is! String) return const [];
 
     final candidates = <_LocalSource>[];

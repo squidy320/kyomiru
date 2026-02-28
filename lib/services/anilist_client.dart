@@ -394,21 +394,11 @@ class AniListClient {
   }
 
   Future<void> markNotificationsRead(String token) async {
-    const q = r'''
-      mutation {
-        NotificationReset
-      }
-    ''';
-    try {
-      await _graphql(query: q, token: token);
-      clearUnreadCache(token);
-      _notificationsCache.remove(token);
-      AppLogger.i('AniList', 'Marked notifications as read');
-    } catch (e, st) {
-      // Non-fatal; some API variants may not expose this mutation.
-      AppLogger.w('AniList', 'NotificationReset failed',
-          error: e, stackTrace: st);
-    }
+    // AniList schema variants may not expose NotificationReset.
+    // Use local reset to avoid hard failures and repeated 400 logs.
+    clearUnreadCache(token);
+    _notificationsCache.remove(token);
+    AppLogger.i('AniList', 'Marked notifications as read (local cache reset)');
   }
 
   Future<List<AniListLibraryEntry>> libraryCurrent(

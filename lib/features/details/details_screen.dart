@@ -98,7 +98,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         ep.playUrl,
         anilistId: media.id,
         episodeNumber: ep.number,
-      ));
+      ).catchError((_, __) => const <SoraSource>[]));
     }
   }
 

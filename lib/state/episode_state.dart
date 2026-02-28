@@ -61,7 +61,7 @@ class EpisodeSourceQuery {
   int get hashCode => Object.hash(playUrl, anilistId, episodeNumber);
 }
 
-final soraRuntimeProvider = Provider.autoDispose<SoraRuntime>((ref) {
+final soraRuntimeProvider = Provider<SoraRuntime>((ref) {
   final runtime = SoraRuntime();
   ref.onDispose(runtime.dispose);
   return runtime;
@@ -71,10 +71,6 @@ final episodeProvider =
     FutureProvider.autoDispose.family<EpisodeLoadResult, EpisodeQuery>(
         (ref, query) async {
   final runtime = ref.watch(soraRuntimeProvider);
-
-  ref.onDispose(() {
-    runtime.reset();
-  });
 
   await runtime.initialize();
   final match = query.manualMatch ?? await runtime.autoMatchTitle(query.title);
