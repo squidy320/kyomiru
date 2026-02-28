@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import 'core/glass_widgets.dart';
 import 'core/haptics.dart';
 import 'core/image_cache.dart';
-import 'core/liquid_glass.dart';
 import 'core/theme/app_theme.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
@@ -107,31 +107,38 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
 
     final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
-    final viewPaddingBottom = MediaQuery.of(context).viewPadding.bottom;
-    final navBottom = viewPaddingBottom > 0
-        ? (viewPaddingBottom * 0.2).clamp(4.0, 8.0).toDouble()
-        : 8.0;
+    final bottomPadding = MediaQuery.of(context).padding.bottom + 10;
 
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
       resizeToAvoidBottomInset: false,
       body: GlassScaffoldBackground(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            IndexedStack(index: _index, children: _pages),
-            Positioned(
-              left: 32,
-              right: 32,
-              bottom: navBottom,
-              child: _PillBottomBar(
-                index: _index,
-                unread: displayUnread,
-                onTap: _onTabTap,
+        child: LiquidGlassLayer(
+          settings: const LiquidGlassSettings(
+            blur: 25,
+            thickness: 15,
+            refractiveIndex: 1.2,
+            saturation: 1.6,
+            glassColor: Color.fromRGBO(255, 255, 255, 0.05),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              IndexedStack(index: _index, children: _pages),
+              Positioned(
+                left: 32,
+                right: 32,
+                bottom: 0,
+                child: _PillBottomBar(
+                  index: _index,
+                  unread: displayUnread,
+                  bottomPadding: bottomPadding,
+                  onTap: _onTabTap,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -142,11 +149,13 @@ class _PillBottomBar extends StatelessWidget {
   const _PillBottomBar({
     required this.index,
     required this.unread,
+    required this.bottomPadding,
     required this.onTap,
   });
 
   final int index;
   final int unread;
+  final double bottomPadding;
   final ValueChanged<int> onTap;
 
   @override
@@ -162,35 +171,37 @@ class _PillBottomBar extends StatelessWidget {
       (active: CupertinoIcons.gear_solid, inactive: CupertinoIcons.gear),
     ];
 
-    return LiquidGlass(
-      borderRadius: 40,
-      padding: EdgeInsets.zero,
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomPadding),
       child: SizedBox(
         height: 64,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            for (var i = 0; i < items.length; i++)
-              Expanded(
-                child: InkWell(
-                  onTap: () => onTap(i),
-                  child: SizedBox(
-                    height: double.infinity,
-                    child: Center(
-                      child: Badge(
-                        isLabelVisible: i == 2 && unread > 0,
-                        smallSize: 8,
-                        child: Icon(
-                          i == index ? items[i].active : items[i].inactive,
-                          color: i == index ? Colors.white : Colors.white54,
-                          size: 24,
+        child: LiquidGlass(
+          shape: const LiquidRoundedSuperellipse(borderRadius: 40),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              for (var i = 0; i < items.length; i++)
+                Expanded(
+                  child: InkWell(
+                    onTap: () => onTap(i),
+                    child: SizedBox(
+                      height: double.infinity,
+                      child: Center(
+                        child: Badge(
+                          isLabelVisible: i == 2 && unread > 0,
+                          smallSize: 8,
+                          child: Icon(
+                            i == index ? items[i].active : items[i].inactive,
+                            color: i == index ? Colors.white : Colors.white54,
+                            size: 24,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
-import '../../core/liquid_glass.dart';
 import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 import '../details/details_screen.dart';
@@ -243,36 +243,45 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           }
         }
 
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 420),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                gradientTop,
-                const Color(0xFF090B13),
-              ],
-            ),
+        return LiquidGlassLayer(
+          settings: const LiquidGlassSettings(
+            blur: 25,
+            thickness: 15,
+            refractiveIndex: 1.2,
+            saturation: 1.6,
+            glassColor: Color.fromRGBO(255, 255, 255, 0.05),
           ),
-          child: SafeArea(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate(content),
-                    ),
-                  ),
-                  const SliverPadding(
-                    padding: EdgeInsets.only(bottom: 120),
-                    sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
-                  ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  gradientTop,
+                  const Color(0xFF090B13),
                 ],
+              ),
+            ),
+            child: SafeArea(
+              child: RefreshIndicator(
+                onRefresh: _refresh,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate(content),
+                      ),
+                    ),
+                    const SliverPadding(
+                      padding: EdgeInsets.only(bottom: 120),
+                      sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -339,12 +348,14 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                     top: 12,
                     left: 12,
                     child: LiquidGlass(
-                      borderRadius: 999,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      child: const Text('Trending Now',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 12)),
+                      shape: const LiquidRoundedSuperellipse(borderRadius: 999),
+                      child: const Padding(
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        child: Text('Trending Now',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 12)),
+                      ),
                     ),
                   ),
                   Positioned(
@@ -477,15 +488,18 @@ class _ScorePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LiquidGlass(
-      borderRadius: 999,
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
-          const SizedBox(width: 3),
-          Text(score?.toString() ?? 'NR',
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-        ],
+      shape: const LiquidRoundedSuperellipse(borderRadius: 999),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        child: Row(
+          children: [
+            const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+            const SizedBox(width: 3),
+            Text(score?.toString() ?? 'NR',
+                style:
+                    const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+          ],
+        ),
       ),
     );
   }

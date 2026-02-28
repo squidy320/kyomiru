@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -1357,70 +1358,105 @@ class _Header extends StatelessWidget {
   final AniListMedia media;
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            height: 220,
-            decoration: BoxDecoration(
-              image: media.bannerImage != null
-                  ? DecorationImage(
-                      image: KyomiruImageCache.provider(media.bannerImage!),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-              color: const Color(0xAA0C1324),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: 0.9),
-                ],
+    return LiquidGlassLayer(
+      settings: const LiquidGlassSettings(
+        blur: 20,
+        thickness: 12,
+        refractiveIndex: 1.2,
+        saturation: 1.5,
+        glassColor: Color.fromRGBO(255, 255, 255, 0.05),
+      ),
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              height: 220,
+              decoration: BoxDecoration(
+                image: media.bannerImage != null
+                    ? DecorationImage(
+                        image: KyomiruImageCache.provider(media.bannerImage!),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+                color: const Color(0xAA0C1324),
               ),
             ),
           ),
-        ),
-        Positioned.fill(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 110,
-                height: 150,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  image: media.cover.best == null
-                      ? null
-                      : DecorationImage(
-                          image: KyomiruImageCache.provider(media.cover.best!),
-                          fit: BoxFit.cover),
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.9),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  media.title.best,
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 28, fontWeight: FontWeight.w900),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 96,
+            child: IgnorePointer(
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.transparent,
+                    Colors.white70,
+                    Colors.white,
+                  ],
+                  stops: [0.0, 0.45, 0.8, 1.0],
+                ).createShader(rect),
+                child: LiquidGlass(
+                  shape: const LiquidRoundedRectangle(borderRadius: 18),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 110,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    image: media.cover.best == null
+                        ? null
+                        : DecorationImage(
+                            image: KyomiruImageCache.provider(media.cover.best!),
+                            fit: BoxFit.cover),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    media.title.best,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 28, fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
