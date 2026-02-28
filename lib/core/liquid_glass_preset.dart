@@ -5,13 +5,12 @@ LiquidGlassSettings kyomiruLiquidGlassSettings({
   required bool isOledBlack,
 }) {
   return LiquidGlassSettings(
-    blur: 50.0,
+    blur: 35.0,
     thickness: 15,
-    refractiveIndex: 1.08,
-    saturation: 1.4,
+    refractiveIndex: 1.02,
+    saturation: 1.2,
     glassColor: isOledBlack
         ? Colors.black.withValues(alpha: 0.08)
         : Colors.white.withValues(alpha: 0.03),
   );
 }
-

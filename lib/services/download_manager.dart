@@ -232,6 +232,9 @@ class DownloadController extends StateNotifier<DownloadState> {
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, _SpeedWindow> _speedWindows = {};
   final Map<String, int> _lastUiEmitMs = {};
+  final Map<String, int> _lastDiskPersistMs = {};
+  static const int _uiUpdateIntervalMs = 280;
+  static const int _diskPersistIntervalMs = 1200;
   static const MethodChannel _mediaScanChannel =
       MethodChannel('kyomiru/media_scan');
 
@@ -247,18 +250,36 @@ class DownloadController extends StateNotifier<DownloadState> {
     state = DownloadState(items: map);
   }
 
-  Future<void> _saveItem(DownloadItem item) async {
+  void _setItemInMemory(DownloadItem item) {
     final updated = {...state.items, item.key: item};
     state = DownloadState(items: updated);
+  }
+
+  Future<void> _saveItem(DownloadItem item) async {
+    _setItemInMemory(item);
+    _lastDiskPersistMs[item.key] = DateTime.now().millisecondsSinceEpoch;
     await _box.put(item.key, item.toJson());
   }
 
   Future<void> _emitDownloadUpdate(DownloadItem item, {bool force = false}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final last = _lastUiEmitMs[item.key] ?? 0;
-    if (!force && (now - last) < 220) return;
+    if (!force && (now - last) < _uiUpdateIntervalMs) return;
     _lastUiEmitMs[item.key] = now;
-    await _saveItem(item);
+    _setItemInMemory(item);
+
+    final lastDisk = _lastDiskPersistMs[item.key] ?? 0;
+    final shouldPersist = force ||
+        item.status != 'downloading' ||
+        (now - lastDisk) >= _diskPersistIntervalMs;
+    if (!shouldPersist) return;
+
+    _lastDiskPersistMs[item.key] = now;
+    if (force) {
+      await _box.put(item.key, item.toJson());
+      return;
+    }
+    unawaited(_box.put(item.key, item.toJson()));
   }
 
   Future<void> delete(int mediaId, int episode) async {
@@ -282,6 +303,7 @@ class DownloadController extends StateNotifier<DownloadState> {
     }
     _speedWindows.remove(key);
     _lastUiEmitMs.remove(key);
+    _lastDiskPersistMs.remove(key);
     await _box.delete(key);
     final updated = {...state.items}..remove(key);
     state = DownloadState(items: updated);

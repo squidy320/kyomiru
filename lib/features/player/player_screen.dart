@@ -76,6 +76,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
   final SimplePip _simplePip = SimplePip();
+  final bool _enablePip = true;
 
   Timer? _persistTimer;
   Timer? _uiPollTimer;
@@ -154,7 +155,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _initPip() async {
-    if (!Platform.isAndroid) return;
+    if (!_enablePip || !Platform.isAndroid) return;
     try {
       final supported = await SimplePip.isPipAvailable;
       if (!mounted) return;
@@ -918,7 +919,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _enterPip() async {
-    if (!Platform.isAndroid || !_pipSupported) return;
+    if (!_enablePip || !Platform.isAndroid || !_pipSupported) return;
     try {
       await _simplePip.enterPipMode(
         seamlessResize: true,
@@ -1082,10 +1083,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         }
       },
       child: Scaffold(
+        extendBodyBehindAppBar: true,
         backgroundColor: Colors.black,
-        body: SafeArea(
-          child: Stack(
-            children: [
+        body: Stack(
+          children: [
               const Positioned.fill(child: ColoredBox(color: Colors.black)),
               if (_isInitializing)
                 Center(
@@ -1145,7 +1146,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
                     onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
                     onHorizontalDragCancel: _handleHorizontalSeekEnd,
-                    child: Chewie(controller: _chewieController!),
+                    child: Center(
+                      child: Chewie(controller: _chewieController!),
+                    ),
                   ),
                 ),
               AnimatedOpacity(
@@ -1634,8 +1637,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   ),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

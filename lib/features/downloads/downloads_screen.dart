@@ -405,7 +405,13 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
   final total = d.totalBytes > 0 ? _formatBytes(d.totalBytes) : '--';
   final speed = _formatSpeed(d.speedBitsPerSecond);
 
-  return GlassCard(
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFA1E1E1E),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+    ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -437,14 +443,16 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
               ),
               Text('Episode ${d.episode}'),
               const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: SizedBox(
-                  height: 3,
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    color: accent,
-                    backgroundColor: Colors.white12,
+              RepaintBoundary(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    height: 4,
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      color: accent,
+                      backgroundColor: Colors.white12,
+                    ),
                   ),
                 ),
               ),
