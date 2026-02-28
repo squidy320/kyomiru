@@ -28,7 +28,7 @@ class KyomiruApp extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Kyomiru',
+      title: 'kyomiru',
       theme: buildKyomiruTheme(settings),
       home: const AppTabs(),
     );

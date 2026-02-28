@@ -731,6 +731,7 @@ class AniListClient {
       query ($id: Int) {
         Media(id: $id, type: ANIME) {
           id
+          idMal
           episodes
           averageScore
           title { romaji english native }

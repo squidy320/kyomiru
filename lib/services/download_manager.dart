@@ -195,11 +195,14 @@ class DownloadController extends StateNotifier<DownloadState> {
     final key = '$mediaId:$episode';
     final existing = state.items[key];
     if (existing?.localFilePath != null) {
-      final f = File(existing!.localFilePath!);
-      if (await f.exists()) {
-        final parent = f.parent;
-        if (await parent.exists()) {
-          await parent.delete(recursive: true);
+      final resolved = await _resolveStoredPath(existing!.localFilePath);
+      if (resolved != null) {
+        final f = File(resolved);
+        if (await f.exists()) {
+          final parent = f.parent;
+          if (await parent.exists()) {
+            await parent.delete(recursive: true);
+          }
         }
       }
     }
@@ -216,7 +219,9 @@ class DownloadController extends StateNotifier<DownloadState> {
     final item = state.items['$mediaId:$episode'];
     final path = item?.localFilePath;
     if (path == null || path.isEmpty) return null;
-    if (await File(path).exists()) return path;
+    final resolved = await _resolveStoredPath(path);
+    if (resolved == null) return null;
+    if (await File(resolved).exists()) return resolved;
     return null;
   }
 
@@ -228,7 +233,9 @@ class DownloadController extends StateNotifier<DownloadState> {
       }
       final path = item.localFilePath;
       if (path == null || path.isEmpty) continue;
-      final file = File(path);
+      final resolved = await _resolveStoredPath(path);
+      if (resolved == null) continue;
+      final file = File(resolved);
       if (await file.exists()) return file;
     }
     return null;
@@ -238,7 +245,9 @@ class DownloadController extends StateNotifier<DownloadState> {
     final item = state.items['$mediaId:$episode'];
     final path = item?.localFilePath;
     if (path == null || path.isEmpty) return null;
-    final file = File(path);
+    final resolved = await _resolveStoredPath(path);
+    if (resolved == null) return null;
+    final file = File(resolved);
     if (await file.exists()) return file;
     return null;
   }
@@ -315,6 +324,8 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (!await epDir.exists()) {
       await epDir.create(recursive: true);
     }
+    final manifestRelativePath =
+        '${_safe(animeTitle)}/Episode $episode/Episode $episode.m3u8';
     final manifestPath = '${epDir.path}/Episode $episode.m3u8';
 
     final token = CancelToken();
@@ -327,7 +338,7 @@ class DownloadController extends StateNotifier<DownloadState> {
       coverImageUrl: coverImageUrl,
       status: 'downloading',
       progress: 0,
-      localFilePath: manifestPath,
+      localFilePath: manifestRelativePath,
       sourceUrl: source.url,
       headers: source.headers,
       resumable: true,
@@ -444,6 +455,42 @@ class DownloadController extends StateNotifier<DownloadState> {
     } finally {
       _cancelTokens.remove(key);
     }
+  }
+
+  Future<String?> _resolveStoredPath(String? storedPath) async {
+    if (storedPath == null) return null;
+    var path = storedPath.trim();
+    if (path.isEmpty) return null;
+
+    final uri = Uri.tryParse(path);
+    if (uri != null && uri.isScheme('file')) {
+      path = uri.toFilePath();
+    }
+    path = path.replaceAll('\\', '/');
+
+    final root = await _downloadsRoot();
+    final rootPath = root.path.replaceAll('\\', '/');
+
+    final isAbsoluteUnix = path.startsWith('/');
+    final isAbsoluteWin = RegExp(r'^[A-Za-z]:/').hasMatch(path);
+    if (isAbsoluteUnix || isAbsoluteWin) {
+      if (await File(path).exists()) return path;
+
+      if (Platform.isIOS) {
+        final docsIx = path.lastIndexOf('/Documents/');
+        if (docsIx >= 0) {
+          final suffix = path.substring(docsIx + '/Documents/'.length);
+          final fixed = '${(await getApplicationDocumentsDirectory()).path}/$suffix';
+          if (await File(fixed).exists()) return fixed;
+        }
+      }
+      return path;
+    }
+
+    final cleaned = path.startsWith('Kyomiru/')
+        ? path.substring('Kyomiru/'.length)
+        : path;
+    return '$rootPath/$cleaned';
   }
 
   Future<_ResolvedPlaylist> _resolveMediaPlaylist(

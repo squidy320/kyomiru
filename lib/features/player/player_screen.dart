@@ -383,14 +383,77 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final file = (uri != null && uri.isScheme('file'))
           ? File.fromUri(uri)
           : File(rawUrl);
-      final controller = VideoPlayerController.file(file);
+      final isHlsLocal = file.path.toLowerCase().endsWith('.m3u8');
+      final controller = isHlsLocal
+          ? VideoPlayerController.networkUrl(
+              Uri.parse(await _startLocalHlsProxy(file)),
+              formatHint: VideoFormat.hls,
+              videoPlayerOptions: VideoPlayerOptions(
+                mixWithOthers: false,
+                allowBackgroundPlayback: true,
+              ),
+            )
+          : VideoPlayerController.file(file);
       await controller.initialize().timeout(const Duration(seconds: 6));
+      _isHlsPlayback = isHlsLocal;
       return controller;
     } catch (e, st) {
       AppLogger.w('Player', 'Local source init failed for $rawUrl',
           error: e, stackTrace: st);
       return null;
     }
+  }
+
+  Future<String> _startLocalHlsProxy(File manifest) async {
+    await _stopHlsProxy();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _hlsProxyServer = server;
+    server.listen((request) async {
+      final targetEncoded = request.uri.queryParameters['f'];
+      if (targetEncoded == null || targetEncoded.isEmpty) {
+        request.response.statusCode = 400;
+        await request.response.close();
+        return;
+      }
+
+      final targetPath = Uri.decodeComponent(targetEncoded);
+      final targetFile = File(targetPath);
+      if (!await targetFile.exists()) {
+        request.response.statusCode = 404;
+        await request.response.close();
+        return;
+      }
+
+      final lower = targetFile.path.toLowerCase();
+      try {
+        if (lower.endsWith('.m3u8')) {
+          request.response.headers.contentType =
+              ContentType.parse('application/vnd.apple.mpegurl');
+          final raw = await targetFile.readAsString();
+          final baseUri = Uri.file(targetFile.path);
+          final rewritten = raw.split('\n').map((line) {
+            final t = line.trim();
+            if (t.isEmpty || t.startsWith('#')) return line;
+            if (t.startsWith('http://') || t.startsWith('https://')) {
+              return line;
+            }
+            final absPath = baseUri.resolve(t).toFilePath();
+            return '/lhls?f=${Uri.encodeComponent(absPath)}';
+          }).join('\n');
+          request.response.write(rewritten);
+        } else {
+          if (lower.endsWith('.ts')) {
+            request.response.headers.add('content-type', 'video/mp2t');
+          }
+          request.response.add(await targetFile.readAsBytes());
+        }
+      } catch (_) {
+        request.response.statusCode = 502;
+      } finally {
+        await request.response.close();
+      }
+    });
+    return 'http://${server.address.host}:${server.port}/lhls?f=${Uri.encodeComponent(manifest.path)}';
   }
 
   Future<void> _fetchAniSkipData() async {
