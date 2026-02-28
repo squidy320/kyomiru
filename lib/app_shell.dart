@@ -96,6 +96,7 @@ class AppTabs extends ConsumerStatefulWidget {
 
 class _AppTabsState extends ConsumerState<AppTabs> {
   int _index = 0;
+  bool _railExtended = false;
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
   bool _offlineMode = false;
@@ -161,6 +162,34 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     });
   }
 
+  int _tabIndexFromRail(int railIndex) {
+    switch (railIndex) {
+      case 0:
+        return 1; // Search -> Discovery surface
+      case 1:
+        return 1; // Discovery
+      case 2:
+        return 0; // Library
+      case 3:
+        return 3; // Downloads
+      default:
+        return 1;
+    }
+  }
+
+  int _railIndexFromTab(int tabIndex) {
+    switch (tabIndex) {
+      case 0:
+        return 2;
+      case 3:
+        return 3;
+      case 1:
+        return 1;
+      default:
+        return 1;
+    }
+  }
+
   @override
   void dispose() {
     _connectivitySub?.cancel();
@@ -187,6 +216,46 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       unread: displayUnread,
       onTap: _onTabTap,
     );
+    final offlineBadge = _offlineMode
+        ? Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 12,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.48),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.12),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 13,
+                      color: Colors.white70,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'Offline Mode',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        : const SizedBox.shrink();
 
     if (!_bootConnectivityResolved) {
       return Scaffold(
@@ -204,96 +273,154 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       );
     }
 
-    return Scaffold(
-      extendBody: true,
-      extendBodyBehindAppBar: true,
-      resizeToAvoidBottomInset: false,
-      body: GlassScaffoldBackground(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            IndexedStack(
-              index: _index,
-              children: List<Widget>.generate(_pages.length, (i) {
-                if (_initializedTabs.contains(i)) return _pages[i];
-                return const SizedBox.shrink();
-              }),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: IgnorePointer(
-                ignoring: false,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(32, 0, 32, bottomPadding),
-                  child: SizedBox(
-                    height: 64,
-                    child: widget.liquidGlassEnabled
-                        ? LiquidGlass.withOwnLayer(
-                            settings: kyomiruLiquidGlassSettings(
-                              isOledBlack: settings.isOledBlack,
-                            ),
-                            shape: const LiquidRoundedSuperellipse(
-                                borderRadius: 40),
-                            child: navContent,
-                          )
-                        : Container(
-                            decoration: BoxDecoration(
-                              color: const Color(0xFA1E1E1E),
-                              borderRadius: BorderRadius.circular(40),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.10),
-                              ),
-                            ),
-                            child: navContent,
-                          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isLarge = constraints.maxWidth > 600;
+        if (!isLarge) {
+          return Scaffold(
+            extendBody: true,
+            extendBodyBehindAppBar: true,
+            resizeToAvoidBottomInset: false,
+            body: GlassScaffoldBackground(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  IndexedStack(
+                    index: _index,
+                    children: List<Widget>.generate(_pages.length, (i) {
+                      if (_initializedTabs.contains(i)) return _pages[i];
+                      return const SizedBox.shrink();
+                    }),
                   ),
-                ),
-              ),
-            ),
-            if (_offlineMode)
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 8,
-                right: 12,
-                child: IgnorePointer(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.48),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.12),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      ignoring: false,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(32, 0, 32, bottomPadding),
+                        child: SizedBox(
+                          height: 64,
+                          child: widget.liquidGlassEnabled
+                              ? LiquidGlass.withOwnLayer(
+                                  settings: kyomiruLiquidGlassSettings(
+                                    isOledBlack: settings.isOledBlack,
+                                  ),
+                                  shape: const LiquidRoundedSuperellipse(
+                                      borderRadius: 40),
+                                  child: navContent,
+                                )
+                              : Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFA1E1E1E),
+                                    borderRadius: BorderRadius.circular(40),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.10),
+                                    ),
+                                  ),
+                                  child: navContent,
+                                ),
+                        ),
                       ),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.cloud_off_rounded,
-                          size: 13,
-                          color: Colors.white70,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Offline Mode',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white70,
+                  ),
+                  offlineBadge,
+                ],
+              ),
+            ),
+          );
+        }
+
+        final rail = NavigationRail(
+          extended: _railExtended,
+          selectedIndex: _railIndexFromTab(_index),
+          onDestinationSelected: (value) => _onTabTap(_tabIndexFromRail(value)),
+          backgroundColor: Colors.transparent,
+          indicatorColor: Colors.white.withValues(alpha: 0.16),
+          unselectedIconTheme: const IconThemeData(color: Colors.white54),
+          selectedIconTheme: const IconThemeData(color: Colors.white),
+          unselectedLabelTextStyle: const TextStyle(color: Colors.white70),
+          selectedLabelTextStyle:
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          leading: IconButton(
+            tooltip: _railExtended ? 'Collapse' : 'Menu',
+            onPressed: () => setState(() => _railExtended = !_railExtended),
+            icon: Icon(
+              _railExtended ? Icons.menu_open_rounded : Icons.menu_rounded,
+              color: Colors.white,
+            ),
+          ),
+          destinations: [
+            NavigationRailDestination(
+              icon: _RailGlowIcon(icon: Icons.search_rounded),
+              label: Text('Search'),
+            ),
+            NavigationRailDestination(
+              icon: _RailGlowIcon(icon: CupertinoIcons.compass),
+              label: Text('Discovery'),
+            ),
+            NavigationRailDestination(
+              icon: _RailGlowIcon(icon: CupertinoIcons.book),
+              label: Text('Library'),
+            ),
+            NavigationRailDestination(
+              icon: _RailGlowIcon(icon: CupertinoIcons.arrow_down_circle),
+              label: Text('Downloads'),
+            ),
+          ],
+        );
+
+        return Scaffold(
+          extendBody: true,
+          extendBodyBehindAppBar: true,
+          resizeToAvoidBottomInset: false,
+          body: GlassScaffoldBackground(
+            child: Row(
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                      12, MediaQuery.of(context).padding.top + 8, 8, 12),
+                  child: widget.liquidGlassEnabled
+                      ? LiquidGlass.withOwnLayer(
+                          settings: kyomiruLiquidGlassSettings(
+                            isOledBlack: settings.isOledBlack,
                           ),
+                          shape: const LiquidRoundedSuperellipse(
+                              borderRadius: 24),
+                          child: RepaintBoundary(child: rail),
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFA1E1E1E),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.10),
+                            ),
+                          ),
+                          child: rail,
                         ),
-                      ],
-                    ),
+                ),
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      IndexedStack(
+                        index: _index,
+                        children: List<Widget>.generate(_pages.length, (i) {
+                          if (_initializedTabs.contains(i)) return _pages[i];
+                          return const SizedBox.shrink();
+                        }),
+                      ),
+                      offlineBadge,
+                    ],
                   ),
                 ),
-              ),
-          ],
-        ),
-      ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -346,6 +473,43 @@ class _PillBottomBar extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _RailGlowIcon extends StatefulWidget {
+  const _RailGlowIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  State<_RailGlowIcon> createState() => _RailGlowIconState();
+}
+
+class _RailGlowIconState extends State<_RailGlowIcon> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: _hover
+              ? [
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    blurRadius: 14,
+                  ),
+                ]
+              : const [],
+        ),
+        child: Icon(widget.icon),
+      ),
     );
   }
 }

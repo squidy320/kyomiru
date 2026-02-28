@@ -18,6 +18,13 @@ import '../details/details_screen.dart';
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
 
+int _adaptiveGridCount(double width) {
+  if (width >= 1200) return 6;
+  if (width >= 900) return 5;
+  if (width >= 600) return 4;
+  return 2;
+}
+
 class DiscoveryScreen extends ConsumerStatefulWidget {
   const DiscoveryScreen({super.key});
 
@@ -416,29 +423,35 @@ class _HorizontalSection extends StatelessWidget {
         Text(title,
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        SizedBox(
-          height: _kCardHeight,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return SizedBox(
-                width: _kCardWidth,
-                child: GestureDetector(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final cols = _adaptiveGridCount(constraints.maxWidth);
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: cols,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: _kCardWidth / _kCardHeight,
+              ),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                          builder: (_) => DetailsScreen(mediaId: item.id)),
+                        builder: (_) => DetailsScreen(mediaId: item.id),
+                      ),
                     );
                   },
                   child: _AnimePosterCard(media: item),
-                ),
-              );
-            },
-          ),
+                );
+              },
+            );
+          },
         ),
       ],
     );
@@ -513,6 +526,51 @@ class _ScorePill extends StatelessWidget {
                 style:
                     const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HoverPosterTile extends StatefulWidget {
+  const _HoverPosterTile({
+    required this.child,
+    required this.onTap,
+  });
+
+  final Widget child;
+  final VoidCallback onTap;
+
+  @override
+  State<_HoverPosterTile> createState() => _HoverPosterTileState();
+}
+
+class _HoverPosterTileState extends State<_HoverPosterTile> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: _hover
+              ? [
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    blurRadius: 18,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : const [],
+        ),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: widget.child,
         ),
       ),
     );

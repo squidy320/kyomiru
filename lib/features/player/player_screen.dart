@@ -33,6 +33,18 @@ class PlayerSourceOption {
   final Map<String, String> headers;
 }
 
+class _TogglePlayIntent extends Intent {
+  const _TogglePlayIntent();
+}
+
+class _SeekForwardIntent extends Intent {
+  const _SeekForwardIntent();
+}
+
+class _SeekBackIntent extends Intent {
+  const _SeekBackIntent();
+}
+
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
     super.key,
@@ -1017,6 +1029,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
+  Widget _buildAdaptivePlayerSurface(BoxConstraints constraints) {
+    final chewie = _chewieController;
+    if (chewie == null) return const SizedBox.shrink();
+    final isLarge = constraints.maxWidth > 600;
+    if (!isLarge) return Chewie(controller: chewie);
+
+    final aspectRaw = _videoController?.value.aspectRatio ?? (16 / 9);
+    final aspect = aspectRaw.clamp(0.5, 3.0);
+    final fittedHeight = constraints.maxWidth / aspect;
+    if (fittedHeight <= constraints.maxHeight) {
+      return Center(
+        child: SizedBox(
+          width: constraints.maxWidth,
+          height: fittedHeight,
+          child: Chewie(controller: chewie),
+        ),
+      );
+    }
+    return Center(
+      child: SizedBox(
+        width: constraints.maxHeight * aspect,
+        height: constraints.maxHeight,
+        child: Chewie(controller: chewie),
+      ),
+    );
+  }
+
   bool get _isWithinOpeningRange {
     final s = opStart;
     final e = opEnd;
@@ -1075,14 +1114,43 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
     final isPlaying = _videoController?.value.isPlaying ?? false;
 
-    return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: (_, __) {
-        if (mounted) {
-          ref.invalidate(episodeProvider);
-        }
+    return Shortcuts(
+      shortcuts: const <ShortcutActivator, Intent>{
+        SingleActivator(LogicalKeyboardKey.space): _TogglePlayIntent(),
+        SingleActivator(LogicalKeyboardKey.arrowRight): _SeekForwardIntent(),
+        SingleActivator(LogicalKeyboardKey.arrowLeft): _SeekBackIntent(),
       },
-      child: Scaffold(
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _TogglePlayIntent: CallbackAction<_TogglePlayIntent>(
+            onInvoke: (_) {
+              unawaited(_togglePlayPause());
+              return null;
+            },
+          ),
+          _SeekForwardIntent: CallbackAction<_SeekForwardIntent>(
+            onInvoke: (_) {
+              unawaited(_seekRelative(const Duration(seconds: 10)));
+              return null;
+            },
+          ),
+          _SeekBackIntent: CallbackAction<_SeekBackIntent>(
+            onInvoke: (_) {
+              unawaited(_seekRelative(const Duration(seconds: -10)));
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: PopScope(
+            canPop: true,
+            onPopInvokedWithResult: (_, __) {
+              if (mounted) {
+                ref.invalidate(episodeProvider);
+              }
+            },
+            child: Scaffold(
         extendBodyBehindAppBar: true,
         backgroundColor: Colors.black,
         body: Stack(
@@ -1146,8 +1214,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
                     onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
                     onHorizontalDragCancel: _handleHorizontalSeekEnd,
-                    child: Center(
-                      child: Chewie(controller: _chewieController!),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return _buildAdaptivePlayerSurface(constraints);
+                      },
                     ),
                   ),
                 ),
@@ -1637,9 +1707,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   ),
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }
