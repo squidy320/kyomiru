@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:ui';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -14,6 +16,8 @@ import '../../services/download_manager.dart';
 import '../../services/sora_runtime.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
+import '../../state/episode_state.dart';
+import '../../state/tracking_state.dart';
 import '../player/player_screen.dart';
 
 class DetailsScreen extends ConsumerStatefulWidget {
@@ -26,25 +30,10 @@ class DetailsScreen extends ConsumerStatefulWidget {
 
 class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   int _tab = 0;
-  final SoraRuntime _sora = SoraRuntime();
   SoraAnimeMatch? _manualMatch;
-  Future<_PaheData>? _paheFuture;
-  int? _paheMediaId;
   int? _prefetchedForMediaId;
 
-  Future<_PaheData> _loadPaheData(AniListMedia media) async {
-    final match = _manualMatch ?? await _sora.autoMatchTitle(media.title.best);
-    if (match == null) return const _PaheData(match: null, episodes: []);
-    final eps = await _sora.getEpisodes(match);
-    return _PaheData(match: match, episodes: eps);
-  }
-
-  void _ensurePaheFuture(AniListMedia media) {
-    if (_paheMediaId == media.id && _paheFuture != null) return;
-    _manualMatch ??= _readSavedMatch(media.id);
-    _paheMediaId = media.id;
-    _paheFuture = _loadPaheData(media);
-  }
+  SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
     setState(() {
@@ -52,9 +41,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       if (_manualMatch != null) {
         _persistManualMatch(media.id, _manualMatch!);
       }
-      _paheMediaId = media.id;
-      _paheFuture = _loadPaheData(media);
     });
+    ref.invalidate(episodeProvider);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    ref.invalidate(episodeProvider);
   }
 
   SoraAnimeMatch? _readSavedMatch(int mediaId) {
@@ -134,6 +128,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   SoraSource _pickSourceByPreference(
       List<SoraSource> sources, AppSettings settings,
       {String? preferredQuality, String? preferredAudio}) {
+    final autoHls = sources.where((s) =>
+        s.format.toLowerCase() == 'm3u8' &&
+        s.quality.toLowerCase().contains('auto'));
+    if (autoHls.isNotEmpty) return autoHls.first;
+
     var pool = [...sources]..sort(
         (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
     final audio = (preferredAudio ?? settings.preferredAudio).toLowerCase();
@@ -151,6 +150,90 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       if (exact.isNotEmpty) return exact.first;
     }
     return pool.isNotEmpty ? pool.first : sources.first;
+  }
+
+  SoraSource _pickDownloadSource(List<SoraSource> sources, AppSettings settings,
+      {String? preferredQuality, String? preferredAudio}) {
+    return _pickSourceByPreference(
+      sources,
+      settings,
+      preferredQuality: preferredQuality,
+      preferredAudio: preferredAudio,
+    );
+  }
+
+  Future<List<SoraSource>> _loadSourcesWithOverlay(
+    AniListMedia media,
+    SoraEpisode ep,
+  ) async {
+    final provider = episodeSourcesProvider(
+      EpisodeSourceQuery(
+        playUrl: ep.playUrl,
+        anilistId: media.id,
+        episodeNumber: ep.number,
+      ),
+    );
+
+    var dialogOpen = false;
+    final sub = ref.listenManual<AsyncValue<List<SoraSource>>>(
+      provider,
+      (_, next) {
+        if (!mounted) return;
+        if (next.isLoading && !dialogOpen) {
+          dialogOpen = true;
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Loading stream...',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        } else if ((next.hasValue || next.hasError) && dialogOpen) {
+          Navigator.of(context, rootNavigator: true).maybePop();
+          dialogOpen = false;
+        }
+      },
+    );
+
+    try {
+      return await ref.read(provider.future);
+    } finally {
+      sub.close();
+      if (dialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
+      }
+    }
   }
 
   Future<SoraSource?> _showSourcePicker(List<SoraSource> sources) async {
@@ -264,6 +347,21 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
     hapticTap();
+    if (token != null && token.isNotEmpty) {
+      try {
+        final refreshed = await ref.refresh(mediaListProvider(media.id).future);
+        if (refreshed != null) {
+          ref
+              .read(mediaListEntryControllerProvider(media.id).notifier)
+              .setLocal(
+                status: refreshed.status,
+                progress: refreshed.progress,
+                score: refreshed.score,
+              );
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -322,7 +420,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         }
 
         final media = snap.data!;
-        _ensurePaheFuture(media);
+        _manualMatch ??= _readSavedMatch(media.id);
+        final episodeQuery = EpisodeQuery(
+          mediaId: media.id,
+          title: media.title.best,
+          manualMatch: _manualMatch,
+        );
         final description = (media.description ?? '')
             .replaceAll(RegExp(r'<[^>]*>'), ' ')
             .trim();
@@ -359,8 +462,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 ),
                 const SizedBox(height: 12),
                 if (_tab == 0)
-                  FutureBuilder<_PaheData>(
-                    future: _paheFuture,
+                  FutureBuilder<EpisodeLoadResult>(
+                    future: ref.watch(episodeProvider(episodeQuery).future),
                     builder: (context, paheSnap) {
                       if (paheSnap.connectionState == ConnectionState.waiting) {
                         return const _EpisodeListLoadingSkeleton();
@@ -478,12 +581,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             downloadControllerProvider.notifier)
                                         .localManifestPath(media.id, ep.number);
                                     if (local != null) continue;
-                                    final sources = await _sora
-                                        .getSourcesForEpisode(ep.playUrl,
-                                            anilistId: media.id,
-                                            episodeNumber: ep.number);
+                                    final sources =
+                                        await _loadSourcesWithOverlay(media, ep);
                                     if (sources.isEmpty) continue;
-                                    final selected = _pickSourceByPreference(
+                                    final selected = _pickDownloadSource(
                                         sources, settings,
                                         preferredQuality: bulkQuality,
                                         preferredAudio: bulkAudio);
@@ -494,6 +595,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                           mediaId: media.id,
                                           episode: ep.number,
                                           animeTitle: media.title.best,
+                                          coverImageUrl: media.cover.best,
                                           source: selected,
                                         );
                                   }
@@ -519,7 +621,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             final episodeSubtitle =
                                 _episodeSpecificTitle(media, ep.number);
                             final d = downloads.item(media.id, ep.number);
-                            final done = d?.status == 'done';
+                            final localAsync = ref.watch(
+                              localEpisodeFileProvider(
+                                LocalEpisodeQuery(
+                                  mediaId: media.id,
+                                  episode: ep.number,
+                                ),
+                              ),
+                            );
+                            final hasLocal = localAsync.valueOrNull != null;
+                            final done = hasLocal || d?.status == 'done';
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
@@ -555,13 +666,30 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   color: Color(0xFF8B5CF6),
                                                   fontWeight: FontWeight.w700)),
                                           const SizedBox(height: 2),
-                                          Text(
-                                            episodeSubtitle,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w700),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  episodeSubtitle,
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.w700),
+                                                ),
+                                              ),
+                                              if (hasLocal) ...[
+                                                const SizedBox(width: 6),
+                                                const Icon(
+                                                  CupertinoIcons
+                                                      .check_mark_circled,
+                                                  size: 16,
+                                                  color: Color(0xFF22C55E),
+                                                ),
+                                              ],
+                                            ],
                                           ),
                                           if (d != null && d.status != 'done')
                                             Padding(
@@ -584,24 +712,24 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               padding: EdgeInsets.zero,
                                               visualDensity:
                                                   VisualDensity.compact),
-                                          onPressed: () async {
-                                            final local = await ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .localManifestPath(
-                                                    media.id, ep.number);
-                                            if (local != null) {
-                                              if (!context.mounted) return;
-                                              Navigator.of(context).push(
-                                                MaterialPageRoute(
-                                                  builder: (_) => PlayerScreen(
-                                                    mediaId: media.id,
+                                            onPressed: () async {
+                                              final local = await ref
+                                                 .read(downloadControllerProvider
+                                                     .notifier)
+                                                 .getLocalEpisodeByMedia(
+                                                     media.id, ep.number);
+                                             if (local != null) {
+                                               if (!context.mounted) return;
+                                               Navigator.of(context).push(
+                                                 MaterialPageRoute(
+                                                   builder: (_) => PlayerScreen(
+                                                     mediaId: media.id,
                                                     episodeNumber: ep.number,
                                                     episodeTitle:
                                                         _episodePlaybackTitle(
                                                             media, ep.number),
-                                                    sourceUrl: local,
-                                                    isLocal: true,
+                                                     sourceUrl: local.path,
+                                                     isLocal: true,
                                                     backgroundImageUrl:
                                                         media.cover.best ??
                                                             media.bannerImage,
@@ -614,12 +742,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               return;
                                             }
 
-                                            final sources = await _sora
-                                                .getSourcesForEpisode(
-                                              ep.playUrl,
-                                              anilistId: media.id,
-                                              episodeNumber: ep.number,
-                                            );
+                                            final sources =
+                                                await _loadSourcesWithOverlay(
+                                                    media, ep);
                                             if (sources.isEmpty) {
                                               if (!context.mounted) return;
                                               ScaffoldMessenger.of(context)
@@ -704,12 +829,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                 visualDensity:
                                                     VisualDensity.compact),
                                             onPressed: () async {
-                                              final sources = await _sora
-                                                  .getSourcesForEpisode(
-                                                ep.playUrl,
-                                                anilistId: media.id,
-                                                episodeNumber: ep.number,
-                                              );
+                                              final sources =
+                                                  await _loadSourcesWithOverlay(
+                                                      media, ep);
                                               if (sources.isEmpty) return;
                                               final settings =
                                                   ref.read(appSettingsProvider);
@@ -717,20 +839,21 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   settings.chooseStreamEveryTime
                                                       ? await _showSourcePicker(
                                                           sources)
-                                                      : _pickSourceByPreference(
+                                                      : _pickDownloadSource(
                                                           sources, settings);
                                               if (selected == null) return;
                                               await ref
                                                   .read(
                                                       downloadControllerProvider
                                                           .notifier)
-                                                  .downloadHlsEpisode(
-                                                    mediaId: media.id,
-                                                    episode: ep.number,
-                                                    animeTitle:
-                                                        media.title.best,
-                                                    source: selected,
-                                                  );
+                                                   .downloadHlsEpisode(
+                                                     mediaId: media.id,
+                                                     episode: ep.number,
+                                                     animeTitle:
+                                                         media.title.best,
+                                                     coverImageUrl: media.cover.best,
+                                                     source: selected,
+                                                   );
                                             },
                                             icon: const Icon(
                                                 Icons.download_rounded),
@@ -877,156 +1000,309 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
   int _progress = 0;
   bool _saving = false;
   bool _loadedInitial = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      ref
+          .read(mediaListEntryControllerProvider(widget.media.id).notifier)
+          .loadFresh(),
+    );
+  }
+
+  void _hydrateInitial(AniListTrackingEntry? entry) {
+    if (_loadedInitial || entry == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _loadedInitial) return;
+      setState(() {
+        _status = entry.status;
+        _score = entry.score;
+        _progress = entry.progress;
+        _loadedInitial = true;
+      });
+      ref
+          .read(mediaListEntryControllerProvider(widget.media.id).notifier)
+          .setLocal(
+            status: _status,
+            progress: _progress,
+            score: _score,
+          );
+    });
+  }
+
+  void _pushOptimistic() {
+    ref
+        .read(mediaListEntryControllerProvider(widget.media.id).notifier)
+        .setLocal(status: _status, progress: _progress, score: _score);
+  }
+
+  Widget _scoreEditor(String format) {
+    switch (format) {
+      case 'POINT_100':
+        return Row(
+          children: [
+            const Text('Score'),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Slider(
+                value: _score.clamp(0, 100),
+                max: 100,
+                divisions: 100,
+                label: _score.round().toString(),
+                onChanged: (v) => setState(() {
+                  _score = v.roundToDouble();
+                  _pushOptimistic();
+                }),
+              ),
+            ),
+            Text(_score.round().toString()),
+          ],
+        );
+      case 'POINT_5':
+        final current = _score.clamp(0, 5).round();
+        return Row(
+          children: [
+            const Text('Score'),
+            const SizedBox(width: 8),
+            for (var i = 1; i <= 5; i++)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() {
+                  _score = i.toDouble();
+                  _pushOptimistic();
+                }),
+                icon: Icon(
+                  i <= current ? Icons.star_rounded : Icons.star_border_rounded,
+                  color: i <= current ? Colors.amber : Colors.white70,
+                ),
+              ),
+            const Spacer(),
+            Text('$current/5'),
+          ],
+        );
+      case 'POINT_3':
+        final current = _score.clamp(0, 3).round();
+        const opts = <(IconData icon, String label, int value)>[
+          (Icons.sentiment_very_dissatisfied_rounded, 'Bad', 1),
+          (Icons.sentiment_neutral_rounded, 'Ok', 2),
+          (Icons.sentiment_very_satisfied_rounded, 'Great', 3),
+        ];
+        return Row(
+          children: [
+            const Text('Score'),
+            const SizedBox(width: 8),
+            for (final o in opts)
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _score = o.$3.toDouble();
+                  _pushOptimistic();
+                }),
+                icon: Icon(
+                  o.$1,
+                  color: current == o.$3 ? Colors.white : Colors.white54,
+                ),
+                label: Text(
+                  o.$2,
+                  style: TextStyle(
+                    color: current == o.$3 ? Colors.white : Colors.white54,
+                  ),
+                ),
+              ),
+          ],
+        );
+      case 'POINT_10_DECIMAL':
+      default:
+        const max = 10.0;
+        final div = format == 'POINT_10_DECIMAL' ? 100 : 10;
+        return Row(
+          children: [
+            const Text('Score'),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Slider(
+                value: _score.clamp(0, max),
+                max: max,
+                divisions: div,
+                label: format == 'POINT_10_DECIMAL'
+                    ? _score.toStringAsFixed(1)
+                    : _score.round().toString(),
+                onChanged: (v) => setState(() {
+                  _score = format == 'POINT_10_DECIMAL'
+                      ? (v * 10).round() / 10
+                      : v.roundToDouble();
+                  _pushOptimistic();
+                }),
+              ),
+            ),
+            Text(
+              format == 'POINT_10_DECIMAL'
+                  ? _score.toStringAsFixed(1)
+                  : _score.round().toString(),
+            ),
+          ],
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final client = ref.watch(anilistClientProvider);
+    final meAsync = ref.watch(currentUserProvider);
+    final scoreFormatAsync = ref.watch(trackingScoreFormatProvider);
+    final fetchedEntryAsync = ref.watch(mediaListProvider(widget.media.id));
+    final optimisticEntry =
+        ref.watch(mediaListEntryControllerProvider(widget.media.id));
+    final entry = optimisticEntry ?? fetchedEntryAsync.valueOrNull;
+    _hydrateInitial(entry);
 
-    return FutureBuilder<List<dynamic>>(
-      future: Future.wait([
-        client.me(widget.token),
-        client.trackingEntry(widget.token, widget.media.id),
-      ]),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const GlassCard(child: Text('Loading tracking...'));
-        }
+    if (fetchedEntryAsync.isLoading || scoreFormatAsync.isLoading) {
+      return const GlassCard(child: Text('Loading tracking...'));
+    }
 
-        final user = snap.hasData ? snap.data![0] as AniListUser : null;
-        final entry =
-            snap.hasData ? snap.data![1] as AniListTrackingEntry? : null;
+    final bg = meAsync.valueOrNull?.bannerImage ?? widget.media.bannerImage;
+    final maxEp = widget.media.episodes ?? 9999;
+    final scoreFormat = scoreFormatAsync.valueOrNull ?? 'POINT_10_DECIMAL';
 
-        if (!_loadedInitial && entry != null) {
-          _status = entry.status;
-          _score = entry.score;
-          _progress = entry.progress;
-          _loadedInitial = true;
-        }
-
-        final bg = user?.bannerImage ?? widget.media.bannerImage;
-        final maxEp = widget.media.episodes ?? 9999;
-
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Stack(
-            children: [
-              if (bg != null)
-                Positioned.fill(
-                  child: KyomiruImageCache.image(bg, fit: BoxFit.cover),
-                ),
-              Positioned.fill(
-                child: Container(color: const Color(0xCC0B1020)),
-              ),
-              GlassCard(
-                borderRadius: 16,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        children: [
+          if (bg != null)
+            Positioned.fill(
+              child: KyomiruImageCache.image(bg, fit: BoxFit.cover),
+            ),
+          Positioned.fill(
+            child: Container(color: const Color(0xCC0B1020)),
+          ),
+          GlassCard(
+            borderRadius: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('AniList Tracking',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
                   children: [
-                    const Text('AniList Tracking',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final s in const [
-                          'CURRENT',
-                          'PLANNING',
-                          'COMPLETED',
-                          'PAUSED',
-                          'DROPPED',
-                          'REPEATING'
-                        ])
-                          ChoiceChip(
-                            label: Text(s),
-                            selected: _status == s,
-                            onSelected: (_) => setState(() => _status = s),
-                          ),
-                      ],
+                    for (final s in const [
+                      'CURRENT',
+                      'PLANNING',
+                      'COMPLETED',
+                      'PAUSED',
+                      'DROPPED',
+                      'REPEATING'
+                    ])
+                      ChoiceChip(
+                        label: Text(s),
+                        selected: _status == s,
+                        onSelected: (_) => setState(() {
+                          _status = s;
+                          _pushOptimistic();
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Text('Episode'),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Slider(
+                        value: _progress.toDouble().clamp(0, maxEp.toDouble()),
+                        max: maxEp.toDouble(),
+                        divisions: maxEp > 0 ? maxEp : 1,
+                        label: '$_progress',
+                        onChanged: (v) => setState(() {
+                          _progress = v.round();
+                          _pushOptimistic();
+                        }),
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        const Text('Episode'),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Slider(
-                            value:
-                                _progress.toDouble().clamp(0, maxEp.toDouble()),
-                            max: maxEp.toDouble(),
-                            divisions: maxEp > 0 ? maxEp : 1,
-                            label: '$_progress',
-                            onChanged: (v) =>
-                                setState(() => _progress = v.round()),
-                          ),
-                        ),
-                        Text('$_progress/$maxEp'),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        const Text('Score'),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Slider(
-                            value: _score.clamp(0, 10),
-                            max: 10,
-                            divisions: 100,
-                            label: _score.toStringAsFixed(1),
-                            onChanged: (v) => setState(() => _score = v),
-                          ),
-                        ),
-                        Text(_score.toStringAsFixed(1)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton.tonalIcon(
+                    Text('$_progress/$maxEp'),
+                  ],
+                ),
+                _scoreEditor(scoreFormat),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final removed = await ref
+                              .read(downloadControllerProvider.notifier)
+                              .removeDownloadsForMedia(widget.media.id);
+                          if (!mounted) return;
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                removed > 0
+                                    ? 'Removed $removed downloaded episode(s).'
+                                    : 'No local downloads to remove.',
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        label: const Text('Remove Download'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonalIcon(
                         onPressed: _saving
                             ? null
                             : () async {
                                 final messenger = ScaffoldMessenger.of(context);
                                 setState(() => _saving = true);
-                                try {
-                                  final saved = await client.saveTrackingEntry(
-                                    token: widget.token,
-                                    mediaId: widget.media.id,
-                                    status: _status,
-                                    progress: _progress,
-                                    score: _score,
+                                final ok = await ref
+                                    .read(mediaListEntryControllerProvider(
+                                            widget.media.id)
+                                        .notifier)
+                                    .save(
+                                      status: _status,
+                                      progress: _progress,
+                                      score: _score,
+                                    );
+                                if (!mounted) return;
+                                if (!ok) {
+                                  final rollback = ref.read(
+                                      mediaListEntryControllerProvider(
+                                          widget.media.id));
+                                  if (rollback != null) {
+                                    setState(() {
+                                      _status = rollback.status;
+                                      _progress = rollback.progress;
+                                      _score = rollback.score;
+                                    });
+                                  }
+                                  messenger.showSnackBar(
+                                    const SnackBar(
+                                        content: Text('Sync Failed')),
                                   );
-                                  if (!mounted) return;
-                                  setState(() {
-                                    _status = saved.status;
-                                    _progress = saved.progress;
-                                    _score = saved.score;
-                                  });
+                                } else {
                                   messenger.showSnackBar(
                                     const SnackBar(
                                         content: Text('Tracking updated.')),
                                   );
-                                } catch (e) {
-                                  if (!mounted) return;
-                                  messenger.showSnackBar(
-                                    SnackBar(
-                                        content:
-                                            Text('Tracking update failed: $e')),
-                                  );
-                                } finally {
-                                  if (mounted) setState(() => _saving = false);
+                                }
+                                if (mounted) {
+                                  setState(() => _saving = false);
                                 }
                               },
                         icon: const Icon(Icons.save_outlined),
                         label: Text(_saving ? 'Saving...' : 'Save'),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }
@@ -1168,13 +1444,6 @@ class ProgressRing extends StatelessWidget {
       ),
     );
   }
-}
-
-class _PaheData {
-  const _PaheData({required this.match, required this.episodes});
-
-  final SoraAnimeMatch? match;
-  final List<SoraEpisode> episodes;
 }
 
 class _DetailsLoadingSkeleton extends StatelessWidget {

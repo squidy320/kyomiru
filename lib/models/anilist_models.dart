@@ -3,12 +3,14 @@ class AniListUser {
   final String name;
   final String? avatar;
   final String? bannerImage;
+  final String scoreFormat;
 
   AniListUser({
     required this.id,
     required this.name,
     this.avatar,
     this.bannerImage,
+    this.scoreFormat = 'POINT_10_DECIMAL',
   });
 
   factory AniListUser.fromJson(Map<String, dynamic> json) => AniListUser(
@@ -17,6 +19,10 @@ class AniListUser {
         avatar:
             ((json['avatar'] as Map<String, dynamic>?)?['large'])?.toString(),
         bannerImage: json['bannerImage']?.toString(),
+        scoreFormat:
+            ((json['mediaListOptions'] as Map<String, dynamic>?)?['scoreFormat'])
+                    ?.toString() ??
+                'POINT_10_DECIMAL',
       );
 }
 

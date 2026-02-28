@@ -1,16 +1,26 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
 import 'package:chewie/chewie.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:simple_pip_mode/simple_pip.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/app_logger.dart';
 import '../../core/haptics.dart';
+import '../../services/download_manager.dart';
 import '../../services/progress_store.dart';
 import '../../state/auth_state.dart';
+import '../../state/episode_state.dart';
+import '../../state/tracking_state.dart';
 
 class PlayerSourceOption {
   const PlayerSourceOption({required this.url, this.headers = const {}});
@@ -57,10 +67,11 @@ class _PlayerCandidate {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   late final ProgressStore _progressStore;
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
+  final SimplePip _simplePip = SimplePip();
 
   Timer? _persistTimer;
   Timer? _uiPollTimer;
@@ -69,6 +80,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _isInitializing = true;
   bool _overlayVisible = true;
   String? _initError;
+  String _initStatusMessage = 'Establishing Secure Connection...';
 
   List<_PlayerCandidate> _candidates = const [];
   int _activeCandidateIndex = -1;
@@ -77,6 +89,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _durationSec = 0;
   bool _isDragging = false;
   double _dragValueSec = 0;
+  bool _isHorizontalSeeking = false;
+  double _horizontalSeekSec = 0;
+  double _lastHorizontalSeekX = 0;
+  bool _pipSupported = false;
+  bool _autoTrackingSyncTriggered = false;
+  bool _isHlsPlayback = false;
+  bool _didEpisodeEndCleanup = false;
+  DateTime? _lastLiveTrimAt;
+  Offset _skipAnimationPosition = Offset.zero;
+  bool _skipAnimationForward = true;
+  late final AnimationController _skipAnimationController;
+  HttpServer? _hlsProxyServer;
+  final BaseCacheManager _playbackCache = DefaultCacheManager();
+  final Dio _hlsProbeDio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      sendTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
+  );
 
   double? opStart;
   double? opEnd;
@@ -85,7 +117,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void initState() {
     super.initState();
     _progressStore = ref.read(progressStoreProvider);
+    _skipAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
+    );
     WidgetsBinding.instance.addObserver(this);
+    unawaited(WakelockPlus.enable());
+    unawaited(_initPip());
     unawaited(_fetchAniSkipData());
     _init();
   }
@@ -98,7 +136,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       unawaited(_persistProgress());
-      chewie.pause();
+    }
+  }
+
+  Future<void> _initPip() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final supported = await SimplePip.isPipAvailable;
+      if (!mounted) return;
+      setState(() => _pipSupported = supported);
+      if (supported) {
+        unawaited(_simplePip.setAutoPipMode(
+          seamlessResize: true,
+          autoEnter: true,
+        ));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _pipSupported = false);
     }
   }
 
@@ -163,22 +218,160 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<VideoPlayerController?> _createNetworkController(
       _PlayerCandidate c) async {
+    final lower = c.url.toLowerCase();
+    final isHls = lower.contains('.m3u8');
+    final maxAttempts = isHls ? 2 : 3;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (mounted) {
+          setState(() {
+            _initStatusMessage = isHls
+                ? 'Establishing Secure Connection...'
+                : 'Initializing player...';
+          });
+        }
+        final playbackUrl =
+            isHls ? await _startHlsProxy(c.url, c.headers) : c.url;
+        final uri = Uri.parse(playbackUrl);
+        final controller = VideoPlayerController.networkUrl(
+          uri,
+          formatHint: isHls ? VideoFormat.hls : null,
+          httpHeaders: c.headers,
+          videoPlayerOptions: VideoPlayerOptions(
+            mixWithOthers: false,
+            allowBackgroundPlayback: true,
+          ),
+        );
+        if (isHls) {
+          final warmupCancel = CancelToken();
+          try {
+            await Future.wait([
+              _prewarmHls(c.url, c.headers, cancelToken: warmupCancel),
+              controller.initialize(),
+            ]).timeout(const Duration(seconds: 7));
+          } on TimeoutException {
+            warmupCancel.cancel('hls init timeout');
+            await controller.dispose();
+            await _stopHlsProxy();
+            if (attempt == maxAttempts - 1) {
+              return null;
+            }
+            await Future<void>.delayed(const Duration(seconds: 1));
+            continue;
+          }
+        } else {
+          await controller.initialize().timeout(const Duration(seconds: 7));
+        }
+        _isHlsPlayback = isHls;
+        return controller;
+      } catch (e, st) {
+        AppLogger.w(
+          'Player',
+          'Init attempt ${attempt + 1} failed for ${c.url}',
+          error: e,
+          stackTrace: st,
+        );
+        if (attempt == maxAttempts - 1) {
+          return null;
+        }
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+    }
+    return null;
+  }
+
+  Future<void> _prewarmHls(
+    String url,
+    Map<String, String> headers, {
+    CancelToken? cancelToken,
+  }) async {
     try {
-      final uri = Uri.parse(c.url);
-      final controller = VideoPlayerController.networkUrl(
-        uri,
-        httpHeaders: c.headers,
-        videoPlayerOptions: VideoPlayerOptions(
-          mixWithOthers: false,
-          allowBackgroundPlayback: false,
+      final res = await _hlsProbeDio.headUri(
+        Uri.parse(url),
+        options: Options(
+          headers: headers,
+          validateStatus: (_) => true,
         ),
+        cancelToken: cancelToken,
       );
-      await controller.initialize().timeout(const Duration(seconds: 6));
-      return controller;
-    } catch (e, st) {
-      AppLogger.w('Player', 'Init attempt failed for ${c.url}',
-          error: e, stackTrace: st);
-      return null;
+      if ((res.statusCode ?? 500) < 400) return;
+    } catch (_) {}
+
+    final res = await _hlsProbeDio.getUri(
+      Uri.parse(url),
+      options: Options(
+        headers: headers,
+        responseType: ResponseType.plain,
+        validateStatus: (_) => true,
+      ),
+      cancelToken: cancelToken,
+    );
+    if ((res.statusCode ?? 500) >= 400) {
+      throw Exception('HLS pre-warm failed');
+    }
+  }
+
+  Future<String> _startHlsProxy(String sourceUrl, Map<String, String> headers) async {
+    await _stopHlsProxy();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _hlsProxyServer = server;
+    server.listen((request) async {
+      final targetEncoded = request.uri.queryParameters['u'];
+      if (targetEncoded == null || targetEncoded.isEmpty) {
+        request.response.statusCode = 400;
+        await request.response.close();
+        return;
+      }
+      final target = Uri.decodeComponent(targetEncoded);
+      try {
+        final response = await _hlsProbeDio.getUri(
+          Uri.parse(target),
+          options: Options(
+            headers: headers,
+            responseType: ResponseType.bytes,
+            validateStatus: (_) => true,
+          ),
+        );
+        final ct = response.headers.value('content-type') ?? '';
+        request.response.statusCode = response.statusCode ?? 200;
+
+        final isPlaylist = ct.contains('mpegurl') ||
+            target.toLowerCase().contains('.m3u8');
+        if (isPlaylist) {
+          request.response.headers.contentType =
+              ContentType.parse('application/vnd.apple.mpegurl');
+          final raw = utf8.decode((response.data as List).cast<int>());
+          final baseUri = Uri.parse(target);
+          final rewritten = raw
+              .split('\n')
+              .map((line) {
+                final t = line.trim();
+                if (t.isEmpty || t.startsWith('#')) return line;
+                final abs = baseUri.resolve(t).toString();
+                return '/hls?u=${Uri.encodeComponent(abs)}';
+              })
+              .join('\n');
+          request.response.write(rewritten);
+        } else {
+          if (ct.isNotEmpty) {
+            request.response.headers.add('content-type', ct);
+          }
+          request.response.add((response.data as List).cast<int>());
+        }
+      } catch (_) {
+        request.response.statusCode = 502;
+      } finally {
+        await request.response.close();
+      }
+    });
+    return 'http://${server.address.host}:${server.port}/hls?u=${Uri.encodeComponent(sourceUrl)}';
+  }
+
+  Future<void> _stopHlsProxy() async {
+    final server = _hlsProxyServer;
+    _hlsProxyServer = null;
+    if (server != null) {
+      await server.close(force: true);
     }
   }
 
@@ -226,12 +419,84 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             ? 0
             : v.position.inMilliseconds / 1000.0;
       });
+      if (!_didEpisodeEndCleanup &&
+          _durationSec > 0 &&
+          (_currentSec / _durationSec) >= 0.99) {
+        _didEpisodeEndCleanup = true;
+        unawaited(_clearPlaybackCaches());
+      }
+      _trimLiveHlsSegments();
+      unawaited(_maybeAutoUpdateTracking());
     });
+  }
+
+  void _trimLiveHlsSegments() {
+    if (!_isHlsPlayback) return;
+    final now = DateTime.now();
+    final last = _lastLiveTrimAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 20)) {
+      return;
+    }
+    _lastLiveTrimAt = now;
+    unawaited(_trimOldTempSegments());
+  }
+
+  Future<void> _trimOldTempSegments() async {
+    try {
+      final temp = await getTemporaryDirectory();
+      if (!await temp.exists()) return;
+      final deadline = DateTime.now().subtract(const Duration(seconds: 90));
+      final entities = temp.listSync(recursive: true, followLinks: false);
+      for (final e in entities) {
+        if (e is! File) continue;
+        final p = e.path.toLowerCase();
+        if (!p.endsWith('.ts')) continue;
+        try {
+          final modified = await e.lastModified();
+          if (modified.isBefore(deadline)) {
+            await e.delete();
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _maybeAutoUpdateTracking() async {
+    if (_autoTrackingSyncTriggered) return;
+    if (_durationSec <= 0 || _currentSec <= 0) return;
+    if (_currentSec / _durationSec < 0.9) return;
+
+    final auth = ref.read(authControllerProvider);
+    final token = auth.token;
+    if (token == null || token.isEmpty) return;
+
+    _autoTrackingSyncTriggered = true;
+    final client = ref.read(anilistClientProvider);
+    try {
+      final current = await client.trackingEntry(token, widget.mediaId);
+      final nextProgress = (current?.progress ?? 0) + 1;
+      await client.saveTrackingEntry(
+        token: token,
+        mediaId: widget.mediaId,
+        status: current?.status ?? 'CURRENT',
+        progress: nextProgress,
+        score: current?.score ?? 0,
+      );
+      ref.invalidate(mediaListProvider(widget.mediaId));
+    } catch (e, st) {
+      _autoTrackingSyncTriggered = false;
+      AppLogger.w(
+        'Player',
+        'Auto AniList progress sync failed',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   void _scheduleOverlayAutoHide() {
     _overlayHideTimer?.cancel();
-    _overlayHideTimer = Timer(const Duration(seconds: 3), () {
+    _overlayHideTimer = Timer(const Duration(seconds: 2), () {
       final c = _videoController;
       if (!mounted || c == null) return;
       if (c.value.isPlaying) {
@@ -288,6 +553,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _chewieController = chewie;
 
     await controller.play();
+    if (_isHlsPlayback) {
+      unawaited(_ensureInitialBufferAhead());
+    }
 
     _persistTimer?.cancel();
     _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -298,7 +566,82 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _scheduleOverlayAutoHide();
   }
 
+  Future<void> _ensureInitialBufferAhead() async {
+    final c = _videoController;
+    if (c == null || !_isHlsPlayback) return;
+    final deadline = DateTime.now().add(const Duration(seconds: 8));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      final v = c.value;
+      if (!v.isInitialized) break;
+      final pos = v.position;
+      var bufferedAhead = Duration.zero;
+      for (final r in v.buffered) {
+        if (r.end <= pos) continue;
+        final start = r.start > pos ? r.start : pos;
+        final span = r.end - start;
+        if (span > bufferedAhead) bufferedAhead = span;
+      }
+      if (bufferedAhead >= const Duration(seconds: 30)) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  Future<void> _clearTemporaryHlsCache() async {
+    try {
+      final temp = await getTemporaryDirectory();
+      if (!await temp.exists()) return;
+      final entities = temp.listSync(recursive: true, followLinks: false);
+      for (final e in entities) {
+        try {
+          if (e is File) {
+            final p = e.path.toLowerCase();
+            if (p.endsWith('.m3u8') ||
+                p.endsWith('.ts') ||
+                p.contains('hls')) {
+              await e.delete();
+            }
+          } else if (e is Directory) {
+            final p = e.path.toLowerCase();
+            if (p.contains('hls') || p.contains('video_player')) {
+              await e.delete(recursive: true);
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _clearPlaybackCaches() async {
+    try {
+      await _playbackCache.emptyCache();
+    } catch (_) {}
+    await _clearTemporaryHlsCache();
+  }
+
   Future<void> _init() async {
+    final downloader = ref.read(downloadControllerProvider.notifier);
+    File? localFile;
+    final title = widget.mediaTitle?.trim();
+    if (title != null && title.isNotEmpty) {
+      localFile = await downloader.getLocalEpisode(title, widget.episodeNumber);
+    }
+    localFile ??=
+        await downloader.getLocalEpisodeByMedia(widget.mediaId, widget.episodeNumber);
+    if (localFile != null) {
+      final localController = await _createLocalController(localFile.path);
+      if (localController != null) {
+        await _bindController(localController);
+        if (!mounted) return;
+        setState(() {
+          _isInitializing = false;
+          _initError = null;
+        });
+        return;
+      }
+    }
+
     final url =
         widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
     if (url == null || url.isEmpty) {
@@ -375,6 +718,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     await c.seekTo(Duration(milliseconds: targetMs));
   }
 
+  Future<void> _seekToSeconds(double sec) async {
+    final c = _videoController;
+    if (c == null) return;
+    final clamped = _durationSec <= 0 ? 0.0 : sec.clamp(0.0, _durationSec);
+    await c.seekTo(Duration(milliseconds: (clamped * 1000).round()));
+  }
+
   Future<void> _seekRelative(Duration delta) async {
     final c = _videoController;
     if (c == null) return;
@@ -385,6 +735,60 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (dur > Duration.zero && target > dur) target = dur;
     await c.seekTo(target);
     _registerInteraction();
+  }
+
+  void _handleHorizontalSeekStart(DragStartDetails details) {
+    if (_videoController == null || _durationSec <= 0) return;
+    _registerInteraction();
+    setState(() {
+      _isHorizontalSeeking = true;
+      _horizontalSeekSec = _currentSec;
+      _lastHorizontalSeekX = details.globalPosition.dx;
+    });
+  }
+
+  void _handleHorizontalSeekUpdate(DragUpdateDetails details) {
+    if (!_isHorizontalSeeking || _durationSec <= 0) return;
+    final width = MediaQuery.sizeOf(context).width;
+    if (width <= 0) return;
+    final deltaPx = details.globalPosition.dx - _lastHorizontalSeekX;
+    _lastHorizontalSeekX = details.globalPosition.dx;
+    final deltaSec = (deltaPx / width) * _durationSec;
+    setState(() {
+      _horizontalSeekSec =
+          (_horizontalSeekSec + deltaSec).clamp(0.0, _durationSec);
+    });
+  }
+
+  void _handleHorizontalSeekEnd() {
+    if (!_isHorizontalSeeking) return;
+    final target = _horizontalSeekSec;
+    setState(() => _isHorizontalSeeking = false);
+    unawaited(_seekToSeconds(target));
+    _registerInteraction();
+  }
+
+  void _handleDoubleTapSkip(TapDownDetails details) {
+    final width = MediaQuery.sizeOf(context).width;
+    final isForward = details.localPosition.dx > width / 2;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _skipAnimationPosition = details.localPosition;
+      _skipAnimationForward = isForward;
+    });
+    _skipAnimationController.forward(from: 0);
+    unawaited(
+      _seekRelative(Duration(seconds: isForward ? 10 : -10)),
+    );
+  }
+
+  Future<void> _enterPip() async {
+    if (!Platform.isAndroid || !_pipSupported) return;
+    try {
+      await _simplePip.enterPipMode(
+        seamlessResize: true,
+      );
+    } catch (_) {}
   }
 
   Future<void> _togglePlayPause() async {
@@ -412,6 +816,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final c = _videoController;
     final end = opEnd;
     if (c == null || end == null) return;
+    HapticFeedback.lightImpact();
     await c.seekTo(Duration(milliseconds: (end * 1000).round()));
     _registerInteraction();
   }
@@ -428,10 +833,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ref.invalidate(episodeProvider);
     _persistTimer?.cancel();
     _uiPollTimer?.cancel();
     _overlayHideTimer?.cancel();
-    unawaited(_disposeControllers());
+    final chewie = _chewieController;
+    final video = _videoController;
+    _chewieController = null;
+    _videoController = null;
+    if (chewie != null) {
+      unawaited(chewie.pause());
+      chewie.dispose();
+    }
+    if (video != null) {
+      unawaited(video.pause());
+      video.dispose();
+    }
+    _skipAnimationController.dispose();
+    unawaited(WakelockPlus.disable());
+    unawaited(_stopHlsProxy());
+    unawaited(_clearPlaybackCaches());
     super.dispose();
   }
 
@@ -441,14 +862,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
     final isPlaying = _videoController?.value.isPlaying ?? false;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (_, __) {
+        ref.invalidate(episodeProvider);
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
         child: Stack(
           children: [
             const Positioned.fill(child: ColoredBox(color: Colors.black)),
             if (_isInitializing)
-              const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(strokeWidth: 2),
+                    const SizedBox(height: 12),
+                    Text(
+                      _initStatusMessage,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              )
             else if (_initError != null)
               Center(
                 child: Padding(
@@ -482,6 +924,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: _handleSurfaceTap,
+                  onDoubleTapDown: _handleDoubleTapSkip,
+                  onHorizontalDragStart: _handleHorizontalSeekStart,
+                  onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
+                  onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
+                  onHorizontalDragCancel: _handleHorizontalSeekEnd,
                   child: Chewie(controller: _chewieController!),
                 ),
               ),
@@ -492,55 +939,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 ignoring: !_overlayVisible,
                 child: Stack(
                   children: [
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: IconButton(
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.black54,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: () {
-                          hapticTap();
-                          Navigator.of(context).pop();
-                        },
-                        icon: const Icon(Icons.arrow_back_rounded),
-                      ),
-                    ),
-                    const Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0x99000000), Color(0x00000000)],
+                    if (_pipSupported)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                            child: Material(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              child: InkWell(
+                                onTap: _enterPip,
+                                child: const Padding(
+                                  padding: EdgeInsets.all(10),
+                                  child: Icon(
+                                    Icons.picture_in_picture_alt_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          child: SizedBox(height: 120),
                         ),
                       ),
-                    ),
-                    const Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0x00000000), Color(0xBB000000)],
-                            ),
-                          ),
-                          child: SizedBox(height: 160),
-                        ),
-                      ),
-                    ),
                     Align(
                       alignment: Alignment.center,
                       child: ClipRRect(
@@ -561,18 +984,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               children: [
                                 IconButton(
                                   style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black38,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () {
-                                    hapticTap();
-                                    _seekRelative(const Duration(seconds: -10));
-                                  },
-                                  icon: const Icon(Icons.replay_10_rounded),
-                                ),
-                                const SizedBox(width: 10),
-                                IconButton(
-                                  style: IconButton.styleFrom(
                                     backgroundColor: Colors.black45,
                                     foregroundColor: Colors.white,
                                   ),
@@ -585,18 +996,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                         ? Icons.pause_rounded
                                         : Icons.play_arrow_rounded,
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                IconButton(
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black38,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () {
-                                    hapticTap();
-                                    _seekRelative(const Duration(seconds: 10));
-                                  },
-                                  icon: const Icon(Icons.forward_10_rounded),
                                 ),
                               ],
                             ),
@@ -786,19 +1185,50 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         opacity: _isWithinOpeningRange ? 1.0 : 0.0,
                         child: IgnorePointer(
                           ignoring: !_isWithinOpeningRange,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1E1E1E),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                              child: Material(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                child: InkWell(
+                                  onTap: _skipIntro,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                      ),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.skip_next_rounded,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Skip Intro',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                            onPressed: () {
-                              hapticTap();
-                              _skipIntro();
-                            },
-                            icon: const Icon(Icons.skip_next_rounded),
-                            label: const Text('Skip Intro'),
                           ),
                         ),
                       ),
@@ -807,7 +1237,105 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                 ),
               ),
             ),
+            if (_isHorizontalSeeking)
+              Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.16),
+                        ),
+                      ),
+                      child: Text(
+                        '${_fmt(_horizontalSeekSec)} / ${_fmt(_durationSec)}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _skipAnimationController,
+                  builder: (context, _) {
+                    if (!_skipAnimationController.isAnimating) {
+                      return const SizedBox.shrink();
+                    }
+                    final t = _skipAnimationController.value;
+                    final rippleSize = 40 + (t * 110);
+                    final iconOpacity = (1 - (t * 1.15)).clamp(0.0, 1.0);
+                    final iconScale = 0.86 + (t * 0.35);
+
+                    return Stack(
+                      children: [
+                        Positioned(
+                          left: _skipAnimationPosition.dx - (rippleSize / 2),
+                          top: _skipAnimationPosition.dy - (rippleSize / 2),
+                          child: Container(
+                            width: rippleSize,
+                            height: rippleSize,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(
+                                  alpha: 0.35 * (1 - t),
+                                ),
+                                width: 1.2,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: _skipAnimationPosition.dx - 24,
+                          top: _skipAnimationPosition.dy - 24,
+                          child: Opacity(
+                            opacity: iconOpacity,
+                            child: Transform.scale(
+                              scale: iconScale,
+                              child: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.18),
+                                  ),
+                                ),
+                                child: Icon(
+                                  _skipAnimationForward
+                                      ? Icons.forward_10_rounded
+                                      : Icons.replay_10_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
           ],
+        ),
         ),
       ),
     );

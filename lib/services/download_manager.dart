@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,18 +16,28 @@ class DownloadItem {
     required this.mediaId,
     required this.episode,
     required this.animeTitle,
+    this.coverImageUrl,
     required this.status,
     required this.progress,
-    required this.localManifestPath,
+    required this.localFilePath,
+    required this.sourceUrl,
+    required this.headers,
+    this.taskId,
+    this.resumable = false,
     this.error,
   });
 
   final int mediaId;
   final int episode;
   final String animeTitle;
+  final String? coverImageUrl;
   final String status;
   final double progress;
-  final String? localManifestPath;
+  final String? localFilePath;
+  final String sourceUrl;
+  final Map<String, String> headers;
+  final String? taskId;
+  final bool resumable;
   final String? error;
 
   String get key => '$mediaId:$episode';
@@ -34,21 +46,73 @@ class DownloadItem {
         'mediaId': mediaId,
         'episode': episode,
         'animeTitle': animeTitle,
+        'coverImageUrl': coverImageUrl,
         'status': status,
         'progress': progress,
-        'localManifestPath': localManifestPath,
+        'localFilePath': localFilePath,
+        'sourceUrl': sourceUrl,
+        'headers': headers,
+        'taskId': taskId,
+        'resumable': resumable,
         'error': error,
       };
 
   static DownloadItem fromJson(Map<dynamic, dynamic> map) {
+    final headersRaw = map['headers'];
+    final headers = <String, String>{};
+    if (headersRaw is Map) {
+      for (final e in headersRaw.entries) {
+        headers[e.key.toString()] = e.value.toString();
+      }
+    }
+
+    final localPath = map['localFilePath']?.toString() ??
+        map['localManifestPath']?.toString();
+
     return DownloadItem(
       mediaId: (map['mediaId'] as num?)?.toInt() ?? 0,
       episode: (map['episode'] as num?)?.toInt() ?? 0,
       animeTitle: (map['animeTitle'] ?? '').toString(),
+      coverImageUrl: map['coverImageUrl']?.toString(),
       status: (map['status'] ?? 'queued').toString(),
       progress: (map['progress'] as num?)?.toDouble() ?? 0,
-      localManifestPath: map['localManifestPath']?.toString(),
+      localFilePath: localPath,
+      sourceUrl: (map['sourceUrl'] ?? '').toString(),
+      headers: headers,
+      taskId: map['taskId']?.toString(),
+      resumable: map['resumable'] == true,
       error: map['error']?.toString(),
+    );
+  }
+
+  DownloadItem copyWith({
+    int? mediaId,
+    int? episode,
+    String? animeTitle,
+    String? coverImageUrl,
+    String? status,
+    double? progress,
+    String? localFilePath,
+    String? sourceUrl,
+    Map<String, String>? headers,
+    String? taskId,
+    bool? resumable,
+    String? error,
+    bool clearError = false,
+  }) {
+    return DownloadItem(
+      mediaId: mediaId ?? this.mediaId,
+      episode: episode ?? this.episode,
+      animeTitle: animeTitle ?? this.animeTitle,
+      coverImageUrl: coverImageUrl ?? this.coverImageUrl,
+      status: status ?? this.status,
+      progress: progress ?? this.progress,
+      localFilePath: localFilePath ?? this.localFilePath,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
+      headers: headers ?? this.headers,
+      taskId: taskId ?? this.taskId,
+      resumable: resumable ?? this.resumable,
+      error: clearError ? null : (error ?? this.error),
     );
   }
 }
@@ -61,9 +125,43 @@ class DownloadState {
   DownloadItem? item(int mediaId, int episode) => items['$mediaId:$episode'];
 }
 
+class LocalEpisodeQuery {
+  const LocalEpisodeQuery({
+    required this.mediaId,
+    required this.episode,
+  });
+
+  final int mediaId;
+  final int episode;
+
+  @override
+  bool operator ==(Object other) {
+    return other is LocalEpisodeQuery &&
+        other.mediaId == mediaId &&
+        other.episode == episode;
+  }
+
+  @override
+  int get hashCode => Object.hash(mediaId, episode);
+}
+
+class _ResolvedPlaylist {
+  const _ResolvedPlaylist({required this.url, required this.text});
+
+  final Uri url;
+  final String text;
+}
+
 class DownloadController extends StateNotifier<DownloadState> {
   DownloadController({Dio? dio, Box? box})
-      : _dio = dio ?? Dio(),
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 10),
+                sendTimeout: const Duration(seconds: 10),
+                receiveTimeout: const Duration(seconds: 10),
+              ),
+            ),
         _box = box ?? Hive.box('downloads'),
         super(const DownloadState(items: {})) {
     _load();
@@ -72,6 +170,8 @@ class DownloadController extends StateNotifier<DownloadState> {
   final Dio _dio;
   final Box _box;
   final Map<String, CancelToken> _cancelTokens = {};
+  static const MethodChannel _mediaScanChannel =
+      MethodChannel('kyomiru/media_scan');
 
   void _load() {
     final map = <String, DownloadItem>{};
@@ -94,14 +194,18 @@ class DownloadController extends StateNotifier<DownloadState> {
   Future<void> delete(int mediaId, int episode) async {
     final key = '$mediaId:$episode';
     final existing = state.items[key];
-    if (existing?.localManifestPath != null) {
-      final f = File(existing!.localManifestPath!);
+    if (existing?.localFilePath != null) {
+      final f = File(existing!.localFilePath!);
       if (await f.exists()) {
-        final dir = f.parent;
-        if (await dir.exists()) {
-          await dir.delete(recursive: true);
+        final parent = f.parent;
+        if (await parent.exists()) {
+          await parent.delete(recursive: true);
         }
       }
+    }
+    final token = _cancelTokens.remove(key);
+    if (token != null && !token.isCancelled) {
+      token.cancel('deleted');
     }
     await _box.delete(key);
     final updated = {...state.items}..remove(key);
@@ -110,165 +214,307 @@ class DownloadController extends StateNotifier<DownloadState> {
 
   Future<String?> localManifestPath(int mediaId, int episode) async {
     final item = state.items['$mediaId:$episode'];
-    final path = item?.localManifestPath;
+    final path = item?.localFilePath;
     if (path == null || path.isEmpty) return null;
     if (await File(path).exists()) return path;
     return null;
   }
 
+  Future<File?> getLocalEpisode(String animeName, int episode) async {
+    final safeTitle = _safe(animeName);
+    for (final item in state.items.values) {
+      if (_safe(item.animeTitle) != safeTitle || item.episode != episode) {
+        continue;
+      }
+      final path = item.localFilePath;
+      if (path == null || path.isEmpty) continue;
+      final file = File(path);
+      if (await file.exists()) return file;
+    }
+    return null;
+  }
+
+  Future<File?> getLocalEpisodeByMedia(int mediaId, int episode) async {
+    final item = state.items['$mediaId:$episode'];
+    final path = item?.localFilePath;
+    if (path == null || path.isEmpty) return null;
+    final file = File(path);
+    if (await file.exists()) return file;
+    return null;
+  }
+
+  Future<int> removeDownloadsForMedia(int mediaId) async {
+    final targets = state.items.values
+        .where((e) => e.mediaId == mediaId)
+        .map((e) => e.episode)
+        .toList();
+    for (final ep in targets) {
+      await delete(mediaId, ep);
+    }
+    return targets.length;
+  }
+
   void cancel(int mediaId, int episode) {
     final key = '$mediaId:$episode';
-    _cancelTokens[key]?.cancel('cancelled by user');
+    final token = _cancelTokens[key];
+    token?.cancel('cancelled by user');
+  }
+
+  Future<void> resume(int mediaId, int episode) async {
+    final item = state.items['$mediaId:$episode'];
+    if (item == null) return;
+    await downloadHlsEpisode(
+      mediaId: item.mediaId,
+      episode: item.episode,
+      animeTitle: item.animeTitle,
+      coverImageUrl: item.coverImageUrl,
+      source: SoraSource(
+        url: item.sourceUrl,
+        quality: 'auto',
+        subOrDub: 'sub',
+        format: 'm3u8',
+        headers: item.headers,
+      ),
+    );
   }
 
   Future<void> downloadHlsEpisode({
     required int mediaId,
     required int episode,
     required String animeTitle,
+    String? coverImageUrl,
     required SoraSource source,
   }) async {
     final key = '$mediaId:$episode';
     if (_cancelTokens.containsKey(key)) {
-      AppLogger.w('Download', 'Download already active');
       return;
     }
 
     final existingPath = await localManifestPath(mediaId, episode);
     if (existingPath != null) {
-      AppLogger.i('Download', 'Using existing local episode file');
       await _saveItem(DownloadItem(
         mediaId: mediaId,
         episode: episode,
         animeTitle: animeTitle,
+        coverImageUrl: coverImageUrl,
         status: 'done',
         progress: 1,
-        localManifestPath: existingPath,
+        localFilePath: existingPath,
+        sourceUrl: source.url,
+        headers: source.headers,
       ));
       return;
     }
 
-    AppLogger.i('Download', 'Starting HLS download');
-    final cancel = CancelToken();
-    _cancelTokens[key] = cancel;
+    final root = await _downloadsRoot();
+    final animeDir = Directory('${root.path}/${_safe(animeTitle)}');
+    if (!await animeDir.exists()) {
+      await animeDir.create(recursive: true);
+    }
+    final epDir = Directory('${animeDir.path}/Episode $episode');
+    if (!await epDir.exists()) {
+      await epDir.create(recursive: true);
+    }
+    final manifestPath = '${epDir.path}/Episode $episode.m3u8';
+
+    final token = CancelToken();
+    _cancelTokens[key] = token;
 
     await _saveItem(DownloadItem(
       mediaId: mediaId,
       episode: episode,
       animeTitle: animeTitle,
+      coverImageUrl: coverImageUrl,
       status: 'downloading',
       progress: 0,
-      localManifestPath: null,
+      localFilePath: manifestPath,
+      sourceUrl: source.url,
+      headers: source.headers,
+      resumable: true,
     ));
 
     try {
-      final root = await _downloadsRoot();
-      final animeDir = Directory('${root.path}/${_safe(animeTitle)}');
-      if (!await animeDir.exists()) await animeDir.create(recursive: true);
-      final epDir = Directory('${animeDir.path}/Episode$episode');
-      if (!await epDir.exists()) await epDir.create(recursive: true);
-
-      final manifestResp = await _dio.get(
+      final resolved = await _resolveMediaPlaylist(
         source.url,
-        options:
-            Options(responseType: ResponseType.plain, headers: source.headers),
-        cancelToken: cancel,
+        source.headers,
+        token,
       );
-      final manifestText = manifestResp.data.toString();
-      final baseUri = Uri.parse(source.url);
+      final lines = const LineSplitter().convert(resolved.text);
 
-      final lines = const LineSplitter().convert(manifestText);
       final segmentLines = <String>[];
+      final keyUris = <String>[];
       for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-        segmentLines.add(trimmed);
+        final t = line.trim();
+        if (t.isEmpty) continue;
+        if (t.startsWith('#EXT-X-KEY') && t.contains('URI=')) {
+          final m = RegExp(r'URI="([^"]+)"').firstMatch(t)?.group(1);
+          if (m != null && m.isNotEmpty) keyUris.add(m);
+        }
+        if (!t.startsWith('#')) {
+          segmentLines.add(t);
+        }
       }
 
-      if (segmentLines.isEmpty) {
-        AppLogger.w('Download', 'No segments found in manifest');
-        throw Exception('No HLS segments found.');
-      }
-
+      final total = segmentLines.length + keyUris.length;
+      var completed = 0;
       final rewritten = <String>[];
-      var downloaded = 0;
+      final keyMap = <String, String>{};
 
+      for (var i = 0; i < keyUris.length; i++) {
+        final uri = resolved.url.resolve(keyUris[i]);
+        final keyName = 'key_${i.toString().padLeft(2, '0')}.bin';
+        final keyPath = '${epDir.path}/$keyName';
+        await _dio.downloadUri(
+          uri,
+          keyPath,
+          options: Options(headers: source.headers),
+          cancelToken: token,
+        );
+        keyMap[keyUris[i]] = keyName;
+        completed++;
+        await _saveItem(
+          state.items[key]!.copyWith(
+            progress: total <= 0 ? 0 : completed / total,
+            status: 'downloading',
+          ),
+        );
+      }
+
+      var segIndex = 0;
       for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty || trimmed.startsWith('#')) {
+        final t = line.trim();
+        if (t.startsWith('#EXT-X-KEY') && t.contains('URI=')) {
+          var updated = line;
+          for (final entry in keyMap.entries) {
+            updated = updated.replaceAll('URI="${entry.key}"', 'URI="${entry.value}"');
+          }
+          rewritten.add(updated);
+          continue;
+        }
+        if (t.isEmpty || t.startsWith('#')) {
           rewritten.add(line);
           continue;
         }
 
-        final segUri = Uri.parse(trimmed);
-        final absolute = segUri.hasScheme ? segUri : baseUri.resolveUri(segUri);
-        final fileName = _segmentFileName(
-            downloaded,
-            absolute.pathSegments.isEmpty
-                ? 'seg.ts'
-                : absolute.pathSegments.last);
-        final segPath = '${epDir.path}/$fileName';
-
+        final segUri = resolved.url.resolve(t);
+        final ext = segUri.pathSegments.isEmpty
+            ? 'ts'
+            : (segUri.pathSegments.last.split('.').last);
+        final name = 'seg_${segIndex.toString().padLeft(5, '0')}.$ext';
+        final segPath = '${epDir.path}/$name';
         await _dio.downloadUri(
-          absolute,
+          segUri,
           segPath,
           options: Options(headers: source.headers),
-          cancelToken: cancel,
+          cancelToken: token,
         );
+        rewritten.add(name);
+        segIndex++;
+        completed++;
 
-        downloaded++;
-        rewritten.add(fileName);
-
-        await _saveItem(DownloadItem(
-          mediaId: mediaId,
-          episode: episode,
-          animeTitle: animeTitle,
-          status: 'downloading',
-          progress: downloaded / segmentLines.length,
-          localManifestPath: null,
-        ));
+        await _saveItem(
+          state.items[key]!.copyWith(
+            progress: total <= 0 ? 0 : completed / total,
+            status: 'downloading',
+          ),
+        );
       }
 
-      final manifestPath = '${epDir.path}/Episode$episode.m3u8';
       await File(manifestPath).writeAsString(rewritten.join('\n'));
 
-      // verification
-      for (final line in rewritten) {
-        if (line.startsWith('#') || line.trim().isEmpty) continue;
-        final f = File('${epDir.path}/$line');
-        if (!await f.exists()) {
-          throw Exception('Download incomplete - segments missing');
-        }
-      }
-
-      await _saveItem(DownloadItem(
-        mediaId: mediaId,
-        episode: episode,
-        animeTitle: animeTitle,
-        status: 'done',
-        progress: 1,
-        localManifestPath: manifestPath,
-      ));
+      await _saveItem(
+        state.items[key]!.copyWith(
+          status: 'done',
+          progress: 1,
+          resumable: false,
+          clearError: true,
+        ),
+      );
+      await _scanOnAndroid(manifestPath);
     } catch (e, st) {
-      AppLogger.e('Download', 'Download failed', error: e, stackTrace: st);
       final cancelled = e is DioException && e.type == DioExceptionType.cancel;
-      await _saveItem(DownloadItem(
-        mediaId: mediaId,
-        episode: episode,
-        animeTitle: animeTitle,
-        status: cancelled ? 'cancelled' : 'error',
-        progress: 0,
-        localManifestPath: null,
-        error: e.toString(),
-      ));
+      AppLogger.e('Download', 'HLS download failed', error: e, stackTrace: st);
+      await _saveItem(
+        state.items[key]!.copyWith(
+          status: cancelled ? 'cancelled' : 'error',
+          resumable: true,
+          error: e.toString(),
+        ),
+      );
     } finally {
       _cancelTokens.remove(key);
     }
   }
 
+  Future<_ResolvedPlaylist> _resolveMediaPlaylist(
+    String sourceUrl,
+    Map<String, String> headers,
+    CancelToken cancelToken,
+  ) async {
+    final masterText = await _fetchText(sourceUrl, headers, cancelToken);
+    final masterLines = const LineSplitter().convert(masterText);
+
+    if (!masterText.contains('#EXT-X-STREAM-INF')) {
+      return _ResolvedPlaylist(url: Uri.parse(sourceUrl), text: masterText);
+    }
+
+    String? bestVariant;
+    var bestBandwidth = -1;
+    for (var i = 0; i < masterLines.length; i++) {
+      final line = masterLines[i].trim();
+      if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
+      final bandwidth =
+          int.tryParse(RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ?? '') ?? 0;
+      for (var j = i + 1; j < masterLines.length; j++) {
+        final cand = masterLines[j].trim();
+        if (cand.isEmpty || cand.startsWith('#')) continue;
+        if (bandwidth >= bestBandwidth) {
+          bestBandwidth = bandwidth;
+          bestVariant = cand;
+        }
+        break;
+      }
+    }
+
+    if (bestVariant == null) {
+      return _ResolvedPlaylist(url: Uri.parse(sourceUrl), text: masterText);
+    }
+
+    final variantUrl = Uri.parse(sourceUrl).resolve(bestVariant).toString();
+    final variantText = await _fetchText(variantUrl, headers, cancelToken);
+    return _ResolvedPlaylist(url: Uri.parse(variantUrl), text: variantText);
+  }
+
+  Future<String> _fetchText(
+    String url,
+    Map<String, String> headers,
+    CancelToken cancelToken,
+  ) async {
+    final response = await _dio.get(
+      url,
+      options: Options(
+        responseType: ResponseType.plain,
+        headers: headers,
+      ),
+      cancelToken: cancelToken,
+    );
+    return response.data.toString();
+  }
+
   Future<Directory> _downloadsRoot() async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory('${docs.path}/downloads');
-    if (!await dir.exists()) await dir.create(recursive: true);
+    late Directory base;
+    if (Platform.isIOS) {
+      base = await getApplicationDocumentsDirectory();
+    } else if (Platform.isAndroid) {
+      base =
+          await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+    } else {
+      base = await getApplicationDocumentsDirectory();
+    }
+    final dir = Directory('${base.path}/Kyomiru/AnimePahe');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
     return dir;
   }
 
@@ -279,9 +525,15 @@ class DownloadController extends StateNotifier<DownloadState> {
         .trim();
   }
 
-  String _segmentFileName(int index, String original) {
-    final cleaned = original.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    return '${index.toString().padLeft(4, '0')}_$cleaned';
+  Future<void> _scanOnAndroid(String path) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _mediaScanChannel.invokeMethod<void>('scanFile', {
+        'path': path,
+      });
+    } catch (e, st) {
+      AppLogger.w('Download', 'Media scan failed', error: e, stackTrace: st);
+    }
   }
 }
 
@@ -289,3 +541,11 @@ final downloadControllerProvider =
     StateNotifierProvider<DownloadController, DownloadState>(
   (ref) => DownloadController(),
 );
+
+final localEpisodeFileProvider =
+    FutureProvider.family<File?, LocalEpisodeQuery>((ref, query) async {
+  ref.watch(downloadControllerProvider);
+  return ref
+      .read(downloadControllerProvider.notifier)
+      .getLocalEpisodeByMedia(query.mediaId, query.episode);
+});

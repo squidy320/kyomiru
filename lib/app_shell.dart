@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shimmer/shimmer.dart';
@@ -97,9 +97,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   @override
   Widget build(BuildContext context) {
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
-    final settings = ref.watch(appSettingsProvider);
-    final currentUser = ref.watch(currentUserProvider).valueOrNull;
-    final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
 
     if (unread > _lastServerUnread) {
       _lastServerUnread = unread;
@@ -110,201 +107,93 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
 
     final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
-    final activeColor = Theme.of(context).colorScheme.primary;
-
-    Widget iOSAlertsIcon() {
-      final avatar = currentUser?.avatar;
-      final selected = _index == 2;
-      final borderColor = selected ? activeColor : const Color(0x33FFFFFF);
-      final base = Container(
-        width: 22,
-        height: 22,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: borderColor, width: 1),
-          image: (avatar != null && avatar.isNotEmpty)
-              ? DecorationImage(image: KyomiruImageCache.provider(avatar), fit: BoxFit.cover)
-              : null,
-          color: (avatar == null || avatar.isEmpty)
-              ? const Color(0x44161D32)
-              : Colors.transparent,
-        ),
-        child: (avatar == null || avatar.isEmpty)
-            ? Icon(Icons.person_rounded,
-                size: 15,
-                color: selected ? activeColor : const Color(0xFFCAD0DD))
-            : null,
-      );
-      return Badge(
-        isLabelVisible: displayUnread > 0,
-        smallSize: 8,
-        child: base,
-      );
-    }
 
     return Scaffold(
-      extendBody: !isIOS,
+      extendBody: true,
       body: GlassScaffoldBackground(
         child: IndexedStack(index: _index, children: _pages),
       ),
-      bottomNavigationBar: isIOS
-          ? CupertinoTabBar(
-              currentIndex: _index,
-              onTap: _onTabTap,
-              activeColor: activeColor,
-              inactiveColor: const Color(0xFFCAD0DD),
-              backgroundColor: const Color(0xF01C1C1E),
-              border: null,
-              items: [
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.library_books_outlined), label: 'Library'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.auto_awesome_outlined),
-                    label: 'Discovery'),
-                BottomNavigationBarItem(icon: iOSAlertsIcon(), label: 'Alerts'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.download_outlined), label: 'Downloads'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.settings_outlined), label: 'Settings'),
-              ],
-            )
-          : SafeArea(
-              minimum: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _PillBottomBar(
-                compact: settings.compactBar,
-                index: _index,
-                unread: displayUnread,
-                userAvatar: currentUser?.avatar,
-                onTap: _onTabTap,
-              ),
-            ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(left: 32, right: 32, bottom: 24),
+          child: _PillBottomBar(
+            index: _index,
+            unread: displayUnread,
+            onTap: _onTabTap,
+          ),
+        ),
+      ),
     );
   }
 }
 
 class _PillBottomBar extends StatelessWidget {
   const _PillBottomBar({
-    required this.compact,
     required this.index,
     required this.unread,
-    required this.userAvatar,
     required this.onTap,
   });
 
-  final bool compact;
   final int index;
   final int unread;
-  final String? userAvatar;
   final ValueChanged<int> onTap;
 
   @override
   Widget build(BuildContext context) {
-    final items = <({IconData icon, String label})>[
-      (icon: Icons.library_books_outlined, label: 'Library'),
-      (icon: Icons.auto_awesome_outlined, label: 'Discovery'),
-      (icon: Icons.notifications_rounded, label: 'Alerts'),
-      (icon: Icons.download_outlined, label: 'Downloads'),
-      (icon: Icons.settings_outlined, label: 'Settings'),
+    final items = <({IconData active, IconData inactive})>[
+      (active: CupertinoIcons.book_fill, inactive: CupertinoIcons.book),
+      (active: CupertinoIcons.compass_fill, inactive: CupertinoIcons.compass),
+      (active: CupertinoIcons.bell_fill, inactive: CupertinoIcons.bell),
+      (
+        active: CupertinoIcons.arrow_down_circle_fill,
+        inactive: CupertinoIcons.arrow_down_circle,
+      ),
+      (active: CupertinoIcons.gear_solid, inactive: CupertinoIcons.gear),
     ];
 
-    final activeColor = Theme.of(context).colorScheme.primary;
-
-    Widget alertsIcon() {
-      final avatar = userAvatar;
-      final selected = index == 2;
-      final borderColor = selected ? activeColor : const Color(0x33FFFFFF);
-      final base = Container(
-        width: compact ? 20 : 22,
-        height: compact ? 20 : 22,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: borderColor, width: 1),
-          image: (avatar != null && avatar.isNotEmpty)
-              ? DecorationImage(image: KyomiruImageCache.provider(avatar), fit: BoxFit.cover)
-              : null,
-          color: (avatar == null || avatar.isEmpty)
-              ? const Color(0x44161D32)
-              : Colors.transparent,
-        ),
-        child: (avatar == null || avatar.isEmpty)
-            ? Icon(Icons.person_rounded,
-                size: compact ? 14 : 15,
-                color: selected ? activeColor : const Color(0xFFCAD0DD))
-            : null,
-      );
-      return Badge(
-        isLabelVisible: unread > 0,
-        smallSize: 8,
-        child: base,
-      );
-    }
-
-    return GlassCard(
-      borderRadius: 999,
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 12,
-        vertical: compact ? 4 : 6,
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++)
-            Expanded(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: () {
-                  hapticTap();
-                  onTap(i);
-                },
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    vertical: compact ? 8 : 10,
-                    horizontal: 4,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (i == 2)
-                        alertsIcon()
-                      else
-                        Icon(
-                          items[i].icon,
-                          size: compact ? 19 : 20,
-                          color: i == index
-                              ? activeColor
-                              : const Color(0xFFCAD0DD),
-                        ),
-                      if (!compact) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          items[i].label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight:
-                                i == index ? FontWeight.w800 : FontWeight.w600,
-                            color: i == index
-                                ? activeColor
-                                : const Color(0xFFCAD0DD),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(40),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          height: 64,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.5),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.1),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              for (var i = 0; i < items.length; i++)
+                Expanded(
+                  child: InkWell(
+                    onTap: () => onTap(i),
+                    child: SizedBox(
+                      height: double.infinity,
+                      child: Center(
+                        child: Badge(
+                          isLabelVisible: i == 2 && unread > 0,
+                          smallSize: 8,
+                          child: Icon(
+                            i == index ? items[i].active : items[i].inactive,
+                            color: i == index ? Colors.white : Colors.white54,
+                            size: 24,
                           ),
                         ),
-                      ],
-                    ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
 }
-
-
-
-
-
-
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -441,7 +330,7 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media?.cover.best ?? item.userAvatar;
-    final subtitle = '${item.type.toLowerCase()} • ${_timeAgo(item.createdAt)}';
+    final subtitle = '${item.type.toLowerCase()} \u2022 ${_timeAgo(item.createdAt)}';
 
     return GlassCard(
       borderRadius: 14,

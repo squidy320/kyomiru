@@ -16,7 +16,47 @@ class _CacheEntry<T> {
 }
 
 class AniListClient {
-  AniListClient({Dio? dio}) : _dio = dio ?? Dio();
+  AniListClient({Dio? dio}) : _dio = dio ?? Dio() {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final isGraphql = options.uri.toString().contains(graphqlEndpoint);
+          final data = options.data;
+          final queryText = data is Map<String, dynamic>
+              ? (data['query']?.toString() ?? '')
+              : '';
+          final isMutation = queryText.contains('mutation');
+          final authHeader =
+              options.headers['Authorization']?.toString().trim() ?? '';
+          final tokenFromExtra =
+              options.extra['anilistToken']?.toString().trim() ?? '';
+
+          if (isGraphql && isMutation) {
+            if (authHeader.isEmpty && tokenFromExtra.isNotEmpty) {
+              options.headers['Authorization'] = 'Bearer $tokenFromExtra';
+            }
+            final ensuredAuth =
+                options.headers['Authorization']?.toString().trim() ?? '';
+            if (ensuredAuth.isEmpty) {
+              AppLogger.e('AniList', 'AniList Update Failed: No Token');
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  error: 'AniList Update Failed: No Token',
+                  type: DioExceptionType.badResponse,
+                ),
+              );
+              return;
+            }
+            if (!ensuredAuth.startsWith('Bearer ')) {
+              options.headers['Authorization'] = 'Bearer $ensuredAuth';
+            }
+          }
+          handler.next(options);
+        },
+      ),
+    );
+  }
 
   final Dio _dio;
 
@@ -229,6 +269,9 @@ class AniListClient {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
               },
+              extra: {
+                if (token != null && token.isNotEmpty) 'anilistToken': token,
+              },
               validateStatus: (_) => true,
             ),
           );
@@ -311,6 +354,7 @@ class AniListClient {
           name
           avatar { large }
           bannerImage
+          mediaListOptions { scoreFormat }
         }
       }
     ''';
@@ -899,7 +943,7 @@ class AniListClient {
           id
           status
           progress
-          score(format: POINT_10_DECIMAL)
+          score
         }
       }
     ''';
@@ -921,11 +965,11 @@ class AniListClient {
     required double score,
   }) async {
     const q = r'''
-      mutation (
-        $mediaId: Int,
-        $status: MediaListStatus,
-        $progress: Int,
-        $score: Float
+      mutation SaveMediaListEntryMutation(
+        $mediaId: Int!,
+        $status: MediaListStatus!,
+        $progress: Int!,
+        $score: Float!
       ) {
         SaveMediaListEntry(
           mediaId: $mediaId,
@@ -936,7 +980,7 @@ class AniListClient {
           id
           status
           progress
-          score(format: POINT_10_DECIMAL)
+          score
         }
       }
     ''';

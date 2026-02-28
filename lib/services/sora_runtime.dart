@@ -16,7 +16,15 @@ class _RuntimeCacheEntry<T> {
 }
 
 class SoraRuntime {
-  SoraRuntime({Dio? dio}) : _dio = dio ?? Dio() {
+  SoraRuntime({Dio? dio})
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 10),
+                sendTimeout: const Duration(seconds: 10),
+                receiveTimeout: const Duration(seconds: 10),
+              ),
+            ) {
     _dio.interceptors.add(InterceptorsWrapper(
       onError: (e, handler) {
         AppLogger.e('SoraRuntime', 'Module/network request failed',
@@ -27,6 +35,9 @@ class SoraRuntime {
   }
 
   final Dio _dio;
+  final Set<CancelToken> _activeTokens = <CancelToken>{};
+  Future<void>? _initFuture;
+  bool _disposed = false;
   static const Duration _cacheTtl = Duration(minutes: 30);
   final Set<String> _refreshing = <String>{};
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
@@ -37,6 +48,46 @@ class SoraRuntime {
       'https://jormungandr.ofchaos.com/api/animepahe/extract';
 
   static String? _cookieHeader;
+
+  Future<void> initialize() {
+    _initFuture ??= _warmUp();
+    return _initFuture!;
+  }
+
+  Future<void> _warmUp() async {
+    if (_disposed) return;
+    try {
+      await _fetchJsonOrHtml('$_baseUrl/api?m=search&q=test&page=1');
+    } catch (_) {}
+  }
+
+  CancelToken _newToken() {
+    final token = CancelToken();
+    _activeTokens.add(token);
+    return token;
+  }
+
+  void _releaseToken(CancelToken token) {
+    _activeTokens.remove(token);
+  }
+
+  void reset() {
+    for (final token in _activeTokens.toList()) {
+      if (!token.isCancelled) {
+        token.cancel('runtime reset');
+      }
+    }
+    _activeTokens.clear();
+    _episodesCache.clear();
+    _sourcesCache.clear();
+    _refreshing.clear();
+    _initFuture = null;
+  }
+
+  void dispose() {
+    _disposed = true;
+    reset();
+  }
 
   Future<T> _withRetry<T>(Future<T> Function() task, {int attempts = 3}) async {
     Object? lastError;
@@ -159,22 +210,31 @@ class SoraRuntime {
 
   Future<dynamic> _fetchJsonOrHtml(String url,
       {Map<String, String>? headers}) async {
-    final response = await _withRetry(
-      () => _dio.get(
-        url,
-        options: Options(
-          headers: {
-            'User-Agent': _ua,
-            'Accept': 'application/json,text/html,*/*',
-            if (_cookieHeader != null) 'Cookie': _cookieHeader!,
-            if (headers != null) ...headers,
-          },
-          sendTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 15),
-          validateStatus: (code) => (code ?? 500) < 500,
+    if (_disposed) throw Exception('SoraRuntime disposed');
+    final token = _newToken();
+    late final Response<dynamic> response;
+    try {
+      response = await _withRetry(
+        () => _dio.get(
+          url,
+          options: Options(
+            headers: {
+              'User-Agent': _ua,
+              'Accept': 'application/json,text/html,*/*',
+              if (_cookieHeader != null) 'Cookie': _cookieHeader!,
+              if (headers != null) ...headers,
+            },
+            sendTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 10),
+            connectTimeout: const Duration(seconds: 10),
+            validateStatus: (code) => (code ?? 500) < 500,
+          ),
+          cancelToken: token,
         ),
-      ),
-    );
+      );
+    } finally {
+      _releaseToken(token);
+    }
 
     _mergeSetCookie(response.headers);
 
@@ -245,6 +305,7 @@ class SoraRuntime {
   }
 
   Future<List<SoraEpisode>> getEpisodes(SoraAnimeMatch match) async {
+    await initialize();
     final session = match.session.trim();
     if (session.isEmpty) return const [];
 
@@ -274,13 +335,26 @@ class SoraRuntime {
       (first['data'] as List? ?? const []).whereType<Map<String, dynamic>>(),
     );
 
-    for (var page = 2; page <= totalPages; page++) {
-      try {
-        final next = await fetchPage(page);
+    for (var start = 2; start <= totalPages; start += 5) {
+      final end = (start + 4 > totalPages) ? totalPages : (start + 4);
+      final futures = <Future<Map<String, dynamic>>>[];
+      for (var page = start; page <= end; page++) {
+        futures.add(fetchPage(page));
+      }
+      final pages = await Future.wait(
+        futures.map((f) async {
+          try {
+            return await f;
+          } catch (_) {
+            return <String, dynamic>{};
+          }
+        }),
+      );
+      for (final next in pages) {
         rows.addAll(
           (next['data'] as List? ?? const []).whereType<Map<String, dynamic>>(),
         );
-      } catch (_) {}
+      }
     }
 
     final episodes = rows
@@ -390,6 +464,8 @@ class SoraRuntime {
     int? anilistId,
     int? episodeNumber,
   }) async {
+    if (_disposed) return const [];
+    final token = _newToken();
     try {
       final response = await _withRetry(
         () => _dio.post(
@@ -411,12 +487,15 @@ class SoraRuntime {
               'User-Agent': _ua,
               if (_cookieHeader != null) 'Cookie': _cookieHeader!,
             },
-            sendTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 10),
+            connectTimeout: const Duration(seconds: 10),
             validateStatus: (code) => (code ?? 500) < 500,
           ),
+          cancelToken: token,
         ),
       );
+      _releaseToken(token);
 
       _mergeSetCookie(response.headers);
       if ((response.statusCode ?? 500) != 200) return const [];
@@ -439,7 +518,11 @@ class SoraRuntime {
           (item['streamUrl'] ?? item['stream_url'] ?? item['url'] ?? '')
               .toString(),
         );
-        if (streamUrl.isEmpty || !streamUrl.contains('.m3u8')) continue;
+        if (streamUrl.isEmpty) continue;
+        final lower = streamUrl.toLowerCase();
+        final isHls = lower.contains('.m3u8');
+        final isMp4 = lower.contains('.mp4');
+        if (!isHls && !isMp4) continue;
 
         final title = (item['title'] ?? '').toString().toLowerCase();
         final qualityNum =
@@ -453,7 +536,7 @@ class SoraRuntime {
             url: streamUrl,
             quality: quality,
             subOrDub: subOrDub,
-            format: 'm3u8',
+            format: isMp4 ? 'mp4' : 'm3u8',
             headers: {
               'Referer':
                   ((item['referer'] ?? item['Referer'])?.toString() ?? '')
@@ -472,6 +555,7 @@ class SoraRuntime {
           (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
       return _dedupSources(out);
     } catch (_) {
+      _releaseToken(token);
       return const [];
     }
   }
@@ -531,6 +615,28 @@ class SoraRuntime {
           quality: q == null ? 'auto' : '${q}p',
           subOrDub: 'sub',
           format: 'm3u8',
+          headers: {
+            'Referer': episodeUrl,
+            'Origin': _originFrom(url) ?? 'https://kwik.cx',
+            'User-Agent': _ua,
+            if (_cookieHeader != null) 'Cookie': _cookieHeader!,
+          },
+        ),
+      );
+    }
+
+    final inlineMp4Regex =
+        RegExp(r'https://[^"\s]+\.mp4[^"\s]*', caseSensitive: false);
+    for (final m in inlineMp4Regex.allMatches(html)) {
+      final url = _sanitizeStreamUrl(m.group(0) ?? '');
+      if (url.isEmpty) continue;
+      final q = RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1);
+      out.add(
+        SoraSource(
+          url: url,
+          quality: q == null ? 'auto' : '${q}p',
+          subOrDub: 'sub',
+          format: 'mp4',
           headers: {
             'Referer': episodeUrl,
             'Origin': _originFrom(url) ?? 'https://kwik.cx',
