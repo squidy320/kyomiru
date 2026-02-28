@@ -31,7 +31,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   Timer? _debounce;
   Timer? _heroTimer;
 
-  late Future<_DiscoveryPayload> _discoveryFuture;
+  Future<_DiscoveryPayload>? _discoveryFuture;
   _DiscoveryPayload? _cachedPayload;
 
   List<AniListMedia> _searchResults = const [];
@@ -43,7 +43,12 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   @override
   void initState() {
     super.initState();
-    _discoveryFuture = _loadDiscovery();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _discoveryFuture = _loadDiscovery();
+      });
+    });
   }
 
   @override
@@ -208,7 +213,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             );
           }
         } else {
-          if (dataSnap.connectionState == ConnectionState.waiting &&
+          if ((_discoveryFuture == null ||
+                  dataSnap.connectionState == ConnectionState.waiting) &&
               payload == null) {
             listContent.add(const _DiscoverySkeleton());
           } else if (dataSnap.hasError && payload == null) {

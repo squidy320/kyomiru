@@ -21,7 +21,9 @@ import 'state/app_settings_state.dart';
 import 'state/auth_state.dart';
 
 class KyomiruApp extends ConsumerWidget {
-  const KyomiruApp({super.key});
+  const KyomiruApp({super.key, required this.liquidGlassEnabled});
+
+  final bool liquidGlassEnabled;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -30,13 +32,15 @@ class KyomiruApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       title: 'kyomiru',
       theme: buildKyomiruTheme(settings),
-      home: const AppTabs(),
+      home: AppTabs(liquidGlassEnabled: liquidGlassEnabled),
     );
   }
 }
 
 class AppTabs extends ConsumerStatefulWidget {
-  const AppTabs({super.key});
+  const AppTabs({super.key, required this.liquidGlassEnabled});
+
+  final bool liquidGlassEnabled;
 
   @override
   ConsumerState<AppTabs> createState() => _AppTabsState();
@@ -46,15 +50,18 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   int _index = 0;
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
+  bool _offlineMode = false;
+  bool _bootConnectivityResolved = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
-  static const _pages = [
+  static const _pages = <Widget>[
     LibraryScreen(),
     DiscoveryScreen(),
     NotificationsScreen(),
     DownloadsScreen(),
     SettingsScreen(),
   ];
+  final Set<int> _initializedTabs = <int>{0};
 
   @override
   void initState() {
@@ -65,6 +72,9 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   Future<void> _initConnectivity() async {
     final now = await Connectivity().checkConnectivity();
     _applyConnectivity(now);
+    if (mounted && !_bootConnectivityResolved) {
+      setState(() => _bootConnectivityResolved = true);
+    }
     _connectivitySub =
         Connectivity().onConnectivityChanged.listen(_applyConnectivity);
   }
@@ -73,14 +83,23 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     final offline =
         results.isEmpty || results.every((r) => r == ConnectivityResult.none);
     if (!mounted) return;
-    if (offline && _index != 3) {
-      setState(() => _index = 3);
+    if (offline) {
+      setState(() {
+        _offlineMode = true;
+        _index = 3;
+        _initializedTabs.add(3);
+      });
+      return;
+    }
+    if (_offlineMode) {
+      setState(() => _offlineMode = false);
     }
   }
 
   void _onTabTap(int value) {
     hapticTap();
     setState(() {
+      _initializedTabs.add(value);
       _index = value;
       if (value == 2) {
         _alertsSeenForCurrentUnread = true;
@@ -108,37 +127,120 @@ class _AppTabsState extends ConsumerState<AppTabs> {
 
     final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
     final bottomPadding = MediaQuery.of(context).padding.bottom + 10;
+    final navContent = _PillBottomBar(
+      index: _index,
+      unread: displayUnread,
+      onTap: _onTabTap,
+    );
+
+    if (!_bootConnectivityResolved) {
+      return Scaffold(
+        extendBody: true,
+        resizeToAvoidBottomInset: false,
+        body: GlassScaffoldBackground(
+          child: const Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
       resizeToAvoidBottomInset: false,
       body: GlassScaffoldBackground(
-        child: LiquidGlassLayer(
-          settings: const LiquidGlassSettings(
-            blur: 30,
-            thickness: 15,
-            refractiveIndex: 1.15,
-            saturation: 1.8,
-            glassColor: Color.fromRGBO(255, 255, 255, 0.05),
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              IndexedStack(index: _index, children: _pages),
-              Positioned(
-                left: 32,
-                right: 32,
-                bottom: 0,
-                child: _PillBottomBar(
-                  index: _index,
-                  unread: displayUnread,
-                  bottomPadding: bottomPadding,
-                  onTap: _onTabTap,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            IndexedStack(
+              index: _index,
+              children: List<Widget>.generate(_pages.length, (i) {
+                if (_initializedTabs.contains(i)) return _pages[i];
+                return const SizedBox.shrink();
+              }),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                ignoring: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(32, 0, 32, bottomPadding),
+                  child: SizedBox(
+                    height: 64,
+                    child: widget.liquidGlassEnabled
+                        ? LiquidGlass.withOwnLayer(
+                            settings: const LiquidGlassSettings(
+                              blur: 40,
+                              thickness: 15,
+                              refractiveIndex: 1.1,
+                              saturation: 1.8,
+                              glassColor: Color.fromRGBO(255, 255, 255, 0.05),
+                            ),
+                            shape: const LiquidRoundedSuperellipse(
+                                borderRadius: 40),
+                            child: navContent,
+                          )
+                        : Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFA1E1E1E),
+                              borderRadius: BorderRadius.circular(40),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.10),
+                              ),
+                            ),
+                            child: navContent,
+                          ),
+                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+            if (_offlineMode)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                right: 12,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.48),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.cloud_off_rounded,
+                          size: 13,
+                          color: Colors.white70,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Offline Mode',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -149,13 +251,11 @@ class _PillBottomBar extends StatelessWidget {
   const _PillBottomBar({
     required this.index,
     required this.unread,
-    required this.bottomPadding,
     required this.onTap,
   });
 
   final int index;
   final int unread;
-  final double bottomPadding;
   final ValueChanged<int> onTap;
 
   @override
@@ -171,39 +271,30 @@ class _PillBottomBar extends StatelessWidget {
       (active: CupertinoIcons.gear_solid, inactive: CupertinoIcons.gear),
     ];
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomPadding),
-      child: SizedBox(
-        height: 64,
-        child: LiquidGlass(
-          shape: const LiquidRoundedSuperellipse(borderRadius: 40),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              for (var i = 0; i < items.length; i++)
-                Expanded(
-                  child: InkWell(
-                    onTap: () => onTap(i),
-                    child: SizedBox(
-                      height: double.infinity,
-                      child: Center(
-                        child: Badge(
-                          isLabelVisible: i == 2 && unread > 0,
-                          smallSize: 8,
-                          child: Icon(
-                            i == index ? items[i].active : items[i].inactive,
-                            color: i == index ? Colors.white : Colors.white54,
-                            size: 24,
-                          ),
-                        ),
-                      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          Expanded(
+            child: InkWell(
+              onTap: () => onTap(i),
+              child: SizedBox(
+                height: double.infinity,
+                child: Center(
+                  child: Badge(
+                    isLabelVisible: i == 2 && unread > 0,
+                    smallSize: 8,
+                    child: Icon(
+                      i == index ? items[i].active : items[i].inactive,
+                      color: i == index ? Colors.white : Colors.white54,
+                      size: 24,
                     ),
                   ),
                 ),
-            ],
+              ),
+            ),
           ),
-        ),
-      ),
+      ],
     );
   }
 }
