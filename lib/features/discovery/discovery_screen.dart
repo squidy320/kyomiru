@@ -22,7 +22,8 @@ class DiscoveryScreen extends ConsumerStatefulWidget {
   ConsumerState<DiscoveryScreen> createState() => _DiscoveryScreenState();
 }
 
-class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> with AutomaticKeepAliveClientMixin {
+class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
+    with AutomaticKeepAliveClientMixin {
   final TextEditingController _search = TextEditingController();
   final PageController _heroController = PageController();
 
@@ -100,7 +101,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> with Automati
       }
       setState(() => _searching = true);
       try {
-        final items = await ref.read(anilistClientProvider).searchAnime(value.trim());
+        final items =
+            await ref.read(anilistClientProvider).searchAnime(value.trim());
         if (!mounted) return;
         setState(() {
           _searchResults = items;
@@ -134,9 +136,11 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> with Automati
             child: ListView(
               padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
               children: [
-                Text('Discovery', style: Theme.of(context).textTheme.displaySmall),
+                Text('Discovery',
+                    style: Theme.of(context).textTheme.displaySmall),
                 const SizedBox(height: 4),
-                const Text('Top rated, new releases, and hot anime', style: TextStyle(color: Color(0xFFA1A8BC))),
+                const Text('Top rated, new releases, and hot anime',
+                    style: TextStyle(color: Color(0xFFA1A8BC))),
                 const SizedBox(height: 10),
                 GlassCard(
                   padding: const EdgeInsets.all(8),
@@ -166,12 +170,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> with Automati
                   else if (_searchResults.isEmpty)
                     const GlassCard(child: Text('No results.'))
                   else
-                    _HorizontalSection(title: 'Search Results', items: _searchResults),
+                    _HorizontalSection(
+                        title: 'Search Results', items: _searchResults),
                 ] else ...[
-                  if (dataSnap.connectionState == ConnectionState.waiting && payload == null)
+                  if (dataSnap.connectionState == ConnectionState.waiting &&
+                      payload == null)
                     const _DiscoverySkeleton()
                   else if (dataSnap.hasError && payload == null)
-                    GlassCard(child: Text('Discovery load failed: ${dataSnap.error}'))
+                    GlassCard(
+                        child: Text('Discovery load failed: ${dataSnap.error}'))
                   else ...[
                     if (trending.isNotEmpty)
                       Padding(
@@ -179,13 +186,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> with Automati
                         child: _DiscoveryHeroCarousel(
                           items: trending,
                           controller: _heroController,
-                          onPageChanged: (index) => setState(() => _heroIndex = index),
+                          onPageChanged: (index) =>
+                              setState(() => _heroIndex = index),
                         ),
                       ),
                     for (final section in sections)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 14),
-                        child: _HorizontalSection(title: section.title, items: section.items),
+                        child: _HorizontalSection(
+                            title: section.title, items: section.items),
                       ),
                   ],
                 ],
@@ -226,7 +235,8 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
               onTap: () {
                 hapticTap();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => DetailsScreen(mediaId: media.id)),
+                  MaterialPageRoute(
+                      builder: (_) => DetailsScreen(mediaId: media.id)),
                 );
               },
               child: Stack(
@@ -236,13 +246,17 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                     KyomiruImageCache.image(image, fit: BoxFit.cover)
                   else
                     const ColoredBox(color: Color(0x22111111)),
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0x11000000), Color(0xE6000000)],
-                        stops: [0.38, 1],
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.9),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -251,11 +265,17 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                     left: 12,
                     child: GlassContainer(
                       borderRadius: 999,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      child: const Text('Trending Now', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      child: const Text('Trending Now',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 12)),
                     ),
                   ),
-                  Positioned(top: 12, right: 12, child: _ScorePill(score: media.averageScore)),
+                  Positioned(
+                      top: 12,
+                      right: 12,
+                      child: _ScorePill(score: media.averageScore)),
                   Positioned(
                     left: 14,
                     right: 14,
@@ -264,7 +284,10 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                       media.title.best,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 26, height: 1.1, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                          fontSize: 26,
+                          height: 1.1,
+                          fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -290,7 +313,8 @@ class _HorizontalSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+        Text(title,
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         SizedBox(
           height: _kCardHeight,
@@ -306,7 +330,8 @@ class _HorizontalSection extends StatelessWidget {
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => DetailsScreen(mediaId: item.id)),
+                      MaterialPageRoute(
+                          builder: (_) => DetailsScreen(mediaId: item.id)),
                     );
                   },
                   child: _AnimePosterCard(media: item),
@@ -346,16 +371,21 @@ class _AnimePosterCard extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(top: 8, right: 8, child: _ScorePill(score: media.averageScore)),
           Positioned(
-            left: 10,
-            right: 10,
-            bottom: 10,
-            child: Text(
-              media.title.best,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              top: 8, right: 8, child: _ScorePill(score: media.averageScore)),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Text(
+                media.title.best,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              ),
             ),
           ),
         ],
@@ -386,7 +416,9 @@ class _ScorePill extends StatelessWidget {
             children: [
               const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
               const SizedBox(width: 3),
-              Text(score?.toString() ?? 'NR', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+              Text(score?.toString() ?? 'NR',
+                  style: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -406,12 +438,26 @@ class _DiscoverySkeleton extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(height: 28, width: 190, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10))),
+          Container(
+              height: 28,
+              width: 190,
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10))),
           const SizedBox(height: 10),
-          Container(height: 180, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18))),
+          Container(
+              height: 180,
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18))),
           const SizedBox(height: 12),
           for (var i = 0; i < 2; i++) ...[
-            Container(height: 22, width: 160, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+            Container(
+                height: 22,
+                width: 160,
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8))),
             const SizedBox(height: 8),
             SizedBox(
               height: _kCardHeight,
@@ -421,7 +467,10 @@ class _DiscoverySkeleton extends StatelessWidget {
                   (index) => Expanded(
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16))),
+                      child: Container(
+                          decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16))),
                     ),
                   ),
                 ),
@@ -441,6 +490,3 @@ class _DiscoveryPayload {
   final List<AniListMedia> trending;
   final List<AniListDiscoverySection> sections;
 }
-
-
-

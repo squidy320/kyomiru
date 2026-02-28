@@ -22,7 +22,8 @@ class LibraryScreen extends ConsumerStatefulWidget {
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends ConsumerState<LibraryScreen> with AutomaticKeepAliveClientMixin {
+class _LibraryScreenState extends ConsumerState<LibraryScreen>
+    with AutomaticKeepAliveClientMixin {
   String _selected = 'All';
   int _refreshTick = 0;
 
@@ -49,20 +50,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with AutomaticKee
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
           children: [
             Text('Library', style: Theme.of(context).textTheme.displaySmall),
-            const Text('All your AniList collections', style: TextStyle(color: Color(0xFFA1A8BC))),
+            const Text('All your AniList collections',
+                style: TextStyle(color: Color(0xFFA1A8BC))),
             const SizedBox(height: 12),
             const GlassCard(
-              child: Text('No account connected. Sign in with AniList to sync lists and tracking.'),
+              child: Text(
+                  'No account connected. Sign in with AniList to sync lists and tracking.'),
             ),
             const SizedBox(height: 12),
             GlassButton(
               onPressed: () {
                 hapticTap();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const AniListLoginWebViewScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const AniListLoginWebViewScreen()),
                 );
               },
-              child: const Text('Connect AniList', style: TextStyle(fontWeight: FontWeight.w700)),
+              child: const Text('Connect AniList',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
@@ -101,17 +106,21 @@ class _LibraryDataView extends ConsumerWidget {
     final client = ref.watch(anilistClientProvider);
 
     return FutureBuilder<List<dynamic>>(
-      future: client.me(token).then((u) async => [u, await client.librarySections(token, userId: u.id)]),
+      future: client.me(token).then(
+          (u) async => [u, await client.librarySections(token, userId: u.id)]),
       builder: (context, snap) {
         final loading = snap.connectionState == ConnectionState.waiting;
         final hasError = snap.hasError;
-        final user = !loading && !hasError ? snap.data![0] as AniListUser : null;
+        final user =
+            !loading && !hasError ? snap.data![0] as AniListUser : null;
         final sections = !loading && !hasError
             ? snap.data![1] as List<AniListLibrarySection>
             : const <AniListLibrarySection>[];
 
         final chips = <String>['All', ...sections.map((s) => s.title)];
-        final filtered = selected == 'All' ? sections : sections.where((s) => s.title == selected).toList();
+        final filtered = selected == 'All'
+            ? sections
+            : sections.where((s) => s.title == selected).toList();
 
         return RefreshIndicator(
           onRefresh: onRefresh,
@@ -124,13 +133,18 @@ class _LibraryDataView extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Library', style: Theme.of(context).textTheme.displaySmall),
-                        const Text('All your AniList collections', style: TextStyle(color: Color(0xFFA1A8BC))),
+                        Text('Library',
+                            style: Theme.of(context).textTheme.displaySmall),
+                        const Text('All your AniList collections',
+                            style: TextStyle(color: Color(0xFFA1A8BC))),
                       ],
                     ),
                   ),
                   if (user?.avatar != null)
-                    CircleAvatar(radius: 18, backgroundImage: KyomiruImageCache.provider(user!.avatar!)),
+                    CircleAvatar(
+                        radius: 18,
+                        backgroundImage:
+                            KyomiruImageCache.provider(user!.avatar!)),
                 ],
               ),
               const SizedBox(height: 12),
@@ -186,7 +200,8 @@ class _LibrarySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('${section.title} (${section.items.length})', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+        Text('${section.title} (${section.items.length})',
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         SizedBox(
           height: _kCardHeight,
@@ -201,7 +216,8 @@ class _LibrarySection extends StatelessWidget {
                 child: GestureDetector(
                   onTap: () {
                     hapticTap();
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetailsScreen(mediaId: e.media.id)));
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => DetailsScreen(mediaId: e.media.id)));
                   },
                   child: _AnimePosterCard(
                     media: e.media,
@@ -254,17 +270,22 @@ class _AnimePosterCard extends StatelessWidget {
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.28)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                      const Icon(Icons.star_rounded,
+                          color: Colors.amber, size: 12),
                       const SizedBox(width: 3),
-                      Text(media.averageScore?.toString() ?? 'NR', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      Text(media.averageScore?.toString() ?? 'NR',
+                          style: const TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
@@ -272,18 +293,31 @@ class _AnimePosterCard extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 10,
-            right: 10,
-            bottom: 10,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(media.title.best, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                if (progressText != null) ...[
-                  const SizedBox(height: 2),
-                  Text('Watched: $progressText', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w400, fontSize: 12, color: Color(0xFFE5E7EB))),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(media.title.best,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14)),
+                  if (progressText != null) ...[
+                    const SizedBox(height: 2),
+                    Text('Watched: $progressText',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w400,
+                            fontSize: 12,
+                            color: Color(0xFFE5E7EB))),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ],
@@ -317,12 +351,26 @@ class _LibrarySkeletonBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(height: 28, width: 180, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10))),
+          Container(
+              height: 28,
+              width: 180,
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10))),
           const SizedBox(height: 8),
-          Container(height: 16, width: 220, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+          Container(
+              height: 16,
+              width: 220,
+              decoration: BoxDecoration(
+                  color: Colors.white, borderRadius: BorderRadius.circular(8))),
           const SizedBox(height: 14),
           for (var i = 0; i < 2; i++) ...[
-            Container(height: 22, width: 170, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+            Container(
+                height: 22,
+                width: 170,
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8))),
             const SizedBox(height: 8),
             SizedBox(
               height: _kCardHeight,
@@ -333,7 +381,9 @@ class _LibrarySkeletonBody extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Container(
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16)),
                       ),
                     ),
                   ),
@@ -347,6 +397,3 @@ class _LibrarySkeletonBody extends StatelessWidget {
     );
   }
 }
-
-
-

@@ -20,7 +20,6 @@ class DetailsScreen extends ConsumerStatefulWidget {
   const DetailsScreen({super.key, required this.mediaId});
 
   final int mediaId;
-
   @override
   ConsumerState<DetailsScreen> createState() => _DetailsScreenState();
 }
@@ -108,6 +107,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       ));
     }
   }
+
   String _episodeSpecificTitle(AniListMedia media, int episodeNumber) {
     final streamMeta = media.streamingEpisodes
         .where((se) => se.guessedEpisodeNumber == episodeNumber)
@@ -262,6 +262,39 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
   }
 
+  Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
+    hapticTap();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.82,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF10131F),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: token == null || token.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Connect AniList to manage list, score, and progress.',
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      child: _AniListTrackingPane(token: token, media: media),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final client = ref.watch(anilistClientProvider);
@@ -301,18 +334,23 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               children: [
                 _Header(media: media),
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     _TabPill(
                         label: 'Watch',
                         selected: _tab == 0,
                         onTap: () => setState(() => _tab = 0)),
-                    const SizedBox(width: 8),
+                    FilledButton.tonalIcon(
+                      onPressed: () => _openTrackingSheet(media, auth.token),
+                      icon: const Icon(Icons.edit_document),
+                      label: const Text('Manage List'),
+                    ),
                     _TabPill(
                         label: 'AniList',
                         selected: _tab == 1,
                         onTap: () => setState(() => _tab = 1)),
-                    const SizedBox(width: 8),
                     _TabPill(
                         label: 'More',
                         selected: _tab == 2,
@@ -499,7 +537,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         image: thumb == null
                                             ? null
                                             : DecorationImage(
-                                                image: KyomiruImageCache.provider(thumb),
+                                                image:
+                                                    KyomiruImageCache.provider(
+                                                        thumb),
                                                 fit: BoxFit.cover,
                                               ),
                                       ),
@@ -565,7 +605,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     backgroundImageUrl:
                                                         media.cover.best ??
                                                             media.bannerImage,
-                                                    mediaTitle: media.title.best,
+                                                    mediaTitle:
+                                                        media.title.best,
                                                     malId: media.idMal,
                                                   ),
                                                 ),
@@ -723,13 +764,24 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      if (auth.token == null || auth.token!.isEmpty)
-                        const GlassCard(
-                          child: Text(
-                              'Connect AniList to manage list, score, and progress.'),
-                        )
-                      else
-                        _AniListTrackingPane(token: auth.token!, media: media),
+                      GlassCard(
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Use Manage List to update status, progress, and score.',
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton.tonalIcon(
+                              onPressed: () =>
+                                  _openTrackingSheet(media, auth.token),
+                              icon: const Icon(Icons.edit_document),
+                              label: const Text('Manage List'),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 if (_tab == 2)
@@ -814,7 +866,6 @@ class _AniListTrackingPane extends ConsumerStatefulWidget {
 
   final String token;
   final AniListMedia media;
-
   @override
   ConsumerState<_AniListTrackingPane> createState() =>
       _AniListTrackingPaneState();
@@ -826,7 +877,6 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
   int _progress = 0;
   bool _saving = false;
   bool _loadedInitial = false;
-
   @override
   Widget build(BuildContext context) {
     final client = ref.watch(anilistClientProvider);
@@ -985,7 +1035,6 @@ class _Header extends StatelessWidget {
   const _Header({required this.media});
 
   final AniListMedia media;
-
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -1005,14 +1054,18 @@ class _Header extends StatelessWidget {
             ),
           ),
         ),
-        Container(
-          height: 220,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0x44000000), Color(0xCC050712)],
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.9),
+                ],
+              ),
             ),
           ),
         ),
@@ -1059,7 +1112,6 @@ class _TabPill extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -1088,7 +1140,6 @@ class ProgressRing extends StatelessWidget {
 
   final double percent;
   final double size;
-
   @override
   Widget build(BuildContext context) {
     final value = percent.clamp(0, 1).toDouble();
@@ -1126,17 +1177,8 @@ class _PaheData {
   final List<SoraEpisode> episodes;
 }
 
-
-
-
-
-
-
-
-
 class _DetailsLoadingSkeleton extends StatelessWidget {
   const _DetailsLoadingSkeleton();
-
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -1148,12 +1190,25 @@ class _DetailsLoadingSkeleton extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(height: 220, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18))),
+              Container(
+                  height: 220,
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18))),
               const SizedBox(height: 12),
-              Container(height: 38, width: 240, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10))),
+              Container(
+                  height: 38,
+                  width: 240,
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10))),
               const SizedBox(height: 12),
               for (var i = 0; i < 4; i++) ...[
-                Container(height: 84, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14))),
+                Container(
+                    height: 84,
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14))),
                 const SizedBox(height: 8),
               ],
             ],
@@ -1166,7 +1221,6 @@ class _DetailsLoadingSkeleton extends StatelessWidget {
 
 class _EpisodeListLoadingSkeleton extends StatelessWidget {
   const _EpisodeListLoadingSkeleton();
-
   @override
   Widget build(BuildContext context) {
     return Shimmer.fromColors(
@@ -1178,13 +1232,11 @@ class _EpisodeListLoadingSkeleton extends StatelessWidget {
           (index) => Container(
             margin: const EdgeInsets.only(bottom: 8),
             height: 84,
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(14)),
           ),
         ),
       ),
     );
   }
 }
-
-
-

@@ -185,8 +185,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<VideoPlayerController?> _createLocalController(String rawUrl) async {
     try {
       final uri = Uri.tryParse(rawUrl);
-      final file =
-          (uri != null && uri.isScheme('file')) ? File.fromUri(uri) : File(rawUrl);
+      final file = (uri != null && uri.isScheme('file'))
+          ? File.fromUri(uri)
+          : File(rawUrl);
       final controller = VideoPlayerController.file(file);
       await controller.initialize().timeout(const Duration(seconds: 6));
       return controller;
@@ -298,7 +299,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _init() async {
-    final url = widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
+    final url =
+        widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
     if (url == null || url.isEmpty) {
       setState(() {
         _isInitializing = false;
@@ -359,11 +361,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (!value.isInitialized || value.duration.inMilliseconds <= 0) return;
 
     await _progressStore.write(
-          mediaId: widget.mediaId,
-          episode: widget.episodeNumber,
-          positionMs: value.position.inMilliseconds,
-          durationMs: value.duration.inMilliseconds,
-        );
+      mediaId: widget.mediaId,
+      episode: widget.episodeNumber,
+      positionMs: value.position.inMilliseconds,
+      durationMs: value.duration.inMilliseconds,
+    );
   }
 
   Future<void> _seekByRatio(double ratio) async {
@@ -498,11 +500,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           backgroundColor: Colors.black54,
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () { hapticTap(); Navigator.of(context).pop(); },
+                        onPressed: () {
+                          hapticTap();
+                          Navigator.of(context).pop();
+                        },
                         icon: const Icon(Icons.arrow_back_rounded),
                       ),
                     ),
-                                        const Positioned(
+                    const Positioned(
                       left: 0,
                       right: 0,
                       top: 0,
@@ -543,11 +548,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 6),
                             decoration: BoxDecoration(
                               color: Colors.white.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.22)),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -608,7 +615,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             GestureDetector(
                               behavior: HitTestBehavior.opaque,
                               onTapDown: (details) {
-                                final box = context.findRenderObject() as RenderBox?;
+                                final box =
+                                    context.findRenderObject() as RenderBox?;
                                 if (box == null) return;
                                 final ratio =
                                     (details.localPosition.dx / box.size.width)
@@ -624,12 +632,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 });
                               },
                               onHorizontalDragUpdate: (details) {
-                                final box = context.findRenderObject() as RenderBox?;
+                                final box =
+                                    context.findRenderObject() as RenderBox?;
                                 if (box == null || _durationSec <= 0) return;
                                 final localDx = details.localPosition.dx;
                                 final ratio =
                                     (localDx / box.size.width).clamp(0.0, 1.0);
-                                setState(() => _dragValueSec = _durationSec * ratio);
+                                setState(
+                                    () => _dragValueSec = _durationSec * ratio);
                               },
                               onHorizontalDragEnd: (_) {
                                 final ratio = _durationSec <= 0
@@ -644,14 +654,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   final width = constraints.maxWidth;
                                   final safeDuration =
                                       _durationSec <= 0 ? 1.0 : _durationSec;
-                                  final playedRatio =
-                                      (uiCurrent / safeDuration).clamp(0.0, 1.0);
+                                  final playedRatio = (uiCurrent / safeDuration)
+                                      .clamp(0.0, 1.0);
                                   final playedWidth = width * playedRatio;
 
                                   final start = opStart;
                                   final end = opEnd;
-                                  final hasOpening =
-                                      start != null && end != null && end > start;
+                                  final hasOpening = start != null &&
+                                      end != null &&
+                                      end > start;
 
                                   final openingLeft = hasOpening
                                       ? (start / safeDuration) * width
@@ -661,59 +672,82 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                       : 0.0;
 
                                   return SizedBox(
-                                    height: 34,
+                                    height: 52,
                                     child: Stack(
                                       clipBehavior: Clip.none,
                                       children: [
                                         Positioned(
                                           left: 0,
                                           right: 0,
-                                          top: 16,
+                                          top: 26,
                                           child: Container(
-                                            height: 8,
+                                            height: 6,
                                             decoration: BoxDecoration(
                                               color: Colors.white24,
-                                              borderRadius: BorderRadius.circular(6),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                             ),
                                           ),
                                         ),
                                         if (hasOpening)
                                           Positioned(
                                             left: openingLeft.clamp(0.0, width),
-                                            top: 16,
+                                            top: 26,
                                             child: Container(
-                                              height: 8,
-                                              width: openingWidth.clamp(0.0, width),
+                                              height: 6,
+                                              width: openingWidth.clamp(
+                                                  0.0, width),
                                               decoration: BoxDecoration(
-                                                color: Colors.yellow.withValues(alpha: 0.3),
-                                                borderRadius: BorderRadius.circular(6),
+                                                color: Colors.yellow
+                                                    .withValues(alpha: 0.3),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
                                               ),
                                             ),
                                           ),
                                         Positioned(
                                           left: 0,
-                                          top: 16,
+                                          top: 26,
                                           child: Container(
-                                            height: 8,
+                                            height: 6,
                                             width: playedWidth,
                                             decoration: BoxDecoration(
                                               color: Colors.white,
-                                              borderRadius: BorderRadius.circular(6),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                             ),
                                           ),
                                         ),
                                         Positioned(
-                                          left: (playedWidth - 26).clamp(0.0, (width - 52).clamp(0.0, width)),
-                                          top: -2,
+                                          left: (playedWidth - 8).clamp(0.0,
+                                              (width - 16).clamp(0.0, width)),
+                                          top: 21,
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            width: 16,
+                                            height: 16,
+                                            decoration: const BoxDecoration(
+                                              color: Colors.white,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          left: (playedWidth - 28).clamp(0.0,
+                                              (width - 56).clamp(0.0, width)),
+                                          top: 0,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 3),
                                             decoration: BoxDecoration(
                                               color: Colors.black87,
-                                              borderRadius: BorderRadius.circular(999),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
                                             ),
                                             child: Text(
                                               _fmt(uiCurrent),
-                                              style: const TextStyle(color: Colors.white, fontSize: 10),
+                                              style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10),
                                             ),
                                           ),
                                         ),
@@ -723,20 +757,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 },
                               ),
                             ),
-                            Row(
-                              children: [
-                                Text(
-                                  _fmt(uiCurrent),
-                                  style: const TextStyle(
-                                      color: Colors.white70, fontSize: 12),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
-                                  style: const TextStyle(
-                                      color: Colors.white70, fontSize: 12),
-                                ),
-                              ],
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    _fmt(uiCurrent),
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 12),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
+                                    style: const TextStyle(
+                                        color: Colors.white70, fontSize: 12),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
@@ -756,7 +793,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14, vertical: 10),
                             ),
-                            onPressed: () { hapticTap(); _skipIntro(); },
+                            onPressed: () {
+                              hapticTap();
+                              _skipIntro();
+                            },
                             icon: const Icon(Icons.skip_next_rounded),
                             label: const Text('Skip Intro'),
                           ),
@@ -773,13 +813,3 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 }
-
-
-
-
-
-
-
-
-
-
