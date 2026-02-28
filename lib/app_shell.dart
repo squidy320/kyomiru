@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/cupertino.dart';
@@ -33,7 +34,53 @@ class KyomiruApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       title: 'kyomiru',
       theme: buildKyomiruTheme(settings),
+      builder: (context, child) {
+        final routedChild = child ?? const SizedBox.shrink();
+        if (!liquidGlassEnabled) {
+          return routedChild;
+        }
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final validBounds = constraints.hasBoundedWidth &&
+                constraints.hasBoundedHeight &&
+                constraints.maxWidth.isFinite &&
+                constraints.maxHeight.isFinite &&
+                constraints.maxWidth > 0 &&
+                constraints.maxHeight > 0;
+            if (!validBounds) {
+              return _BasicGlassFallback(child: routedChild);
+            }
+            return LiquidGlassLayer(
+              settings:
+                  kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
+              child: RepaintBoundary(child: routedChild),
+            );
+          },
+        );
+      },
       home: AppTabs(liquidGlassEnabled: liquidGlassEnabled),
+    );
+  }
+}
+
+class _BasicGlassFallback extends StatelessWidget {
+  const _BasicGlassFallback({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+        IgnorePointer(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 0.1, sigmaY: 0.1),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -71,13 +118,19 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   }
 
   Future<void> _initConnectivity() async {
-    final now = await Connectivity().checkConnectivity();
-    _applyConnectivity(now);
-    if (mounted && !_bootConnectivityResolved) {
-      setState(() => _bootConnectivityResolved = true);
+    try {
+      final now = await Connectivity().checkConnectivity();
+      _applyConnectivity(now);
+      _connectivitySub =
+          Connectivity().onConnectivityChanged.listen(_applyConnectivity);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _offlineMode = true);
+    } finally {
+      if (mounted && !_bootConnectivityResolved) {
+        setState(() => _bootConnectivityResolved = true);
+      }
     }
-    _connectivitySub =
-        Connectivity().onConnectivityChanged.listen(_applyConnectivity);
   }
 
   void _applyConnectivity(List<ConnectivityResult> results) {

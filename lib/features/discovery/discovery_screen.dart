@@ -245,61 +245,57 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           }
         }
 
-        return LiquidGlassLayer(
-          settings:
-              kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 420),
-            curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  gradientTop,
-                  const Color(0xFF090B13),
-                ],
-              ),
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                gradientTop,
+                const Color(0xFF090B13),
+              ],
             ),
-            child: SafeArea(
-              child: RefreshIndicator(
-                onRefresh: _refresh,
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
-                      sliver: SliverList(
-                        delegate: SliverChildListDelegate(topContent),
-                      ),
+          ),
+          child: SafeArea(
+            child: RefreshIndicator(
+              onRefresh: _refresh,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate(topContent),
                     ),
-                    if (!showingSearch && trending.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: _DiscoveryHeroCarousel(
-                            items: trending,
-                            controller: _heroController,
-                            onPageChanged: (index) {
-                              setState(() => _heroIndex = index);
-                              unawaited(_updateBackgroundForTrending(
-                                  trending, index));
-                            },
-                          ),
+                  ),
+                  if (!showingSearch && trending.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _DiscoveryHeroCarousel(
+                          items: trending,
+                          controller: _heroController,
+                          onPageChanged: (index) {
+                            setState(() => _heroIndex = index);
+                            unawaited(
+                                _updateBackgroundForTrending(trending, index));
+                          },
                         ),
                       ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
-                      sliver: SliverList(
-                        delegate: SliverChildListDelegate(listContent),
-                      ),
                     ),
-                    const SliverPadding(
-                      padding: EdgeInsets.only(bottom: 120),
-                      sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate(listContent),
                     ),
-                  ],
-                ),
+                  ),
+                  const SliverPadding(
+                    padding: EdgeInsets.only(bottom: 120),
+                    sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
+                  ),
+                ],
               ),
             ),
           ),

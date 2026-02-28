@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
 import 'package:video_player/video_player.dart';
@@ -15,9 +16,11 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/app_logger.dart';
 import '../../core/haptics.dart';
+import '../../core/liquid_glass_preset.dart';
 import '../../services/download_manager.dart';
 import '../../services/local_library_store.dart';
 import '../../services/progress_store.dart';
+import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/episode_state.dart';
 import '../../state/library_source_state.dart';
@@ -100,6 +103,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   DateTime? _lastLiveTrimAt;
   Offset _skipAnimationPosition = Offset.zero;
   bool _skipAnimationForward = true;
+  bool _isLongPressSpeeding = false;
+  double _selectedPlaybackSpeed = 1.0;
   late final AnimationController _skipAnimationController;
   HttpServer? _hlsProxyServer;
   final BaseCacheManager _playbackCache = DefaultCacheManager();
@@ -133,10 +138,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final chewie = _chewieController;
     if (chewie == null) return;
+    final playing = _videoController?.value.isPlaying ?? false;
 
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      if (_isLongPressSpeeding) {
+        _isLongPressSpeeding = false;
+        unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
+      }
       unawaited(_persistProgress());
+      if (playing) {
+        unawaited(togglePiP());
+      }
     }
   }
 
@@ -652,6 +665,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _chewieController = chewie;
 
     await controller.play();
+    await _setPlaybackSpeed(_selectedPlaybackSpeed);
     if (_isHlsPlayback) {
       unawaited(_ensureInitialBufferAhead());
     }
@@ -912,6 +926,83 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } catch (_) {}
   }
 
+  Future<void> togglePiP() async {
+    await _enterPip();
+  }
+
+  Future<void> _setPlaybackSpeed(double speed) async {
+    final c = _videoController;
+    if (c == null || !c.value.isInitialized) return;
+    try {
+      await c.setPlaybackSpeed(speed);
+    } catch (_) {}
+  }
+
+  Future<void> _setPreferredPlaybackSpeed(double speed) async {
+    if (!mounted) return;
+    setState(() => _selectedPlaybackSpeed = speed);
+    await _setPlaybackSpeed(speed);
+  }
+
+  Future<void> _openSpeedMenu() async {
+    final options = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+    final ui = ref.read(appSettingsProvider);
+    final selected = await showModalBottomSheet<double>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: LiquidGlass.withOwnLayer(
+            settings: kyomiruLiquidGlassSettings(isOledBlack: ui.isOledBlack),
+            shape: const LiquidRoundedSuperellipse(borderRadius: 18),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Playback Speed',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  ...options.map(
+                    (speed) => ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      title: Text(
+                        '${speed.toStringAsFixed(speed % 1 == 0 ? 1 : 2)}x',
+                      ),
+                      trailing: _selectedPlaybackSpeed == speed
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                      onTap: () => Navigator.of(context).pop(speed),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await _setPreferredPlaybackSpeed(selected);
+    _registerInteraction();
+  }
+
+  void _handleLongPressStart(LongPressStartDetails _) {
+    _registerInteraction();
+    setState(() => _isLongPressSpeeding = true);
+    unawaited(_setPlaybackSpeed(2.0));
+  }
+
+  void _handleLongPressEnd(LongPressEndDetails _) {
+    setState(() => _isLongPressSpeeding = false);
+    unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
+    _registerInteraction();
+  }
+
   Future<void> _togglePlayPause() async {
     final c = _videoController;
     if (c == null) return;
@@ -961,6 +1052,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final video = _videoController;
     _chewieController = null;
     _videoController = null;
+    unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
     if (chewie != null) {
       unawaited(chewie.pause());
       chewie.dispose();
@@ -1047,6 +1139,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     behavior: HitTestBehavior.opaque,
                     onTap: _handleSurfaceTap,
                     onDoubleTapDown: _handleDoubleTapSkip,
+                    onLongPressStart: _handleLongPressStart,
+                    onLongPressEnd: _handleLongPressEnd,
                     onHorizontalDragStart: _handleHorizontalSeekStart,
                     onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
                     onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
@@ -1061,6 +1155,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   ignoring: !_overlayVisible,
                   child: Stack(
                     children: [
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: Material(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(999),
+                          child: InkWell(
+                            onTap: _openSpeedMenu,
+                            borderRadius: BorderRadius.circular(999),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              child: Text(
+                                '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       if (_pipSupported)
                         Positioned(
                           top: 8,
@@ -1069,7 +1189,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             color: const Color(0xFA1E1E1E),
                             borderRadius: BorderRadius.circular(999),
                             child: InkWell(
-                              onTap: _enterPip,
+                              onTap: togglePiP,
                               borderRadius: BorderRadius.circular(999),
                               child: const Padding(
                                 padding: EdgeInsets.all(10),
@@ -1082,217 +1202,231 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             ),
                           ),
                         ),
-                      Align(
-                        alignment: Alignment.center,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFA1E1E1E),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.10)),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 18,
+                        child: LiquidGlass.withOwnLayer(
+                          settings: const LiquidGlassSettings(
+                            blur: 30,
+                            thickness: 15,
+                            refractiveIndex: 1.1,
+                            saturation: 1.5,
+                            glassColor: Color.fromRGBO(0, 0, 0, 0.2),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.black45,
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: () {
-                                  hapticTap();
-                                  _togglePlayPause();
-                                },
-                                icon: Icon(
-                                  isPlaying
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (showCustomProgress)
-                        Positioned(
-                          left: 12,
-                          right: 12,
-                          bottom: 18,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTapDown: (details) {
-                                  final box =
-                                      context.findRenderObject() as RenderBox?;
-                                  if (box == null) return;
-                                  final ratio = (details.localPosition.dx /
-                                          box.size.width)
-                                      .clamp(0.0, 1.0);
-                                  unawaited(_seekByRatio(ratio));
-                                  _registerInteraction();
-                                },
-                                onHorizontalDragStart: (_) {
-                                  _registerInteraction();
-                                  setState(() {
-                                    _isDragging = true;
-                                    _dragValueSec = uiCurrent;
-                                  });
-                                },
-                                onHorizontalDragUpdate: (details) {
-                                  final box =
-                                      context.findRenderObject() as RenderBox?;
-                                  if (box == null || _durationSec <= 0) return;
-                                  final localDx = details.localPosition.dx;
-                                  final ratio = (localDx / box.size.width)
-                                      .clamp(0.0, 1.0);
-                                  setState(() =>
-                                      _dragValueSec = _durationSec * ratio);
-                                },
-                                onHorizontalDragEnd: (_) {
-                                  final ratio = _durationSec <= 0
-                                      ? 0.0
-                                      : _dragValueSec / _durationSec;
-                                  setState(() => _isDragging = false);
-                                  unawaited(_seekByRatio(ratio));
-                                  _registerInteraction();
-                                },
-                                child: LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final width = constraints.maxWidth;
-                                    final safeDuration =
-                                        _durationSec <= 0 ? 1.0 : _durationSec;
-                                    final playedRatio =
-                                        (uiCurrent / safeDuration)
-                                            .clamp(0.0, 1.0);
-                                    final playedWidth = width * playedRatio;
-
-                                    final start = opStart;
-                                    final end = opEnd;
-                                    final hasOpening = start != null &&
-                                        end != null &&
-                                        end > start;
-
-                                    final openingLeft = hasOpening
-                                        ? (start / safeDuration) * width
-                                        : 0.0;
-                                    final openingWidth = hasOpening
-                                        ? ((end - start) / safeDuration) * width
-                                        : 0.0;
-
-                                    return SizedBox(
-                                      height: 52,
-                                      child: Stack(
-                                        clipBehavior: Clip.none,
-                                        children: [
-                                          Positioned(
-                                            left: 0,
-                                            right: 0,
-                                            top: 26,
-                                            child: Container(
-                                              height: 6,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white24,
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                            ),
-                                          ),
-                                          if (hasOpening)
-                                            Positioned(
-                                              left:
-                                                  openingLeft.clamp(0.0, width),
-                                              top: 26,
-                                              child: Container(
-                                                height: 6,
-                                                width: openingWidth.clamp(
-                                                    0.0, width),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.yellow
-                                                      .withValues(alpha: 0.3),
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                ),
-                                              ),
-                                            ),
-                                          Positioned(
-                                            left: 0,
-                                            top: 26,
-                                            child: Container(
-                                              height: 6,
-                                              width: playedWidth,
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            left: (playedWidth - 8).clamp(0.0,
-                                                (width - 16).clamp(0.0, width)),
-                                            top: 21,
-                                            child: Container(
-                                              width: 16,
-                                              height: 16,
-                                              decoration: const BoxDecoration(
-                                                color: Colors.white,
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            left: (playedWidth - 28).clamp(0.0,
-                                                (width - 56).clamp(0.0, width)),
-                                            top: 0,
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 3),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black87,
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: Text(
-                                                _fmt(uiCurrent),
-                                                style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 10),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Row(
+                          shape:
+                              const LiquidRoundedSuperellipse(borderRadius: 16),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Text(
-                                      _fmt(uiCurrent),
-                                      style: const TextStyle(
-                                          color: Colors.white70, fontSize: 12),
-                                    ),
-                                    const Spacer(),
-                                    Text(
-                                      '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
-                                      style: const TextStyle(
-                                          color: Colors.white70, fontSize: 12),
+                                    IconButton(
+                                      style: IconButton.styleFrom(
+                                        backgroundColor:
+                                            Colors.black.withValues(alpha: 0.35),
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () {
+                                        hapticTap();
+                                        _togglePlayPause();
+                                      },
+                                      icon: Icon(
+                                        isPlaying
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ),
-                            ],
+                                if (showCustomProgress) ...[
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTapDown: (details) {
+                                      final box =
+                                          context.findRenderObject() as RenderBox?;
+                                      if (box == null) return;
+                                      final ratio = (details.localPosition.dx /
+                                              box.size.width)
+                                          .clamp(0.0, 1.0);
+                                      unawaited(_seekByRatio(ratio));
+                                      _registerInteraction();
+                                    },
+                                    onHorizontalDragStart: (_) {
+                                      _registerInteraction();
+                                      setState(() {
+                                        _isDragging = true;
+                                        _dragValueSec = uiCurrent;
+                                      });
+                                    },
+                                    onHorizontalDragUpdate: (details) {
+                                      final box =
+                                          context.findRenderObject() as RenderBox?;
+                                      if (box == null || _durationSec <= 0) return;
+                                      final localDx = details.localPosition.dx;
+                                      final ratio = (localDx / box.size.width)
+                                          .clamp(0.0, 1.0);
+                                      setState(() =>
+                                          _dragValueSec = _durationSec * ratio);
+                                    },
+                                    onHorizontalDragEnd: (_) {
+                                      final ratio = _durationSec <= 0
+                                          ? 0.0
+                                          : _dragValueSec / _durationSec;
+                                      setState(() => _isDragging = false);
+                                      unawaited(_seekByRatio(ratio));
+                                      _registerInteraction();
+                                    },
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        final width = constraints.maxWidth;
+                                        final safeDuration = _durationSec <= 0
+                                            ? 1.0
+                                            : _durationSec;
+                                        final playedRatio =
+                                            (uiCurrent / safeDuration)
+                                                .clamp(0.0, 1.0);
+                                        final playedWidth = width * playedRatio;
+
+                                        final start = opStart;
+                                        final end = opEnd;
+                                        final hasOpening = start != null &&
+                                            end != null &&
+                                            end > start;
+
+                                        final openingLeft = hasOpening
+                                            ? (start / safeDuration) * width
+                                            : 0.0;
+                                        final openingWidth = hasOpening
+                                            ? ((end - start) / safeDuration) *
+                                                width
+                                            : 0.0;
+
+                                        return SizedBox(
+                                          height: 52,
+                                          child: Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Positioned(
+                                                left: 0,
+                                                right: 0,
+                                                top: 26,
+                                                child: Container(
+                                                  height: 6,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white24,
+                                                    borderRadius:
+                                                        BorderRadius.circular(8),
+                                                  ),
+                                                ),
+                                              ),
+                                              if (hasOpening)
+                                                Positioned(
+                                                  left: openingLeft.clamp(
+                                                      0.0, width),
+                                                  top: 26,
+                                                  child: Container(
+                                                    height: 6,
+                                                    width: openingWidth.clamp(
+                                                        0.0, width),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.yellow
+                                                          .withValues(
+                                                              alpha: 0.3),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8),
+                                                    ),
+                                                  ),
+                                                ),
+                                              Positioned(
+                                                left: 0,
+                                                top: 26,
+                                                child: Container(
+                                                  height: 6,
+                                                  width: playedWidth,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius:
+                                                        BorderRadius.circular(8),
+                                                  ),
+                                                ),
+                                              ),
+                                              Positioned(
+                                                left: (playedWidth - 8).clamp(
+                                                    0.0,
+                                                    (width - 16)
+                                                        .clamp(0.0, width)),
+                                                top: 21,
+                                                child: Container(
+                                                  width: 16,
+                                                  height: 16,
+                                                  decoration: const BoxDecoration(
+                                                    color: Colors.white,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                              ),
+                                              Positioned(
+                                                left: (playedWidth - 28).clamp(
+                                                    0.0,
+                                                    (width - 56)
+                                                        .clamp(0.0, width)),
+                                                top: 0,
+                                                child: Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black87,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            999),
+                                                  ),
+                                                  child: Text(
+                                                    _fmt(uiCurrent),
+                                                    style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 10),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          _fmt(uiCurrent),
+                                          style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 12),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
+                                          style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
+                      ),
                       Positioned(
                         right: 12,
                         bottom: 74,
@@ -1373,6 +1507,40 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     ),
                   ),
                 ),
+              Positioned(
+                top: 14,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 160),
+                    opacity: _isLongPressSpeeding ? 1 : 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.10),
+                          ),
+                        ),
+                        child: const Text(
+                          '2x Speed',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               Positioned.fill(
                 child: IgnorePointer(
                   child: AnimatedBuilder(
@@ -1396,12 +1564,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               height: rippleSize,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
+                                color: Colors.white.withValues(
+                                  alpha: 0.06 * (1 - t),
+                                ),
                                 border: Border.all(
                                   color: Colors.white.withValues(
-                                    alpha: 0.35 * (1 - t),
+                                    alpha: 0.40 * (1 - t),
                                   ),
                                   width: 1.2,
                                 ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.white.withValues(
+                                      alpha: 0.22 * (1 - t),
+                                    ),
+                                    blurRadius: 22,
+                                    spreadRadius: 1,
+                                  ),
+                                  BoxShadow(
+                                    color: Colors.blueAccent.withValues(
+                                      alpha: 0.16 * (1 - t),
+                                    ),
+                                    blurRadius: 36,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -1416,12 +1603,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   width: 48,
                                   height: 48,
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.45),
+                                    color: Colors.black.withValues(alpha: 0.28),
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color:
-                                          Colors.white.withValues(alpha: 0.18),
+                                          Colors.white.withValues(alpha: 0.26),
                                     ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.14),
+                                        blurRadius: 14,
+                                      ),
+                                    ],
                                   ),
                                   child: Icon(
                                     _skipAnimationForward

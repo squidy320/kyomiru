@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'dart:async';
 
 import 'app_shell.dart';
 import 'package:kyomiru_flutter/core/app_logger.dart';
@@ -35,6 +36,33 @@ Future<bool> _runShaderWarmup() async {
   }
 }
 
+Future<void> _openHiveBoxSafe(String name) async {
+  try {
+    await Hive.openBox(name).timeout(const Duration(seconds: 8));
+    return;
+  } catch (e, st) {
+    AppLogger.w(
+      'Boot',
+      'Hive open failed for "$name", deleting box and retrying once',
+      error: e,
+      stackTrace: st,
+    );
+  }
+
+  try {
+    await Hive.deleteBoxFromDisk(name);
+  } catch (e, st) {
+    AppLogger.w(
+      'Boot',
+      'Hive delete failed for "$name"',
+      error: e,
+      stackTrace: st,
+    );
+  }
+
+  await Hive.openBox(name).timeout(const Duration(seconds: 8));
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -45,13 +73,13 @@ Future<void> main() async {
   AppLogger.installGlobalHandlers();
   AppLogger.i('App', 'Boot start');
   await Hive.initFlutter();
-  await Hive.openBox('episode_progress');
-  await Hive.openBox('downloads');
-  await Hive.openBox('app_settings');
-  await Hive.openBox('manual_matches');
-  await Hive.openBox('local_library');
-  await Hive.openBox('anilist_media_cache');
-  await Hive.openBox('anilist_query_cache');
+  await _openHiveBoxSafe('episode_progress');
+  await _openHiveBoxSafe('downloads');
+  await _openHiveBoxSafe('app_settings');
+  await _openHiveBoxSafe('manual_matches');
+  await _openHiveBoxSafe('local_library');
+  await _openHiveBoxSafe('anilist_media_cache');
+  await _openHiveBoxSafe('anilist_query_cache');
   final liquidGlassEnabled = await _runShaderWarmup();
   runApp(
     ProviderScope(
