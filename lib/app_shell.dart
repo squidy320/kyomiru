@@ -116,10 +116,10 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       body: GlassScaffoldBackground(
         child: LiquidGlassLayer(
           settings: const LiquidGlassSettings(
-            blur: 25,
+            blur: 30,
             thickness: 15,
-            refractiveIndex: 1.2,
-            saturation: 1.6,
+            refractiveIndex: 1.15,
+            saturation: 1.8,
             glassColor: Color.fromRGBO(255, 255, 255, 0.05),
           ),
           child: Stack(
@@ -212,7 +212,8 @@ class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
@@ -267,14 +268,17 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
               children: [
-                Text('Notifications', style: Theme.of(context).textTheme.displaySmall),
+                Text('Notifications',
+                    style: Theme.of(context).textTheme.displaySmall),
                 const SizedBox(height: 4),
-                Text('AniList unread: $unread', style: const TextStyle(color: Color(0xFFA1A8BC))),
+                Text('AniList unread: $unread',
+                    style: const TextStyle(color: Color(0xFFA1A8BC))),
                 const SizedBox(height: 12),
                 if (snap.connectionState == ConnectionState.waiting)
                   const _NotificationsSkeleton()
                 else if (snap.hasError)
-                  GlassCard(child: Text('Notification load failed: ${snap.error}'))
+                  GlassCard(
+                      child: Text('Notification load failed: ${snap.error}'))
                 else if (data.isEmpty)
                   const GlassCard(child: Text('No notifications.'))
                 else
@@ -290,12 +294,15 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                               color: Colors.red.shade700,
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Icon(Icons.delete, color: Colors.white),
+                            child:
+                                const Icon(Icons.delete, color: Colors.white),
                           ),
                           onDismissed: (_) async {
                             HapticFeedback.mediumImpact();
                             setState(() => _dismissedIds.add(n.id));
-                            await ref.read(anilistClientProvider).markNotificationsRead(token);
+                            await ref
+                                .read(anilistClientProvider)
+                                .markNotificationsRead(token);
                             ref.invalidate(unreadAlertsProvider);
                           },
                           child: _NotificationTile(item: n),
@@ -333,17 +340,22 @@ class _NotificationTile extends StatelessWidget {
       if (n.episode != null) return '$mediaTitle aired episode ${n.episode}';
       return n.context ?? mediaTitle;
     }
-    if (lower.contains('activity_like')) return '${n.userName ?? 'Someone'} liked your activity.';
-    if (lower.contains('activity_reply_like')) return '${n.userName ?? 'Someone'} liked your reply.';
-    if (lower.contains('activity_reply')) return '${n.userName ?? 'Someone'} replied to your activity.';
-    if (lower.contains('following')) return '${n.userName ?? 'Someone'} started following you.';
+    if (lower.contains('activity_like'))
+      return '${n.userName ?? 'Someone'} liked your activity.';
+    if (lower.contains('activity_reply_like'))
+      return '${n.userName ?? 'Someone'} liked your reply.';
+    if (lower.contains('activity_reply'))
+      return '${n.userName ?? 'Someone'} replied to your activity.';
+    if (lower.contains('following'))
+      return '${n.userName ?? 'Someone'} started following you.';
     return n.context ?? n.media?.title.best ?? n.type;
   }
 
   @override
   Widget build(BuildContext context) {
     final imageUrl = item.media?.cover.best ?? item.userAvatar;
-    final subtitle = '${item.type.toLowerCase()} \u2022 ${_timeAgo(item.createdAt)}';
+    final subtitle =
+        '${item.type.toLowerCase()} \u2022 ${_timeAgo(item.createdAt)}';
 
     return GlassCard(
       borderRadius: 14,
@@ -358,7 +370,8 @@ class _NotificationTile extends StatelessWidget {
               child: imageUrl == null || imageUrl.isEmpty
                   ? const ColoredBox(
                       color: Color(0x221E2335),
-                      child: Icon(Icons.notifications_outlined, color: Color(0xFFA1A8BC)),
+                      child: Icon(Icons.notifications_outlined,
+                          color: Color(0xFFA1A8BC)),
                     )
                   : KyomiruImageCache.image(imageUrl, fit: BoxFit.cover),
             ),
@@ -372,10 +385,13 @@ class _NotificationTile extends StatelessWidget {
                   _titleFor(item),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 const SizedBox(height: 4),
-                Text(subtitle, style: const TextStyle(fontSize: 13, color: Color(0xFFA1A8BC))),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xFFA1A8BC))),
               ],
             ),
           ),
@@ -405,15 +421,29 @@ class _NotificationsSkeleton extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Container(width: 68, height: 68, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(10))),
+                Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                        color: Colors.black12,
+                        borderRadius: BorderRadius.circular(10))),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(height: 14, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8))),
+                      Container(
+                          height: 14,
+                          decoration: BoxDecoration(
+                              color: Colors.black12,
+                              borderRadius: BorderRadius.circular(8))),
                       const SizedBox(height: 8),
-                      Container(height: 12, width: 140, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8))),
+                      Container(
+                          height: 12,
+                          width: 140,
+                          decoration: BoxDecoration(
+                              color: Colors.black12,
+                              borderRadius: BorderRadius.circular(8))),
                     ],
                   ),
                 ),
@@ -425,5 +455,3 @@ class _NotificationsSkeleton extends StatelessWidget {
     );
   }
 }
-
-

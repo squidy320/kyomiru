@@ -215,7 +215,8 @@ class _LocalLibraryView extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
           children: [
-            Text('Local Library', style: Theme.of(context).textTheme.displaySmall),
+            Text('Local Library',
+                style: Theme.of(context).textTheme.displaySmall),
             const SizedBox(height: 10),
             GlassCard(child: Text('Failed loading local library: $e')),
           ],
@@ -236,7 +237,8 @@ class _LocalLibraryView extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
             children: [
-              Text('Local Library', style: Theme.of(context).textTheme.displaySmall),
+              Text('Local Library',
+                  style: Theme.of(context).textTheme.displaySmall),
               const Text('Stored on this device',
                   style: TextStyle(color: Color(0xFFA1A8BC))),
               const SizedBox(height: 12),
@@ -247,7 +249,8 @@ class _LocalLibraryView extends ConsumerWidget {
                   onPressed: () {
                     hapticTap();
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const DiscoveryScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const DiscoveryScreen()),
                     );
                   },
                   child: const Text('Browse Discovery to add Anime'),

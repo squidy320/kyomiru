@@ -165,7 +165,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
         final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
 
-        final content = <Widget>[
+        final topContent = <Widget>[
           Text('Discovery', style: Theme.of(context).textTheme.displaySmall),
           const SizedBox(height: 4),
           const Text('Top rated, new releases, and hot anime',
@@ -194,43 +194,31 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           ),
           const SizedBox(height: 12),
         ];
+        final listContent = <Widget>[];
 
         if (showingSearch) {
           if (_searching) {
-            content.add(const _DiscoverySkeleton());
+            listContent.add(const _DiscoverySkeleton());
           } else if (_searchResults.isEmpty) {
-            content.add(const GlassCard(child: Text('No results.')));
+            listContent.add(const GlassCard(child: Text('No results.')));
           } else {
-            content.add(
-              _HorizontalSection(title: 'Search Results', items: _searchResults),
+            listContent.add(
+              _HorizontalSection(
+                  title: 'Search Results', items: _searchResults),
             );
           }
         } else {
           if (dataSnap.connectionState == ConnectionState.waiting &&
               payload == null) {
-            content.add(const _DiscoverySkeleton());
+            listContent.add(const _DiscoverySkeleton());
           } else if (dataSnap.hasError && payload == null) {
-            content.add(
-              GlassCard(child: Text('Discovery load failed: ${dataSnap.error}')),
+            listContent.add(
+              GlassCard(
+                  child: Text('Discovery load failed: ${dataSnap.error}')),
             );
           } else {
-            if (trending.isNotEmpty) {
-              content.add(
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _DiscoveryHeroCarousel(
-                    items: trending,
-                    controller: _heroController,
-                    onPageChanged: (index) {
-                      setState(() => _heroIndex = index);
-                      unawaited(_updateBackgroundForTrending(trending, index));
-                    },
-                  ),
-                ),
-              );
-            }
             for (final section in sections) {
-              content.add(
+              listContent.add(
                 Padding(
                   padding: const EdgeInsets.only(bottom: 14),
                   child: _HorizontalSection(
@@ -273,7 +261,28 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
                       sliver: SliverList(
-                        delegate: SliverChildListDelegate(content),
+                        delegate: SliverChildListDelegate(topContent),
+                      ),
+                    ),
+                    if (!showingSearch && trending.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: _DiscoveryHeroCarousel(
+                            items: trending,
+                            controller: _heroController,
+                            onPageChanged: (index) {
+                              setState(() => _heroIndex = index);
+                              unawaited(_updateBackgroundForTrending(
+                                  trending, index));
+                            },
+                          ),
+                        ),
+                      ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate(listContent),
                       ),
                     ),
                     const SliverPadding(
@@ -305,9 +314,9 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 320,
+      height: 340,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.zero,
         child: PageView.builder(
           controller: controller,
           itemCount: items.length,

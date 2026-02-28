@@ -3,7 +3,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -98,11 +97,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           malId: media.idMal,
         ));
       }
-      unawaited(_sora.getSourcesForEpisode(
-        ep.playUrl,
-        anilistId: media.id,
-        episodeNumber: ep.number,
-      ).catchError((_, __) => const <SoraSource>[]));
+      unawaited(_sora
+          .getSourcesForEpisode(
+            ep.playUrl,
+            anilistId: media.id,
+            episodeNumber: ep.number,
+          )
+          .catchError((_, __) => const <SoraSource>[]));
     }
   }
 
@@ -370,23 +371,100 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           ),
           child: SafeArea(
             top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: source == LibrarySource.anilist &&
-                        (token == null || token.isEmpty)
-                    ? const Center(
-                        child: Text(
-                          'Connect AniList to manage list, score, and progress.',
-                        ),
-                      )
-                    : SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: source == LibrarySource.anilist &&
+                      (token == null || token.isEmpty)
+                  ? const Center(
+                      child: Text(
+                        'Connect AniList to manage list, score, and progress.',
+                      ),
+                    )
+                  : SingleChildScrollView(
                       child: _TrackingPane(token: token, media: media),
                     ),
-              ),
             ),
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _playFirstEpisode(
+    AniListMedia media,
+    EpisodeQuery episodeQuery,
+  ) async {
+    try {
+      final result = await ref.read(episodeProvider(episodeQuery).future);
+      final episodes = result.episodes;
+      if (episodes.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No episodes available yet.')),
+        );
+        return;
+      }
+
+      final ep = episodes.first;
+      final local = await ref
+          .read(downloadControllerProvider.notifier)
+          .getLocalEpisodeByMedia(media.id, ep.number);
+      if (local != null) {
+        if (!context.mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PlayerScreen(
+              mediaId: media.id,
+              episodeNumber: ep.number,
+              episodeTitle: _episodePlaybackTitle(media, ep.number),
+              sourceUrl: local.path,
+              isLocal: true,
+              backgroundImageUrl: media.cover.best ?? media.bannerImage,
+              mediaTitle: media.title.best,
+              malId: media.idMal,
+            ),
+          ),
+        );
+        return;
+      }
+
+      final sources = await _loadSourcesWithOverlay(media, ep);
+      if (sources.isEmpty) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No sources found for episode.')),
+        );
+        return;
+      }
+      final settings = ref.read(appSettingsProvider);
+      final selected = settings.chooseStreamEveryTime
+          ? await _showSourcePicker(sources)
+          : _pickSourceByPreference(sources, settings);
+      if (selected == null || !context.mounted) return;
+      final fallback = sources
+          .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
+          .toList();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            mediaId: media.id,
+            episodeNumber: ep.number,
+            episodeTitle: _episodePlaybackTitle(media, ep.number),
+            sourceUrl: selected.url,
+            headers: selected.headers,
+            backgroundImageUrl: media.cover.best ?? media.bannerImage,
+            mediaTitle: media.title.best,
+            malId: media.idMal,
+            fallbackSources: fallback,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to start playback right now.')),
+      );
+    }
   }
 
   @override
@@ -427,12 +505,30 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             .trim();
 
         return Scaffold(
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
+          body: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverAppBar(
+                expandedHeight: 360,
+                pinned: true,
+                stretch: true,
+                backgroundColor: Colors.black,
+                leading: IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                ),
+                flexibleSpace: FlexibleSpaceBar(
+                  collapseMode: CollapseMode.parallax,
+                  background: _BadlandsHero(
+                    media: media,
+                    onPlay: () => _playFirstEpisode(media, episodeQuery),
+                    onBookmark: () => _openTrackingSheet(media, auth.token),
+                  ),
+                ),
+              ),
+            ],
+            body: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
               children: [
-                _Header(media: media),
-                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -578,7 +674,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         .localManifestPath(media.id, ep.number);
                                     if (local != null) continue;
                                     final sources =
-                                        await _loadSourcesWithOverlay(media, ep);
+                                        await _loadSourcesWithOverlay(
+                                            media, ep);
                                     if (sources.isEmpty) continue;
                                     final selected = _pickDownloadSource(
                                         sources, settings,
@@ -708,24 +805,24 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               padding: EdgeInsets.zero,
                                               visualDensity:
                                                   VisualDensity.compact),
-                                            onPressed: () async {
-                                              final local = await ref
-                                                 .read(downloadControllerProvider
-                                                     .notifier)
-                                                 .getLocalEpisodeByMedia(
-                                                     media.id, ep.number);
-                                             if (local != null) {
-                                               if (!context.mounted) return;
-                                               Navigator.of(context).push(
-                                                 MaterialPageRoute(
-                                                   builder: (_) => PlayerScreen(
-                                                     mediaId: media.id,
+                                          onPressed: () async {
+                                            final local = await ref
+                                                .read(downloadControllerProvider
+                                                    .notifier)
+                                                .getLocalEpisodeByMedia(
+                                                    media.id, ep.number);
+                                            if (local != null) {
+                                              if (!context.mounted) return;
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) => PlayerScreen(
+                                                    mediaId: media.id,
                                                     episodeNumber: ep.number,
                                                     episodeTitle:
                                                         _episodePlaybackTitle(
                                                             media, ep.number),
-                                                     sourceUrl: local.path,
-                                                     isLocal: true,
+                                                    sourceUrl: local.path,
+                                                    isLocal: true,
                                                     backgroundImageUrl:
                                                         media.cover.best ??
                                                             media.bannerImage,
@@ -810,14 +907,17 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               IconButton.filledTonal(
                                                 tooltip: 'Delete Download',
                                                 style: IconButton.styleFrom(
-                                                    minimumSize: const Size(30, 30),
+                                                    minimumSize:
+                                                        const Size(30, 30),
                                                     padding: EdgeInsets.zero,
                                                     visualDensity:
                                                         VisualDensity.compact),
                                                 onPressed: () => ref
-                                                    .read(downloadControllerProvider
-                                                        .notifier)
-                                                    .delete(media.id, ep.number),
+                                                    .read(
+                                                        downloadControllerProvider
+                                                            .notifier)
+                                                    .delete(
+                                                        media.id, ep.number),
                                                 icon: const Icon(
                                                     Icons.check_circle_rounded),
                                               ),
@@ -855,14 +955,15 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   .read(
                                                       downloadControllerProvider
                                                           .notifier)
-                                                   .downloadHlsEpisode(
-                                                     mediaId: media.id,
-                                                     episode: ep.number,
-                                                     animeTitle:
-                                                         media.title.best,
-                                                     coverImageUrl: media.cover.best,
-                                                     source: selected,
-                                                   );
+                                                  .downloadHlsEpisode(
+                                                    mediaId: media.id,
+                                                    episode: ep.number,
+                                                    animeTitle:
+                                                        media.title.best,
+                                                    coverImageUrl:
+                                                        media.cover.best,
+                                                    source: selected,
+                                                  );
                                             },
                                             icon: const Icon(
                                                 Icons.download_rounded),
@@ -1210,7 +1311,8 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                   source == LibrarySource.local
                       ? 'Local Library Tracking'
                       : 'AniList Tracking',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 10),
                 Wrap(
@@ -1352,111 +1454,122 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   }
 }
 
-class _Header extends StatelessWidget {
-  const _Header({required this.media});
+class _BadlandsHero extends StatelessWidget {
+  const _BadlandsHero({
+    required this.media,
+    required this.onPlay,
+    required this.onBookmark,
+  });
 
   final AniListMedia media;
+  final VoidCallback onPlay;
+  final VoidCallback onBookmark;
+
   @override
   Widget build(BuildContext context) {
-    return LiquidGlassLayer(
-      settings: const LiquidGlassSettings(
-        blur: 20,
-        thickness: 12,
-        refractiveIndex: 1.2,
-        saturation: 1.5,
-        glassColor: Color.fromRGBO(255, 255, 255, 0.05),
-      ),
-      child: Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: Container(
-              height: 220,
-              decoration: BoxDecoration(
-                image: media.bannerImage != null
-                    ? DecorationImage(
-                        image: KyomiruImageCache.provider(media.bannerImage!),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-                color: const Color(0xAA0C1324),
+    final typeLabel = (media.episodes ?? 0) == 1 ? 'Movie' : 'TV';
+    final genre = media.genres.isNotEmpty ? media.genres.first : 'Anime';
+    final hero = media.bannerImage ?? media.cover.best;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (hero != null && hero.isNotEmpty)
+          KyomiruImageCache.image(hero, fit: BoxFit.cover)
+        else
+          const ColoredBox(color: Color(0xFF111111)),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.35),
+                  Colors.black,
+                ],
+                stops: const [0.40, 0.70, 1.0],
               ),
             ),
           ),
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.9),
-                  ],
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 24,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                media.title.best,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 34,
+                  height: 1.05,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 96,
-            child: IgnorePointer(
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (rect) => const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.transparent,
-                    Colors.white70,
-                    Colors.white,
-                  ],
-                  stops: [0.0, 0.45, 0.8, 1.0],
-                ).createShader(rect),
-                child: LiquidGlass(
-                  shape: const LiquidRoundedRectangle(borderRadius: 18),
-                  child: const SizedBox.expand(),
+              const SizedBox(height: 8),
+              Text(
+                '$typeLabel • $genre',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ),
-          ),
-          Positioned.fill(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 110,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    image: media.cover.best == null
-                        ? null
-                        : DecorationImage(
-                            image: KyomiruImageCache.provider(media.cover.best!),
-                            fit: BoxFit.cover),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: onPlay,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      minimumSize: const Size(210, 54),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 24),
+                    label: const Text(
+                      'Play',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    media.title.best,
-                    maxLines: 2,
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 28, fontWeight: FontWeight.w900),
+                  const SizedBox(width: 12),
+                  Material(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: onBookmark,
+                      child: Ink(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: const Icon(Icons.bookmark_border_rounded),
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
