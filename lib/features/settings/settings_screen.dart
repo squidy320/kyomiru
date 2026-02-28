@@ -69,6 +69,13 @@ class SettingsScreen extends ConsumerWidget {
                       MaterialPageRoute(builder: (_) => const StreamsSettingsScreen()),
                     ),
                   ),
+                  _row(
+                    context,
+                    icon: Icons.manage_accounts_outlined,
+                    title: 'Account & Data',
+                    subtitle: connected ? 'AniList connected' : 'Auth and cleanup controls',
+                    onTap: () => _openComingSoon(context, 'Account & Data'),
+                  ),
                   ListTile(
                     leading: const Icon(Icons.source_outlined),
                     title: const Text('Library Source'),
@@ -100,13 +107,6 @@ class SettingsScreen extends ConsumerWidget {
                         },
                       ),
                     ),
-                  ),
-                  _row(
-                    context,
-                    icon: Icons.manage_accounts_outlined,
-                    title: 'Account & Data',
-                    subtitle: connected ? 'AniList connected' : 'Auth and cleanup controls',
-                    onTap: () => _openComingSoon(context, 'Account & Data'),
                   ),
                   _row(
                     context,

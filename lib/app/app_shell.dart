@@ -107,22 +107,34 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
 
     final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
+    final bottomInset = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       extendBody: true,
+      extendBodyBehindAppBar: true,
       body: GlassScaffoldBackground(
-        child: IndexedStack(index: _index, children: _pages),
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        bottom: true,
-        child: Padding(
-          padding: const EdgeInsets.only(left: 32, right: 32, bottom: 16),
-          child: _PillBottomBar(
-            index: _index,
-            unread: displayUnread,
-            onTap: _onTabTap,
-          ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            IndexedStack(index: _index, children: _pages),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 32,
+                  right: 32,
+                  bottom: bottomInset + 8,
+                ),
+                child: _PillBottomBar(
+                  index: _index,
+                  unread: displayUnread,
+                  onTap: _onTabTap,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

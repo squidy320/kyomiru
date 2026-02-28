@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
@@ -36,6 +37,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   List<AniListMedia> _searchResults = const [];
   bool _searching = false;
   int _heroIndex = 0;
+  Color _backgroundSeed = const Color(0xFF0A0D18);
+  final Map<String, Color> _paletteCache = <String, Color>{};
 
   @override
   void initState() {
@@ -71,7 +74,38 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     );
     _cachedPayload = payload;
     _startHeroTimer(payload.trending.length);
+    unawaited(_updateBackgroundForTrending(payload.trending, 0));
     return payload;
+  }
+
+  Future<void> _updateBackgroundForTrending(
+      List<AniListMedia> trending, int index) async {
+    if (trending.isEmpty || index < 0 || index >= trending.length) return;
+    final media = trending[index];
+    final image = media.bannerImage ?? media.cover.best;
+    if (image == null || image.isEmpty) return;
+
+    final cached = _paletteCache[image];
+    if (cached != null) {
+      if (!mounted) return;
+      setState(() => _backgroundSeed = cached);
+      return;
+    }
+
+    try {
+      final palette = await PaletteGenerator.fromImageProvider(
+        KyomiruImageCache.provider(image),
+        size: const Size(120, 120),
+        maximumColorCount: 12,
+      );
+      final picked = palette.dominantColor?.color ??
+          palette.vibrantColor?.color ??
+          palette.mutedColor?.color;
+      if (picked == null) return;
+      _paletteCache[image] = picked;
+      if (!mounted) return;
+      setState(() => _backgroundSeed = picked);
+    } catch (_) {}
   }
 
   void _startHeroTimer(int count) {
@@ -129,76 +163,117 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final payload = dataSnap.data ?? _cachedPayload;
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
+        final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
 
-        return SafeArea(
-          child: RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
-              children: [
-                Text('Discovery',
-                    style: Theme.of(context).textTheme.displaySmall),
-                const SizedBox(height: 4),
-                const Text('Top rated, new releases, and hot anime',
-                    style: TextStyle(color: Color(0xFFA1A8BC))),
-                const SizedBox(height: 10),
-                GlassCard(
-                  padding: const EdgeInsets.all(8),
-                  child: TextField(
-                    controller: _search,
-                    onChanged: _onSearchChanged,
-                    decoration: InputDecoration(
-                      hintText: 'Search anime...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _search.text.isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                hapticTap();
-                                _search.clear();
-                                setState(() => _searchResults = const []);
-                              },
-                              icon: const Icon(Icons.close),
-                            ),
-                    ),
+        final content = <Widget>[
+          Text('Discovery', style: Theme.of(context).textTheme.displaySmall),
+          const SizedBox(height: 4),
+          const Text('Top rated, new releases, and hot anime',
+              style: TextStyle(color: Color(0xFFA1A8BC))),
+          const SizedBox(height: 10),
+          GlassCard(
+            padding: const EdgeInsets.all(8),
+            child: TextField(
+              controller: _search,
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                hintText: 'Search anime...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _search.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          hapticTap();
+                          _search.clear();
+                          setState(() => _searchResults = const []);
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ];
+
+        if (showingSearch) {
+          if (_searching) {
+            content.add(const _DiscoverySkeleton());
+          } else if (_searchResults.isEmpty) {
+            content.add(const GlassCard(child: Text('No results.')));
+          } else {
+            content.add(
+              _HorizontalSection(title: 'Search Results', items: _searchResults),
+            );
+          }
+        } else {
+          if (dataSnap.connectionState == ConnectionState.waiting &&
+              payload == null) {
+            content.add(const _DiscoverySkeleton());
+          } else if (dataSnap.hasError && payload == null) {
+            content.add(
+              GlassCard(child: Text('Discovery load failed: ${dataSnap.error}')),
+            );
+          } else {
+            if (trending.isNotEmpty) {
+              content.add(
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: _DiscoveryHeroCarousel(
+                    items: trending,
+                    controller: _heroController,
+                    onPageChanged: (index) {
+                      setState(() => _heroIndex = index);
+                      unawaited(_updateBackgroundForTrending(trending, index));
+                    },
                   ),
                 ),
-                const SizedBox(height: 12),
-                if (showingSearch) ...[
-                  if (_searching)
-                    const _DiscoverySkeleton()
-                  else if (_searchResults.isEmpty)
-                    const GlassCard(child: Text('No results.'))
-                  else
-                    _HorizontalSection(
-                        title: 'Search Results', items: _searchResults),
-                ] else ...[
-                  if (dataSnap.connectionState == ConnectionState.waiting &&
-                      payload == null)
-                    const _DiscoverySkeleton()
-                  else if (dataSnap.hasError && payload == null)
-                    GlassCard(
-                        child: Text('Discovery load failed: ${dataSnap.error}'))
-                  else ...[
-                    if (trending.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _DiscoveryHeroCarousel(
-                          items: trending,
-                          controller: _heroController,
-                          onPageChanged: (index) =>
-                              setState(() => _heroIndex = index),
-                        ),
-                      ),
-                    for (final section in sections)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _HorizontalSection(
-                            title: section.title, items: section.items),
-                      ),
-                  ],
-                ],
+              );
+            }
+            for (final section in sections) {
+              content.add(
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _HorizontalSection(
+                    title: section.title,
+                    items: section.items,
+                  ),
+                ),
+              );
+            }
+          }
+        }
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                gradientTop,
+                const Color(0xFF090B13),
               ],
+            ),
+          ),
+          child: SafeArea(
+            child: RefreshIndicator(
+              onRefresh: _refresh,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate(content),
+                    ),
+                  ),
+                  const SliverPadding(
+                    padding: EdgeInsets.only(bottom: 120),
+                    sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
+                  ),
+                ],
+              ),
             ),
           ),
         );
