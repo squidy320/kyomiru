@@ -14,6 +14,7 @@ Future<void> main() async {
   await Hive.openBox('downloads');
   await Hive.openBox('app_settings');
   await Hive.openBox('manual_matches');
+  await Hive.openBox('local_library');
   runApp(const ProviderScope(child: KyomiruApp()));
 }
 

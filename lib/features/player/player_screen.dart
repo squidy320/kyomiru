@@ -17,9 +17,11 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/app_logger.dart';
 import '../../core/haptics.dart';
 import '../../services/download_manager.dart';
+import '../../services/local_library_store.dart';
 import '../../services/progress_store.dart';
 import '../../state/auth_state.dart';
 import '../../state/episode_state.dart';
+import '../../state/library_source_state.dart';
 import '../../state/tracking_state.dart';
 
 class PlayerSourceOption {
@@ -465,6 +467,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_autoTrackingSyncTriggered) return;
     if (_durationSec <= 0 || _currentSec <= 0) return;
     if (_currentSec / _durationSec < 0.9) return;
+
+    final source = ref.read(librarySourceProvider);
+    if (source == LibrarySource.local) {
+      _autoTrackingSyncTriggered = true;
+      try {
+        final current =
+            await ref.read(localLibraryStoreProvider).entryForMedia(widget.mediaId);
+        final nextProgress = (current?.episodesWatched ?? 0) + 1;
+        await ref.read(localLibraryStoreProvider).upsertByMediaId(
+              widget.mediaId,
+              title: widget.mediaTitle,
+              status: current?.status ?? 'CURRENT',
+              progress: nextProgress,
+              score: current?.userScore ?? 0,
+            );
+        ref.invalidate(localLibraryEntriesProvider);
+        ref.invalidate(mediaListProvider(widget.mediaId));
+      } catch (e, st) {
+        _autoTrackingSyncTriggered = false;
+        AppLogger.w(
+          'Player',
+          'Auto local progress sync failed',
+          error: e,
+          stackTrace: st,
+        );
+      }
+      return;
+    }
 
     final auth = ref.read(authControllerProvider);
     final token = auth.token;

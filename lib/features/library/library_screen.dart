@@ -9,8 +9,11 @@ import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
 import '../../features/auth/anilist_login_webview_screen.dart';
 import '../../features/details/details_screen.dart';
+import '../../features/discovery/discovery_screen.dart';
 import '../../models/anilist_models.dart';
+import '../../services/local_library_store.dart';
 import '../../state/auth_state.dart';
+import '../../state/library_source_state.dart';
 
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
@@ -38,7 +41,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final source = ref.watch(librarySourceProvider);
     final auth = ref.watch(authControllerProvider);
+
+    if (source == LibrarySource.local) {
+      return _LocalLibraryView(
+        selected: _selected,
+        onSelect: (value) {
+          hapticTap();
+          setState(() => _selected = value);
+        },
+      );
+    }
 
     if (auth.loading) {
       return const _LibrarySkeleton();
@@ -47,7 +61,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (auth.token == null || auth.token!.isEmpty) {
       return SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
           children: [
             Text('Library', style: Theme.of(context).textTheme.displaySmall),
             const Text('All your AniList collections',
@@ -125,7 +139,7 @@ class _LibraryDataView extends ConsumerWidget {
         return RefreshIndicator(
           onRefresh: onRefresh,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
             children: [
               Row(
                 children: [
@@ -181,6 +195,173 @@ class _LibraryDataView extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _LocalLibraryView extends ConsumerWidget {
+  const _LocalLibraryView({
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final String selected;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final entriesAsync = ref.watch(localLibraryEntriesProvider);
+    return entriesAsync.when(
+      loading: () => const _LibrarySkeleton(),
+      error: (e, _) => SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
+          children: [
+            Text('Local Library', style: Theme.of(context).textTheme.displaySmall),
+            const SizedBox(height: 10),
+            GlassCard(child: Text('Failed loading local library: $e')),
+          ],
+        ),
+      ),
+      data: (entries) {
+        final grouped = <String, List<AnimeEntry>>{};
+        for (final entry in entries) {
+          grouped.putIfAbsent(_statusLabel(entry.status), () => []).add(entry);
+        }
+
+        final chips = <String>['All', ...grouped.keys];
+        final sections = selected == 'All'
+            ? grouped.entries.toList()
+            : grouped.entries.where((e) => e.key == selected).toList();
+
+        return SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
+            children: [
+              Text('Local Library', style: Theme.of(context).textTheme.displaySmall),
+              const Text('Stored on this device',
+                  style: TextStyle(color: Color(0xFFA1A8BC))),
+              const SizedBox(height: 12),
+              if (entries.isEmpty) ...[
+                const GlassCard(child: Text('Your local library is empty.')),
+                const SizedBox(height: 12),
+                GlassButton(
+                  onPressed: () {
+                    hapticTap();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const DiscoveryScreen()),
+                    );
+                  },
+                  child: const Text('Browse Discovery to add Anime'),
+                ),
+              ] else ...[
+                SizedBox(
+                  height: 38,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: chips.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final chip = chips[index];
+                      final active = selected == chip;
+                      return ChoiceChip(
+                        label: Text(chip),
+                        selected: active,
+                        onSelected: (_) => onSelect(chip),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...sections.map(
+                  (section) => Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _LocalLibrarySection(
+                      title: section.key,
+                      items: section.value,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static String _statusLabel(String status) {
+    switch (status) {
+      case 'CURRENT':
+        return 'Watching';
+      case 'COMPLETED':
+        return 'Completed';
+      case 'PAUSED':
+        return 'Paused';
+      case 'DROPPED':
+        return 'Dropped';
+      case 'PLANNING':
+        return 'Planning';
+      case 'REPEATING':
+        return 'Repeating';
+      default:
+        return status;
+    }
+  }
+}
+
+class _LocalLibrarySection extends StatelessWidget {
+  const _LocalLibrarySection({
+    required this.title,
+    required this.items,
+  });
+
+  final String title;
+  final List<AnimeEntry> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$title (${items.length})',
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: _kCardHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final entry = items[index];
+              final media = AniListMedia(
+                id: entry.mediaId,
+                title: AniListTitle(english: entry.title),
+                cover: AniListCover(large: entry.coverImage),
+                episodes: entry.totalEpisodes <= 0 ? null : entry.totalEpisodes,
+              );
+              final progressText = entry.totalEpisodes > 0
+                  ? '${entry.episodesWatched} / ${entry.totalEpisodes}'
+                  : '${entry.episodesWatched}';
+              return SizedBox(
+                width: _kCardWidth,
+                child: GestureDetector(
+                  onTap: () {
+                    hapticTap();
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => DetailsScreen(mediaId: entry.mediaId)));
+                  },
+                  child: _AnimePosterCard(
+                    media: media,
+                    progressText: progressText,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -333,7 +514,7 @@ class _LibrarySkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return const SafeArea(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(14, 14, 14, 100),
+        padding: EdgeInsets.fromLTRB(14, 14, 14, 120),
         child: _LibrarySkeletonBody(),
       ),
     );

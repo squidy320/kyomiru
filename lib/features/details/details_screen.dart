@@ -13,10 +13,12 @@ import '../../core/image_cache.dart';
 import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
+import '../../services/local_library_store.dart';
 import '../../services/sora_runtime.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/episode_state.dart';
+import '../../state/library_source_state.dart';
 import '../../state/tracking_state.dart';
 import '../player/player_screen.dart';
 
@@ -347,20 +349,17 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
     hapticTap();
-    if (token != null && token.isNotEmpty) {
-      try {
-        final refreshed = await ref.refresh(mediaListProvider(media.id).future);
-        if (refreshed != null) {
-          ref
-              .read(mediaListEntryControllerProvider(media.id).notifier)
-              .setLocal(
-                status: refreshed.status,
-                progress: refreshed.progress,
-                score: refreshed.score,
-              );
-        }
-      } catch (_) {}
-    }
+    final source = ref.read(librarySourceProvider);
+    try {
+      final refreshed = await ref.refresh(mediaListProvider(media.id).future);
+      if (refreshed != null) {
+        ref.read(mediaListEntryControllerProvider(media.id).notifier).setLocal(
+              status: refreshed.status,
+              progress: refreshed.progress,
+              score: refreshed.score,
+            );
+      }
+    } catch (_) {}
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -375,19 +374,20 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           ),
           child: SafeArea(
             top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: token == null || token.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Connect AniList to manage list, score, and progress.',
-                      ),
-                    )
-                  : SingleChildScrollView(
-                      child: _AniListTrackingPane(token: token, media: media),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: source == LibrarySource.anilist &&
+                        (token == null || token.isEmpty)
+                    ? const Center(
+                        child: Text(
+                          'Connect AniList to manage list, score, and progress.',
+                        ),
+                      )
+                    : SingleChildScrollView(
+                      child: _TrackingPane(token: token, media: media),
                     ),
+              ),
             ),
-          ),
         ),
       ),
     );
@@ -984,17 +984,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   }
 }
 
-class _AniListTrackingPane extends ConsumerStatefulWidget {
-  const _AniListTrackingPane({required this.token, required this.media});
+class _TrackingPane extends ConsumerStatefulWidget {
+  const _TrackingPane({required this.token, required this.media});
 
-  final String token;
+  final String? token;
   final AniListMedia media;
   @override
-  ConsumerState<_AniListTrackingPane> createState() =>
-      _AniListTrackingPaneState();
+  ConsumerState<_TrackingPane> createState() => _TrackingPaneState();
 }
 
-class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
+class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   String _status = 'CURRENT';
   double _score = 0;
   int _progress = 0;
@@ -1037,6 +1036,20 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
         .setLocal(status: _status, progress: _progress, score: _score);
   }
 
+  void _persistLocalImmediate() {
+    if (ref.read(librarySourceProvider) != LibrarySource.local) return;
+    unawaited(
+      ref.read(localLibraryStoreProvider).upsertFromMedia(
+            widget.media,
+            status: _status,
+            progress: _progress,
+            score: _score,
+          ),
+    );
+    ref.invalidate(localLibraryEntriesProvider);
+    ref.invalidate(mediaListProvider(widget.media.id));
+  }
+
   Widget _scoreEditor(String format) {
     switch (format) {
       case 'POINT_100':
@@ -1053,6 +1066,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                 onChanged: (v) => setState(() {
                   _score = v.roundToDouble();
                   _pushOptimistic();
+                  _persistLocalImmediate();
                 }),
               ),
             ),
@@ -1071,6 +1085,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                 onPressed: () => setState(() {
                   _score = i.toDouble();
                   _pushOptimistic();
+                  _persistLocalImmediate();
                 }),
                 icon: Icon(
                   i <= current ? Icons.star_rounded : Icons.star_border_rounded,
@@ -1097,6 +1112,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                 onPressed: () => setState(() {
                   _score = o.$3.toDouble();
                   _pushOptimistic();
+                  _persistLocalImmediate();
                 }),
                 icon: Icon(
                   o.$1,
@@ -1132,6 +1148,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                       ? (v * 10).round() / 10
                       : v.roundToDouble();
                   _pushOptimistic();
+                  _persistLocalImmediate();
                 }),
               ),
             ),
@@ -1147,6 +1164,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
 
   @override
   Widget build(BuildContext context) {
+    final source = ref.watch(librarySourceProvider);
     final meAsync = ref.watch(currentUserProvider);
     final scoreFormatAsync = ref.watch(trackingScoreFormatProvider);
     final fetchedEntryAsync = ref.watch(mediaListProvider(widget.media.id));
@@ -1179,8 +1197,12 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('AniList Tracking',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                Text(
+                  source == LibrarySource.local
+                      ? 'Local Library Tracking'
+                      : 'AniList Tracking',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
@@ -1199,6 +1221,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                         onSelected: (_) => setState(() {
                           _status = s;
                           _pushOptimistic();
+                          _persistLocalImmediate();
                         }),
                       ),
                   ],
@@ -1217,6 +1240,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                         onChanged: (v) => setState(() {
                           _progress = v.round();
                           _pushOptimistic();
+                          _persistLocalImmediate();
                         }),
                       ),
                     ),
@@ -1265,6 +1289,7 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                                       status: _status,
                                       progress: _progress,
                                       score: _score,
+                                      media: widget.media,
                                     );
                                 if (!mounted) return;
                                 if (!ok) {
@@ -1284,8 +1309,13 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                                   );
                                 } else {
                                   messenger.showSnackBar(
-                                    const SnackBar(
-                                        content: Text('Tracking updated.')),
+                                    SnackBar(
+                                      content: Text(
+                                        source == LibrarySource.local
+                                            ? 'Saved locally.'
+                                            : 'Tracking updated.',
+                                      ),
+                                    ),
                                   );
                                 }
                                 if (mounted) {
@@ -1293,7 +1323,13 @@ class _AniListTrackingPaneState extends ConsumerState<_AniListTrackingPane> {
                                 }
                               },
                         icon: const Icon(Icons.save_outlined),
-                        label: Text(_saving ? 'Saving...' : 'Save'),
+                        label: Text(
+                          _saving
+                              ? 'Saving...'
+                              : (source == LibrarySource.local
+                                  ? 'Save Local'
+                                  : 'Save'),
+                        ),
                       ),
                     ],
                   ),

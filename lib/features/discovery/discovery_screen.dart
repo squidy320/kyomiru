@@ -134,7 +134,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           child: RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 100),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
               children: [
                 Text('Discovery',
                     style: Theme.of(context).textTheme.displaySmall),

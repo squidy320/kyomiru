@@ -6,6 +6,7 @@ import '../../core/haptics.dart';
 import '../../services/sora_extension_loader.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
+import '../../state/library_source_state.dart';
 import 'appearance_settings_screen.dart';
 import 'debug_logs_screen.dart';
 import 'streams_settings_screen.dart';
@@ -17,6 +18,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
     final settings = ref.watch(appSettingsProvider);
+    final librarySource = ref.watch(librarySourceProvider);
     final loader = SoraExtensionLoader();
     final connected = auth.token != null && auth.token!.isNotEmpty;
 
@@ -65,6 +67,38 @@ class SettingsScreen extends ConsumerWidget {
                         'Default: ${settings.preferredQuality} ${settings.preferredAudio.toUpperCase()}${settings.chooseStreamEveryTime ? ' - Ask every time' : ''}',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const StreamsSettingsScreen()),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.source_outlined),
+                    title: const Text('Library Source'),
+                    subtitle: Text(
+                      librarySource == LibrarySource.anilist
+                          ? 'AniList'
+                          : 'Local',
+                    ),
+                    trailing: SizedBox(
+                      width: 200,
+                      child: CupertinoSlidingSegmentedControl<LibrarySource>(
+                        groupValue: librarySource,
+                        children: const {
+                          LibrarySource.anilist: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Text('AniList'),
+                          ),
+                          LibrarySource.local: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Text('Local'),
+                          ),
+                        },
+                        onValueChanged: (value) {
+                          if (value == null) return;
+                          hapticTap();
+                          ref
+                              .read(librarySourceProvider.notifier)
+                              .setSource(value);
+                        },
+                      ),
                     ),
                   ),
                   _row(
