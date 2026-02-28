@@ -90,11 +90,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final aniSkip = ref.read(aniSkipServiceProvider);
 
     for (final ep in firstThree) {
-      unawaited(aniSkip.prefetchOpeningRange(
-        mediaId: media.id,
-        episode: ep.number,
-        malId: media.idMal,
-      ));
+      if (media.idMal != null) {
+        unawaited(aniSkip.prefetchOpeningRange(
+          mediaId: media.id,
+          episode: ep.number,
+          malId: media.idMal,
+        ));
+      }
       unawaited(_sora.getSourcesForEpisode(
         ep.playUrl,
         anilistId: media.id,

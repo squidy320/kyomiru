@@ -21,6 +21,8 @@ Future<void> main() async {
   await Hive.openBox('app_settings');
   await Hive.openBox('manual_matches');
   await Hive.openBox('local_library');
+  await Hive.openBox('anilist_media_cache');
+  await Hive.openBox('anilist_query_cache');
   runApp(const ProviderScope(child: KyomiruApp()));
 }
 

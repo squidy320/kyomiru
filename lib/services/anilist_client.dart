@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:hive/hive.dart';
 
 import '../core/app_logger.dart';
 import '../models/anilist_models.dart';
@@ -16,7 +17,9 @@ class _CacheEntry<T> {
 }
 
 class AniListClient {
-  AniListClient({Dio? dio}) : _dio = dio ?? Dio() {
+  AniListClient({Dio? dio, Box? mediaCacheBox})
+      : _dio = dio ?? Dio(),
+        _mediaCacheBox = mediaCacheBox {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
@@ -59,6 +62,7 @@ class AniListClient {
   }
 
   final Dio _dio;
+  final Box? _mediaCacheBox;
 
   static const authEndpoint = 'https://anilist.co/api/v2/oauth/authorize';
   static const graphqlEndpoint = 'https://graphql.anilist.co';
@@ -69,6 +73,7 @@ class AniListClient {
   DateTime _nextAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const Duration _staleTtl = Duration(minutes: 30);
+  static const Duration _mediaTtl = Duration(hours: 24);
   final Set<String> _refreshing = <String>{};
 
   final Map<String, _CacheEntry<AniListUser>> _viewerCache = {};
@@ -79,6 +84,7 @@ class AniListClient {
 
   _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
   _CacheEntry<List<AniListDiscoverySection>>? _discoverySectionsCache;
+  final Map<int, _CacheEntry<AniListMedia>> _mediaDetailsMemoryCache = {};
 
   Future<T> _serialize<T>(Future<T> Function() task) {
     final completer = Completer<T>();
@@ -112,12 +118,101 @@ class AniListClient {
     }());
   }
 
-  Future<void> _respectGate() async {
+  Future<void> _respectGate(Duration gate) async {
     final now = DateTime.now();
     if (now.isBefore(_nextAllowedAt)) {
       await Future<void>.delayed(_nextAllowedAt.difference(now));
     }
-    _nextAllowedAt = DateTime.now().add(const Duration(milliseconds: 250));
+    _nextAllowedAt = DateTime.now().add(gate);
+  }
+
+  bool _isAnonymousNonEssential(String query, String? token) {
+    final hasToken = token != null && token.isNotEmpty;
+    if (hasToken) return false;
+    final lower = query.toLowerCase();
+    if (lower.contains('viewer')) return false;
+    if (lower.contains('unreadnotificationcount')) return false;
+    if (lower.contains('notifications')) return false;
+    return true;
+  }
+
+  Box? _mediaBox() {
+    if (_mediaCacheBox != null) return _mediaCacheBox;
+    try {
+      if (Hive.isBoxOpen('anilist_media_cache')) {
+        return Hive.box('anilist_media_cache');
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Box? _queryBox() {
+    try {
+      if (Hive.isBoxOpen('anilist_query_cache')) {
+        return Hive.box('anilist_query_cache');
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Map<String, dynamic>? _readQueryCache(String key) {
+    final raw = _queryBox()?.get(key);
+    if (raw is! Map) return null;
+    final cachedAtMs = (raw['cachedAtMs'] as num?)?.toInt() ?? 0;
+    if (cachedAtMs <= 0) return null;
+    final age = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(cachedAtMs));
+    if (age > _mediaTtl) return null;
+    final data = raw['data'];
+    if (data is! Map) return null;
+    return Map<String, dynamic>.from(data);
+  }
+
+  void _writeQueryCache(String key, Map<String, dynamic> data) {
+    _queryBox()?.put(key, {
+      'cachedAtMs': DateTime.now().millisecondsSinceEpoch,
+      'data': data,
+    });
+  }
+
+  void _cacheMediaMap(Map<String, dynamic> media) {
+    final id = (media['id'] as num?)?.toInt();
+    if (id == null || id <= 0) return;
+    final cache = {
+      'cachedAtMs': DateTime.now().millisecondsSinceEpoch,
+      'data': media,
+    };
+    _mediaDetailsMemoryCache[id] = _CacheEntry<AniListMedia>(
+      AniListMedia.fromJson(media),
+      DateTime.now().add(_mediaTtl),
+    );
+    _mediaBox()?.put(id.toString(), cache);
+  }
+
+  void _cacheMediaList(Iterable<Map<String, dynamic>> medias) {
+    for (final media in medias) {
+      _cacheMediaMap(media);
+    }
+  }
+
+  AniListMedia? _readMediaFromCache(int mediaId) {
+    final mem = _mediaDetailsMemoryCache[mediaId];
+    if (mem != null && mem.isValid) return mem.value;
+
+    final raw = _mediaBox()?.get(mediaId.toString());
+    if (raw is! Map) return null;
+    final cachedAtMs = (raw['cachedAtMs'] as num?)?.toInt() ?? 0;
+    if (cachedAtMs <= 0) return null;
+    final age = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(cachedAtMs));
+    if (age > _mediaTtl) return null;
+
+    final data = raw['data'];
+    if (data is! Map) return null;
+    final media = AniListMedia.fromJson(Map<String, dynamic>.from(data));
+    _mediaDetailsMemoryCache[mediaId] =
+        _CacheEntry<AniListMedia>(media, DateTime.now().add(_mediaTtl));
+    return media;
   }
 
   void _refreshInBackground(String key, Future<void> Function() task) {
@@ -251,7 +346,10 @@ class AniListClient {
       var attempts = 0;
       while (true) {
         attempts++;
-        await _respectGate();
+        final gate = _isAnonymousNonEssential(query, token)
+            ? const Duration(milliseconds: 500)
+            : const Duration(milliseconds: 250);
+        await _respectGate(gate);
         try {
           AppLogger.d('AniList',
               'GraphQL request op=$operation hasToken=${token != null && token.isNotEmpty}');
@@ -407,6 +505,7 @@ class AniListClient {
   }) async {
     final uid = userId ?? (await me(token)).id;
     final cacheKey = '$token:$uid';
+    final persistedKey = 'libraryCurrent:$cacheKey';
     final cached = _libraryCurrentCache[cacheKey];
     if (cached != null) {
       if (cached.isValid) return cached.value;
@@ -416,6 +515,19 @@ class AniListClient {
         _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(fresh, DateTime.now().add(_staleTtl));
       });
       return cached.value;
+    }
+    final persisted = _readQueryCache(persistedKey);
+    if (persisted != null) {
+      final rows = (persisted['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => AniListLibraryEntry.fromJson(
+              Map<String, dynamic>.from(e)))
+          .toList();
+      _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
+        rows,
+        DateTime.now().add(_staleTtl),
+      );
+      return rows;
     }
     const q = r'''
       query ($userId: Int) {
@@ -460,11 +572,46 @@ class AniListClient {
               const [];
       for (final entry in entries) {
         if (entry is Map<String, dynamic>) {
+          final media = entry['media'];
+          if (media is Map<String, dynamic>) {
+            _cacheMediaMap(media);
+          }
           out.add(AniListLibraryEntry.fromJson(entry));
         }
       }
     }
     _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(out, DateTime.now().add(_staleTtl));
+    _writeQueryCache(
+      persistedKey,
+      {
+        'items': out
+            .map((e) => {
+                  'id': e.id,
+                  'progress': e.progress,
+                  'media': {
+                    'id': e.media.id,
+                    'idMal': e.media.idMal,
+                    'episodes': e.media.episodes,
+                    'averageScore': e.media.averageScore,
+                    'title': {
+                      'romaji': e.media.title.romaji,
+                      'english': e.media.title.english,
+                      'native': e.media.title.native,
+                    },
+                    'coverImage': {
+                      'large': e.media.cover.large,
+                      'extraLarge': e.media.cover.extraLarge,
+                    },
+                    'siteUrl': e.media.siteUrl,
+                    'bannerImage': e.media.bannerImage,
+                    'status': e.media.status,
+                    'isAdult': e.media.isAdult,
+                    'genres': e.media.genres,
+                  },
+                })
+            .toList(),
+      },
+    );
     return out;
   }
 
@@ -474,6 +621,7 @@ class AniListClient {
   }) async {
     final uid = userId ?? (await me(token)).id;
     final cacheKey = '$token:$uid';
+    final persistedKey = 'librarySections:$cacheKey';
     final cached = _librarySectionsCache[cacheKey];
     if (cached != null) {
       if (cached.isValid) return cached.value;
@@ -483,6 +631,26 @@ class AniListClient {
         _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(fresh, DateTime.now().add(_staleTtl));
       });
       return cached.value;
+    }
+    final persisted = _readQueryCache(persistedKey);
+    if (persisted != null) {
+      final sections = (persisted['sections'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) {
+        final map = Map<String, dynamic>.from(e);
+        final title = (map['title'] ?? 'List').toString();
+        final items = (map['items'] as List? ?? const [])
+            .whereType<Map>()
+            .map((row) =>
+                AniListLibraryEntry.fromJson(Map<String, dynamic>.from(row)))
+            .toList();
+        return AniListLibrarySection(title: title, items: items);
+      }).toList();
+      _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(
+        sections,
+        DateTime.now().add(_staleTtl),
+      );
+      return sections;
     }
     const q = r'''
       query ($userId: Int) {
@@ -529,6 +697,12 @@ class AniListClient {
         if (list is! Map<String, dynamic>) continue;
         final name = (list['name'] ?? 'List').toString();
         final entries = (list['entries'] as List? ?? const []);
+        for (final entry in entries.whereType<Map<String, dynamic>>()) {
+          final media = entry['media'];
+          if (media is Map<String, dynamic>) {
+            _cacheMediaMap(media);
+          }
+        }
         final items = entries
             .whereType<Map<String, dynamic>>()
             .map(AniListLibraryEntry.fromJson)
@@ -550,6 +724,42 @@ class AniListClient {
       });
 
       _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(out, DateTime.now().add(_staleTtl));
+      _writeQueryCache(
+        persistedKey,
+        {
+          'sections': out
+              .map((s) => {
+                    'title': s.title,
+                    'items': s.items
+                        .map((e) => {
+                              'id': e.id,
+                              'progress': e.progress,
+                              'media': {
+                                'id': e.media.id,
+                                'idMal': e.media.idMal,
+                                'episodes': e.media.episodes,
+                                'averageScore': e.media.averageScore,
+                                'title': {
+                                  'romaji': e.media.title.romaji,
+                                  'english': e.media.title.english,
+                                  'native': e.media.title.native,
+                                },
+                                'coverImage': {
+                                  'large': e.media.cover.large,
+                                  'extraLarge': e.media.cover.extraLarge,
+                                },
+                                'siteUrl': e.media.siteUrl,
+                                'bannerImage': e.media.bannerImage,
+                                'status': e.media.status,
+                                'isAdult': e.media.isAdult,
+                                'genres': e.media.genres,
+                              },
+                            })
+                        .toList(),
+                  })
+              .toList(),
+        },
+      );
       return out;
     } catch (e, st) {
       AppLogger.w('AniList',
@@ -573,12 +783,25 @@ class AniListClient {
       });
       return cached.value;
     }
+    final persisted = _readQueryCache('discoveryTrending');
+    if (persisted != null) {
+      final rows = (persisted['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => AniListMedia.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      _discoveryTrendingCache = _CacheEntry<List<AniListMedia>>(
+        rows,
+        DateTime.now().add(_staleTtl),
+      );
+      return rows;
+    }
 
     const q = r'''
       query {
         Page(page: 1, perPage: 24) {
           media(type: ANIME, sort: TRENDING_DESC) {
             id
+            idMal
             episodes
             averageScore
             title { romaji english native }
@@ -599,10 +822,17 @@ class AniListClient {
         .whereType<Map<String, dynamic>>()
         .map(AniListMedia.fromJson)
         .toList());
+    _cacheMediaList(media.whereType<Map<String, dynamic>>());
 
     _discoveryTrendingCache = _CacheEntry<List<AniListMedia>>(
       out,
       DateTime.now().add(_staleTtl),
+    );
+    _writeQueryCache(
+      'discoveryTrending',
+      {
+        'items': media.whereType<Map<String, dynamic>>().toList(),
+      },
     );
 
     return out;
@@ -618,6 +848,25 @@ class AniListClient {
       });
       return cached.value;
     }
+    final persisted = _readQueryCache('discoverySections');
+    if (persisted != null) {
+      final sections = (persisted['sections'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) {
+        final map = Map<String, dynamic>.from(e);
+        final title = (map['title'] ?? 'Section').toString();
+        final items = (map['items'] as List? ?? const [])
+            .whereType<Map>()
+            .map((row) => AniListMedia.fromJson(Map<String, dynamic>.from(row)))
+            .toList();
+        return AniListDiscoverySection(title: title, items: items);
+      }).toList();
+      _discoverySectionsCache = _CacheEntry<List<AniListDiscoverySection>>(
+        sections,
+        DateTime.now().add(_staleTtl),
+      );
+      return sections;
+    }
 
     final now = DateTime.now();
     final currentSeason = _season(now.month);
@@ -628,6 +877,7 @@ class AniListClient {
         topRated: Page(page: 1, perPage: 20) {
           media(type: ANIME, sort: SCORE_DESC) {
             id
+            idMal
             episodes
             averageScore
             title { romaji english native }
@@ -642,6 +892,7 @@ class AniListClient {
         newReleases: Page(page: 1, perPage: 20) {
           media(type: ANIME, season: $currentSeason, seasonYear: $currentYear, sort: START_DATE_DESC) {
             id
+            idMal
             episodes
             averageScore
             title { romaji english native }
@@ -656,6 +907,7 @@ class AniListClient {
         hotNow: Page(page: 1, perPage: 20) {
           media(type: ANIME, sort: POPULARITY_DESC) {
             id
+            idMal
             episodes
             averageScore
             title { romaji english native }
@@ -677,6 +929,7 @@ class AniListClient {
 
     List<AniListMedia> listFrom(String key) {
       final raw = (data[key]?['media'] as List? ?? const []);
+      _cacheMediaList(raw.whereType<Map<String, dynamic>>());
       return _sanitizeMediaList(raw
           .whereType<Map<String, dynamic>>()
           .map(AniListMedia.fromJson)
@@ -694,6 +947,31 @@ class AniListClient {
       out,
       DateTime.now().add(_staleTtl),
     );
+    _writeQueryCache(
+      'discoverySections',
+      {
+        'sections': [
+          {
+            'title': 'Top Rated',
+            'items': (data['topRated']?['media'] as List? ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .toList(),
+          },
+          {
+            'title': 'New Releases',
+            'items': (data['newReleases']?['media'] as List? ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .toList(),
+          },
+          {
+            'title': 'Hot Now',
+            'items': (data['hotNow']?['media'] as List? ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .toList(),
+          },
+        ],
+      },
+    );
 
     return out;
   }
@@ -705,6 +983,7 @@ class AniListClient {
         Page(page: 1, perPage: 20) {
           media(type: ANIME, search: $search, sort: SEARCH_MATCH) {
             id
+            idMal
             episodes
             averageScore
             title { romaji english native }
@@ -720,6 +999,7 @@ class AniListClient {
     ''';
     final data = await _graphql(query: q, variables: {'search': query});
     final media = (data['Page']?['media'] as List? ?? const []);
+    _cacheMediaList(media.whereType<Map<String, dynamic>>());
     return _sanitizeMediaList(media
         .whereType<Map<String, dynamic>>()
         .map(AniListMedia.fromJson)
@@ -727,6 +1007,8 @@ class AniListClient {
   }
 
   Future<AniListMedia> mediaDetails(int mediaId) async {
+    final cached = _readMediaFromCache(mediaId);
+    if (cached != null) return cached;
     const q = r'''
       query ($id: Int) {
         Media(id: $id, type: ANIME) {
@@ -772,6 +1054,7 @@ class AniListClient {
     final data = await _graphql(query: q, variables: {'id': mediaId});
     final media = data['Media'] as Map<String, dynamic>?;
     if (media == null) throw Exception('Anime not found.');
+    _cacheMediaMap(media);
     return AniListMedia.fromJson(media);
   }
 

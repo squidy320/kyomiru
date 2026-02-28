@@ -123,7 +123,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 260), () async {
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
       if (!mounted) return;
       if (value.trim().isEmpty) {
         setState(() {

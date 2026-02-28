@@ -456,6 +456,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _fetchAniSkipData() async {
+    if (widget.malId == null) return;
     final range = await ref.read(aniSkipServiceProvider).getOpeningRange(
           mediaId: widget.mediaId,
           episode: widget.episodeNumber,
