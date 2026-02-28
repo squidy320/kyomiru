@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -176,9 +175,12 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                           icon: Icons.play_arrow_rounded,
                           onTap: () async {
                             hapticTap();
-                            final local = d.localFilePath;
-                            final exists =
-                                local != null && local.isNotEmpty && File(local).existsSync();
+                            final localFile = await ref
+                                .read(downloadControllerProvider.notifier)
+                                .getLocalEpisodeByMedia(d.mediaId, d.episode);
+                            if (!context.mounted) return;
+                            final local = localFile?.path;
+                            final exists = local != null && local.isNotEmpty;
                             Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => PlayerScreen(

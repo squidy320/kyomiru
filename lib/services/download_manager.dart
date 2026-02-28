@@ -487,9 +487,12 @@ class DownloadController extends StateNotifier<DownloadState> {
       return path;
     }
 
-    final cleaned = path.startsWith('Kyomiru/')
+    var cleaned = path.startsWith('Kyomiru/')
         ? path.substring('Kyomiru/'.length)
         : path;
+    if (cleaned.startsWith('AnimePahe/')) {
+      cleaned = cleaned.substring('AnimePahe/'.length);
+    }
     return '$rootPath/$cleaned';
   }
 
