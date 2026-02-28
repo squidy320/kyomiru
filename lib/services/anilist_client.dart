@@ -348,7 +348,7 @@ class AniListClient {
         attempts++;
         final gate = _isAnonymousNonEssential(query, token)
             ? const Duration(milliseconds: 500)
-            : const Duration(milliseconds: 250);
+            : const Duration(milliseconds: 300);
         await _respectGate(gate);
         try {
           AppLogger.d('AniList',

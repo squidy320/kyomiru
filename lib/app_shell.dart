@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/glass_widgets.dart';
 import 'core/haptics.dart';
 import 'core/image_cache.dart';
+import 'core/liquid_glass.dart';
 import 'core/theme/app_theme.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
@@ -106,31 +107,28 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
 
     final displayUnread = _alertsSeenForCurrentUnread ? 0 : unread;
-    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final viewPaddingBottom = MediaQuery.of(context).viewPadding.bottom;
+    final navBottom = viewPaddingBottom > 0
+        ? (viewPaddingBottom * 0.2).clamp(4.0, 8.0).toDouble()
+        : 8.0;
 
     return Scaffold(
       extendBody: true,
       extendBodyBehindAppBar: true,
+      resizeToAvoidBottomInset: false,
       body: GlassScaffoldBackground(
         child: Stack(
           fit: StackFit.expand,
           children: [
             IndexedStack(index: _index, children: _pages),
             Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 32,
-                  right: 32,
-                  bottom: bottomInset + 8,
-                ),
-                child: _PillBottomBar(
-                  index: _index,
-                  unread: displayUnread,
-                  onTap: _onTabTap,
-                ),
+              left: 32,
+              right: 32,
+              bottom: navBottom,
+              child: _PillBottomBar(
+                index: _index,
+                unread: displayUnread,
+                onTap: _onTabTap,
               ),
             ),
           ],
@@ -164,17 +162,11 @@ class _PillBottomBar extends StatelessWidget {
       (active: CupertinoIcons.gear_solid, inactive: CupertinoIcons.gear),
     ];
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(40),
-      child: Container(
+    return LiquidGlass(
+      borderRadius: 40,
+      padding: EdgeInsets.zero,
+      child: SizedBox(
         height: 64,
-        decoration: BoxDecoration(
-          color: const Color(0xFA1E1E1E),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.1),
-            width: 1,
-          ),
-        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [

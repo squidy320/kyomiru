@@ -8,6 +8,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
+import '../../core/liquid_glass.dart';
 import '../../models/anilist_models.dart';
 import '../../state/auth_state.dart';
 import '../details/details_screen.dart';
@@ -337,7 +338,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                   Positioned(
                     top: 12,
                     left: 12,
-                    child: GlassContainer(
+                    child: LiquidGlass(
                       borderRadius: 999,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 5),
@@ -475,13 +476,9 @@ class _ScorePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return LiquidGlass(
+      borderRadius: 999,
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFA1E1E1E),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
       child: Row(
         children: [
           const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
