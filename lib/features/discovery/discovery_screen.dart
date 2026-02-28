@@ -9,7 +9,9 @@ import 'package:shimmer/shimmer.dart';
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
+import '../../core/liquid_glass_preset.dart';
 import '../../models/anilist_models.dart';
+import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../details/details_screen.dart';
 
@@ -160,6 +162,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final settings = ref.watch(appSettingsProvider);
     final showingSearch = _search.text.trim().isNotEmpty;
 
     return FutureBuilder<_DiscoveryPayload>(
@@ -176,24 +179,29 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           const Text('Top rated, new releases, and hot anime',
               style: TextStyle(color: Color(0xFFA1A8BC))),
           const SizedBox(height: 10),
-          GlassCard(
-            padding: const EdgeInsets.all(8),
-            child: TextField(
-              controller: _search,
-              onChanged: _onSearchChanged,
-              decoration: InputDecoration(
-                hintText: 'Search anime...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          hapticTap();
-                          _search.clear();
-                          setState(() => _searchResults = const []);
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
+          LiquidGlass.withOwnLayer(
+            settings:
+                kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
+            shape: const LiquidRoundedSuperellipse(borderRadius: 14),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: TextField(
+                controller: _search,
+                onChanged: _onSearchChanged,
+                decoration: InputDecoration(
+                  hintText: 'Search anime...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            hapticTap();
+                            _search.clear();
+                            setState(() => _searchResults = const []);
+                          },
+                          icon: const Icon(Icons.close),
+                        ),
+                ),
               ),
             ),
           ),
@@ -238,13 +246,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         }
 
         return LiquidGlassLayer(
-          settings: const LiquidGlassSettings(
-            blur: 25,
-            thickness: 15,
-            refractiveIndex: 1.2,
-            saturation: 1.6,
-            glassColor: Color.fromRGBO(255, 255, 255, 0.05),
-          ),
+          settings:
+              kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 420),
             curve: Curves.easeOutCubic,

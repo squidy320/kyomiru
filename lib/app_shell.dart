@@ -11,6 +11,7 @@ import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'core/glass_widgets.dart';
 import 'core/haptics.dart';
 import 'core/image_cache.dart';
+import 'core/liquid_glass_preset.dart';
 import 'core/theme/app_theme.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
@@ -115,6 +116,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = ref.watch(appSettingsProvider);
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
 
     if (unread > _lastServerUnread) {
@@ -176,12 +178,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                     height: 64,
                     child: widget.liquidGlassEnabled
                         ? LiquidGlass.withOwnLayer(
-                            settings: const LiquidGlassSettings(
-                              blur: 40,
-                              thickness: 15,
-                              refractiveIndex: 1.1,
-                              saturation: 1.8,
-                              glassColor: Color.fromRGBO(255, 255, 255, 0.05),
+                            settings: kyomiruLiquidGlassSettings(
+                              isOledBlack: settings.isOledBlack,
                             ),
                             shape: const LiquidRoundedSuperellipse(
                                 borderRadius: 40),

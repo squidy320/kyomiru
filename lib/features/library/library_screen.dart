@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
+import '../../core/liquid_glass_preset.dart';
 import '../../features/auth/anilist_login_webview_screen.dart';
 import '../../features/details/details_screen.dart';
 import '../../features/discovery/discovery_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../services/local_library_store.dart';
+import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/library_source_state.dart';
 
@@ -116,6 +119,7 @@ class _LibraryDataView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
+    final settings = ref.watch(appSettingsProvider);
 
     return FutureBuilder<List<dynamic>>(
       future: client.me(token).then(
@@ -169,10 +173,11 @@ class _LibraryDataView extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final chip = chips[index];
                     final active = selected == chip;
-                    return ChoiceChip(
-                      label: Text(chip),
-                      selected: active,
-                      onSelected: (_) => onSelect(chip),
+                    return _LibraryFilterChip(
+                      label: chip,
+                      active: active,
+                      isOledBlack: settings.isOledBlack,
+                      onTap: () => onSelect(chip),
                     );
                   },
                 ),
@@ -209,6 +214,7 @@ class _LocalLibraryView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final entriesAsync = ref.watch(localLibraryEntriesProvider);
+    final settings = ref.watch(appSettingsProvider);
     return entriesAsync.when(
       loading: () => const _LibrarySkeleton(),
       error: (e, _) => SafeArea(
@@ -265,10 +271,11 @@ class _LocalLibraryView extends ConsumerWidget {
                     itemBuilder: (context, index) {
                       final chip = chips[index];
                       final active = selected == chip;
-                      return ChoiceChip(
-                        label: Text(chip),
-                        selected: active,
-                        onSelected: (_) => onSelect(chip),
+                      return _LibraryFilterChip(
+                        label: chip,
+                        active: active,
+                        isOledBlack: settings.isOledBlack,
+                        onTap: () => onSelect(chip),
                       );
                     },
                   ),
@@ -494,6 +501,45 @@ class _AnimePosterCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LibraryFilterChip extends StatelessWidget {
+  const _LibraryFilterChip({
+    required this.label,
+    required this.active,
+    required this.isOledBlack,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final bool isOledBlack;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlass.withOwnLayer(
+      settings: kyomiruLiquidGlassSettings(isOledBlack: isOledBlack),
+      shape: const LiquidRoundedSuperellipse(borderRadius: 999),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: active ? Colors.white : Colors.white70,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -3,12 +3,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
+import '../../core/liquid_glass_preset.dart';
 import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
@@ -473,6 +475,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final progressStore = ref.watch(progressStoreProvider);
     final downloads = ref.watch(downloadControllerProvider);
     final auth = ref.watch(authControllerProvider);
+    final uiSettings = ref.watch(appSettingsProvider);
 
     return FutureBuilder<AniListMedia>(
       future: client.mediaDetails(widget.mediaId),
@@ -727,85 +730,102 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
-                              child: GlassCard(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 104,
-                                      height: 64,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(10),
-                                        color: const Color(0x22111111),
-                                        image: thumb == null
-                                            ? null
-                                            : DecorationImage(
-                                                image:
-                                                    KyomiruImageCache.provider(
-                                                        thumb),
-                                                fit: BoxFit.cover,
-                                              ),
-                                      ),
+                              child: LiquidGlass.withOwnLayer(
+                                settings: kyomiruLiquidGlassSettings(
+                                  isOledBlack: uiSettings.isOledBlack,
+                                ),
+                                shape:
+                                    const LiquidRoundedSuperellipse(borderRadius: 14),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: uiSettings.isOledBlack
+                                        ? Colors.black.withValues(alpha: 0.22)
+                                        : Colors.white.withValues(alpha: 0.04),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.10),
                                     ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text('EP ${ep.number}',
-                                              style: const TextStyle(
-                                                  color: Color(0xFF8B5CF6),
-                                                  fontWeight: FontWeight.w700)),
-                                          const SizedBox(height: 2),
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  episodeSubtitle,
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                      fontSize: 15,
-                                                      fontWeight:
-                                                          FontWeight.w700),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 104,
+                                        height: 64,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(10),
+                                          color: const Color(0x22111111),
+                                          image: thumb == null
+                                              ? null
+                                              : DecorationImage(
+                                                  image:
+                                                      KyomiruImageCache.provider(
+                                                          thumb),
+                                                  fit: BoxFit.cover,
                                                 ),
-                                              ),
-                                              if (hasLocal) ...[
-                                                const SizedBox(width: 6),
-                                                const Icon(
-                                                  CupertinoIcons
-                                                      .check_mark_circled,
-                                                  size: 16,
-                                                  color: Color(0xFF22C55E),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text('EP ${ep.number}',
+                                                style: const TextStyle(
+                                                    color: Color(0xFF8B5CF6),
+                                                    fontWeight: FontWeight.w700)),
+                                            const SizedBox(height: 2),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    episodeSubtitle,
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                        fontSize: 15,
+                                                        fontWeight:
+                                                            FontWeight.w700),
+                                                  ),
                                                 ),
+                                                if (hasLocal) ...[
+                                                  const SizedBox(width: 6),
+                                                  const Icon(
+                                                    CupertinoIcons
+                                                        .check_mark_circled,
+                                                    size: 16,
+                                                    color: Color(0xFF22C55E),
+                                                  ),
+                                                ],
                                               ],
-                                            ],
-                                          ),
-                                          if (d != null && d.status != 'done')
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.only(top: 4),
-                                              child: Text(
-                                                  '${d.status} ${(d.progress * 100).toStringAsFixed(0)}%'),
                                             ),
-                                        ],
+                                            if (d != null && d.status != 'done')
+                                              Padding(
+                                                padding:
+                                                    const EdgeInsets.only(top: 4),
+                                                child: Text(
+                                                    '${d.status} ${(d.progress * 100).toStringAsFixed(0)}%'),
+                                              ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ProgressRing(percent: pct, size: 52),
-                                    const SizedBox(width: 8),
-                                    Column(
-                                      children: [
-                                        IconButton.filledTonal(
-                                          style: IconButton.styleFrom(
-                                              minimumSize: const Size(30, 30),
-                                              padding: EdgeInsets.zero,
-                                              visualDensity:
-                                                  VisualDensity.compact),
-                                          onPressed: () async {
+                                      const SizedBox(width: 8),
+                                      ProgressRing(percent: pct, size: 52),
+                                      const SizedBox(width: 8),
+                                      Column(
+                                        children: [
+                                          IconButton.filledTonal(
+                                            style: IconButton.styleFrom(
+                                                minimumSize: const Size(30, 30),
+                                                padding: EdgeInsets.zero,
+                                                visualDensity:
+                                                    VisualDensity.compact),
+                                            onPressed: () async {
                                             final local = await ref
                                                 .read(downloadControllerProvider
                                                     .notifier)
@@ -884,60 +904,60 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               ),
                                             );
                                           },
-                                          icon: const Icon(Icons.play_arrow),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        if (d?.status == 'downloading')
-                                          IconButton.filledTonal(
-                                            style: IconButton.styleFrom(
-                                                minimumSize: const Size(30, 30),
-                                                padding: EdgeInsets.zero,
-                                                visualDensity:
-                                                    VisualDensity.compact),
-                                            onPressed: () => ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .cancel(media.id, ep.number),
-                                            icon: const Icon(Icons.close),
-                                          )
-                                        else if (done)
-                                          Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              IconButton.filledTonal(
-                                                tooltip: 'Delete Download',
-                                                style: IconButton.styleFrom(
-                                                    minimumSize:
-                                                        const Size(30, 30),
-                                                    padding: EdgeInsets.zero,
-                                                    visualDensity:
-                                                        VisualDensity.compact),
-                                                onPressed: () => ref
-                                                    .read(
-                                                        downloadControllerProvider
-                                                            .notifier)
-                                                    .delete(
-                                                        media.id, ep.number),
-                                                icon: const Icon(
-                                                    Icons.check_circle_rounded),
-                                              ),
-                                              const Text(
-                                                'Downloaded',
-                                                style: TextStyle(
-                                                  fontSize: 9,
-                                                  color: Color(0xFF86EFAC),
+                                            icon: const Icon(Icons.play_arrow),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          if (d?.status == 'downloading')
+                                            IconButton.filledTonal(
+                                              style: IconButton.styleFrom(
+                                                  minimumSize: const Size(30, 30),
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact),
+                                              onPressed: () => ref
+                                                  .read(downloadControllerProvider
+                                                      .notifier)
+                                                  .cancel(media.id, ep.number),
+                                              icon: const Icon(Icons.close),
+                                            )
+                                          else if (done)
+                                            Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton.filledTonal(
+                                                  tooltip: 'Delete Download',
+                                                  style: IconButton.styleFrom(
+                                                      minimumSize:
+                                                          const Size(30, 30),
+                                                      padding: EdgeInsets.zero,
+                                                      visualDensity:
+                                                          VisualDensity.compact),
+                                                  onPressed: () => ref
+                                                      .read(
+                                                          downloadControllerProvider
+                                                              .notifier)
+                                                      .delete(
+                                                          media.id, ep.number),
+                                                  icon: const Icon(
+                                                      Icons.check_circle_rounded),
                                                 ),
-                                              ),
-                                            ],
-                                          )
-                                        else
-                                          IconButton.filledTonal(
-                                            style: IconButton.styleFrom(
-                                                minimumSize: const Size(30, 30),
-                                                padding: EdgeInsets.zero,
-                                                visualDensity:
-                                                    VisualDensity.compact),
-                                            onPressed: () async {
+                                                const Text(
+                                                  'Downloaded',
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    color: Color(0xFF86EFAC),
+                                                  ),
+                                                ),
+                                              ],
+                                            )
+                                          else
+                                            IconButton.filledTonal(
+                                              style: IconButton.styleFrom(
+                                                  minimumSize: const Size(30, 30),
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact),
+                                              onPressed: () async {
                                               final sources =
                                                   await _loadSourcesWithOverlay(
                                                       media, ep);
@@ -965,12 +985,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     source: selected,
                                                   );
                                             },
-                                            icon: const Icon(
-                                                Icons.download_rounded),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
+                                              icon: const Icon(
+                                                  Icons.download_rounded),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             );

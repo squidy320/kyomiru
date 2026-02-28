@@ -6,7 +6,9 @@ import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
+import '../../core/liquid_glass_preset.dart';
 import '../../services/download_manager.dart';
+import '../../state/app_settings_state.dart';
 import '../player/player_screen.dart';
 
 class DownloadsScreen extends ConsumerStatefulWidget {
@@ -33,6 +35,7 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
   @override
   Widget build(BuildContext context) {
     final downloadsBox = Hive.box('downloads');
+    final settings = ref.watch(appSettingsProvider);
 
     return SafeArea(
       child: DefaultTabController(
@@ -66,13 +69,8 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: LiquidGlass.withOwnLayer(
-                settings: const LiquidGlassSettings(
-                  blur: 30,
-                  thickness: 15,
-                  refractiveIndex: 1.15,
-                  saturation: 1.8,
-                  glassColor: Color.fromRGBO(255, 255, 255, 0.05),
-                ),
+                settings:
+                    kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
                 shape: const LiquidRoundedSuperellipse(borderRadius: 16),
                 child: TabBar(
                   onTap: (index) {
