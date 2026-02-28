@@ -27,7 +27,7 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
     if (auth.token == null || auth.token!.isEmpty) {
       return SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           children: [
             const Text('Notifications',
                 style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
@@ -66,7 +66,7 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
       builder: (context, snap) {
         return SafeArea(
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             children: [
               const Text('Notifications',
                   style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),

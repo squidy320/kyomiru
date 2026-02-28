@@ -114,8 +114,10 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         child: IndexedStack(index: _index, children: _pages),
       ),
       bottomNavigationBar: SafeArea(
+        top: false,
+        bottom: true,
         child: Padding(
-          padding: const EdgeInsets.only(left: 32, right: 32, bottom: 24),
+          padding: const EdgeInsets.only(left: 32, right: 32, bottom: 16),
           child: _PillBottomBar(
             index: _index,
             unread: displayUnread,
@@ -252,7 +254,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           child: RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
               children: [
                 Text('Notifications', style: Theme.of(context).textTheme.displaySmall),
                 const SizedBox(height: 4),
