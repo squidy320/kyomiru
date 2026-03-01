@@ -9,6 +9,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
 import 'package:video_player/video_player.dart';
@@ -87,6 +89,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   late final ProgressStore _progressStore;
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
+  Player? _mediaKitPlayer;
+  VideoController? _mediaKitVideoController;
   final SimplePip _simplePip = SimplePip();
   final bool _enablePip = true;
 
@@ -118,6 +122,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _skipAnimationForward = true;
   bool _isLongPressSpeeding = false;
   double _selectedPlaybackSpeed = 1.0;
+  bool _isMediaKitPlaying = false;
   late final AnimationController _skipAnimationController;
   HttpServer? _hlsProxyServer;
   final BaseCacheManager _playbackCache = DefaultCacheManager();
@@ -149,9 +154,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final chewie = _chewieController;
-    if (chewie == null) return;
-    final playing = _videoController?.value.isPlaying ?? false;
+    if (_chewieController == null && _mediaKitPlayer == null) return;
+    final playing = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
 
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
@@ -236,11 +240,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _disposeControllers() async {
     final oldChewie = _chewieController;
     final oldVideo = _videoController;
+    final oldMediaKitPlayer = _mediaKitPlayer;
     _chewieController = null;
     _videoController = null;
+    _mediaKitPlayer = null;
+    _mediaKitVideoController = null;
     await oldChewie?.pause();
     oldChewie?.dispose();
     await oldVideo?.dispose();
+    oldMediaKitPlayer?.dispose();
   }
 
   Future<VideoPlayerController?> _createNetworkController(
@@ -434,6 +442,78 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
+  Future<bool> _bindMediaKitTsController(String rawUrl) async {
+    try {
+      final uri = Uri.tryParse(rawUrl);
+      final file = (uri != null && uri.isScheme('file'))
+          ? File.fromUri(uri)
+          : File(rawUrl);
+      if (!file.path.toLowerCase().endsWith('.ts')) return false;
+      if (!await file.exists()) return false;
+
+      await _disposeControllers();
+      final player = Player();
+      final controller = VideoController(player);
+      _mediaKitPlayer = player;
+      _mediaKitVideoController = controller;
+      _isHlsPlayback = false;
+      _isMediaKitPlaying = false;
+
+      if (mounted) {
+        setState(() => _initStatusMessage = 'Scanning local stream metadata...');
+      }
+
+      await player.open(
+        Media(Uri.file(file.path).toString()),
+        play: false,
+      );
+      await _primeMediaKitTsMetadata(player);
+
+      final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
+      var initialPositionMs = saved?.positionMs ?? 0;
+      if (initialPositionMs <= 0 && widget.isLocal) {
+        final downloadItem = ref
+            .read(downloadControllerProvider)
+            .item(widget.mediaId, widget.episodeNumber);
+        initialPositionMs = downloadItem?.lastPositionMs ?? 0;
+      }
+      if (initialPositionMs > 0) {
+        await player.seek(Duration(milliseconds: initialPositionMs));
+      }
+
+      await player.setRate(_selectedPlaybackSpeed);
+      await player.play();
+      _isMediaKitPlaying = true;
+      _persistTimer?.cancel();
+      _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        unawaited(_persistProgress());
+      });
+      _startUiPoll();
+      _scheduleOverlayAutoHide();
+      return true;
+    } catch (e, st) {
+      AppLogger.w('Player', 'MediaKit .ts init failed for $rawUrl',
+          error: e, stackTrace: st);
+      return false;
+    }
+  }
+
+  Future<void> _primeMediaKitTsMetadata(Player player) async {
+    try {
+      if (player.state.duration.inMilliseconds > 0) return;
+      await player.setVolume(0);
+      await player.play();
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      await player.pause();
+      await player.seek(Duration.zero);
+      for (var i = 0; i < 6; i++) {
+        if (player.state.duration.inMilliseconds > 0) break;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      await player.setVolume(100);
+    } catch (_) {}
+  }
+
   Future<void> _primeTsMetadata(VideoPlayerController controller) async {
     try {
       if (!controller.value.isInitialized) return;
@@ -524,17 +604,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _uiPollTimer?.cancel();
     _uiPollTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       final c = _videoController;
-      if (!mounted || c == null) return;
-      final v = c.value;
-      if (!v.isInitialized) return;
-      setState(() {
-        _durationSec = v.duration.inMilliseconds <= 0
-            ? 0
-            : v.duration.inMilliseconds / 1000.0;
-        _currentSec = v.position.inMilliseconds <= 0
-            ? 0
-            : v.position.inMilliseconds / 1000.0;
-      });
+      final mk = _mediaKitPlayer;
+      if (!mounted || (c == null && mk == null)) return;
+      if (c != null) {
+        final v = c.value;
+        if (!v.isInitialized) return;
+        _isMediaKitPlaying = v.isPlaying;
+        setState(() {
+          _durationSec = v.duration.inMilliseconds <= 0
+              ? 0
+              : v.duration.inMilliseconds / 1000.0;
+          _currentSec = v.position.inMilliseconds <= 0
+              ? 0
+              : v.position.inMilliseconds / 1000.0;
+        });
+      } else if (mk != null) {
+        final state = mk.state;
+        _isMediaKitPlaying = state.playing;
+        setState(() {
+          _durationSec = state.duration.inMilliseconds <= 0
+              ? 0
+              : state.duration.inMilliseconds / 1000.0;
+          _currentSec = state.position.inMilliseconds <= 0
+              ? 0
+              : state.position.inMilliseconds / 1000.0;
+        });
+      }
       if (!_didEpisodeEndCleanup &&
           _durationSec > 0 &&
           (_currentSec / _durationSec) >= 0.99) {
@@ -642,9 +737,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _scheduleOverlayAutoHide() {
     _overlayHideTimer?.cancel();
     _overlayHideTimer = Timer(const Duration(seconds: 2), () {
-      final c = _videoController;
-      if (!mounted || c == null) return;
-      if (c.value.isPlaying) {
+      if (!mounted) return;
+      final isPlaying = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
+      if (isPlaying) {
         setState(() => _overlayVisible = false);
       }
     });
@@ -781,6 +876,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     localFile ??= await downloader.getLocalEpisodeByMedia(
         widget.mediaId, widget.episodeNumber);
     if (localFile != null) {
+      final boundMediaKit = await _bindMediaKitTsController(localFile.path);
+      if (boundMediaKit) {
+        if (!mounted) return;
+        setState(() {
+          _isInitializing = false;
+          _initError = null;
+        });
+        return;
+      }
       final localController = await _createLocalController(localFile.path);
       if (localController != null) {
         await _bindController(localController);
@@ -806,6 +910,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     VideoPlayerController? selected;
 
     if (widget.isLocal) {
+      final boundMediaKit = await _bindMediaKitTsController(url);
+      if (boundMediaKit) {
+        if (!mounted) return;
+        setState(() {
+          _isInitializing = false;
+          _initError = null;
+        });
+        return;
+      }
       selected = await _createLocalController(url);
       if (selected == null && widget.fallbackSources.isNotEmpty) {
         _candidates = _buildCandidates(
@@ -863,16 +976,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _persistProgress() async {
+    int durationMs = 0;
+    int positionMs = 0;
     final controller = _videoController;
-    if (controller == null) return;
-    final value = controller.value;
-    if (!value.isInitialized || value.duration.inMilliseconds <= 0) return;
+    if (controller != null) {
+      final value = controller.value;
+      if (!value.isInitialized || value.duration.inMilliseconds <= 0) return;
+      durationMs = value.duration.inMilliseconds;
+      positionMs = value.position.inMilliseconds;
+    } else if (_mediaKitPlayer != null && _durationSec > 0) {
+      durationMs = (_durationSec * 1000).round();
+      positionMs = (_currentSec * 1000).round();
+    } else {
+      return;
+    }
 
     await _progressStore.write(
       mediaId: widget.mediaId,
       episode: widget.episodeNumber,
-      positionMs: value.position.inMilliseconds,
-      durationMs: value.duration.inMilliseconds,
+      positionMs: positionMs,
+      durationMs: durationMs,
     );
     if (widget.isLocal) {
       await ref
@@ -880,40 +1003,67 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           .setLocalPlaybackPosition(
             widget.mediaId,
             widget.episodeNumber,
-            positionMs: value.position.inMilliseconds,
-            durationMs: value.duration.inMilliseconds,
+            positionMs: positionMs,
+            durationMs: durationMs,
           );
     }
   }
 
   Future<void> _seekByRatio(double ratio) async {
     final c = _videoController;
-    if (c == null || _durationSec <= 0) return;
+    final mk = _mediaKitPlayer;
+    if ((c == null && mk == null) || _durationSec <= 0) return;
     final targetMs = (_durationSec * ratio.clamp(0.0, 1.0) * 1000).round();
-    await c.seekTo(Duration(milliseconds: targetMs));
+    if (c != null) {
+      await c.seekTo(Duration(milliseconds: targetMs));
+    } else if (mk != null) {
+      await mk.seek(Duration(milliseconds: targetMs));
+    }
   }
 
   Future<void> _seekToSeconds(double sec) async {
     final c = _videoController;
-    if (c == null) return;
+    final mk = _mediaKitPlayer;
+    if (c == null && mk == null) return;
     final clamped = _durationSec <= 0 ? 0.0 : sec.clamp(0.0, _durationSec);
-    await c.seekTo(Duration(milliseconds: (clamped * 1000).round()));
+    final target = Duration(milliseconds: (clamped * 1000).round());
+    if (c != null) {
+      await c.seekTo(target);
+    } else if (mk != null) {
+      await mk.seek(target);
+    }
   }
 
   Future<void> _seekRelative(Duration delta) async {
     final c = _videoController;
-    if (c == null) return;
-    final pos = c.value.position;
-    final dur = c.value.duration;
+    final mk = _mediaKitPlayer;
+    if (c == null && mk == null) return;
+    Duration pos;
+    Duration dur;
+    if (c != null) {
+      pos = c.value.position;
+      dur = c.value.duration;
+    } else {
+      final state = mk!.state;
+      pos = state.position;
+      dur = state.duration;
+    }
     var target = pos + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (dur > Duration.zero && target > dur) target = dur;
-    await c.seekTo(target);
+    if (c != null) {
+      await c.seekTo(target);
+    } else if (mk != null) {
+      await mk.seek(target);
+    }
     _registerInteraction();
   }
 
   void _handleHorizontalSeekStart(DragStartDetails details) {
-    if (_videoController == null || _durationSec <= 0) return;
+    if ((_videoController == null && _mediaKitPlayer == null) ||
+        _durationSec <= 0) {
+      return;
+    }
     _registerInteraction();
     setState(() {
       _isHorizontalSeeking = true;
@@ -976,10 +1126,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _setPlaybackSpeed(double speed) async {
     final c = _videoController;
-    if (c == null || !c.value.isInitialized) return;
-    try {
-      await c.setPlaybackSpeed(speed);
-    } catch (_) {}
+    if (c != null && c.value.isInitialized) {
+      try {
+        await c.setPlaybackSpeed(speed);
+      } catch (_) {}
+      return;
+    }
+    final mk = _mediaKitPlayer;
+    if (mk != null) {
+      try {
+        await mk.setRate(speed);
+      } catch (_) {}
+    }
   }
 
   Future<void> _setPreferredPlaybackSpeed(double speed) async {
@@ -1049,14 +1207,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _togglePlayPause() async {
     final c = _videoController;
-    if (c == null) return;
-    if (c.value.isPlaying) {
-      await c.pause();
-      setState(() => _overlayVisible = true);
-      _overlayHideTimer?.cancel();
-    } else {
-      await c.play();
-      _registerInteraction();
+    final mk = _mediaKitPlayer;
+    if (c != null) {
+      if (c.value.isPlaying) {
+        await c.pause();
+        _isMediaKitPlaying = false;
+        setState(() => _overlayVisible = true);
+        _overlayHideTimer?.cancel();
+      } else {
+        await c.play();
+        _isMediaKitPlaying = true;
+        _registerInteraction();
+      }
+      return;
+    }
+    if (mk != null) {
+      if (_isMediaKitPlaying) {
+        await mk.pause();
+        _isMediaKitPlaying = false;
+        setState(() => _overlayVisible = true);
+        _overlayHideTimer?.cancel();
+      } else {
+        await mk.play();
+        _isMediaKitPlaying = true;
+        _registerInteraction();
+      }
     }
   }
 
@@ -1066,6 +1241,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _uiPollTimer?.cancel();
     try {
       await _persistProgress();
+      await _mediaKitPlayer?.pause();
       await _disposeControllers();
     } catch (_) {}
     if (!mounted) return;
@@ -1078,6 +1254,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Widget _buildAdaptivePlayerSurface(BoxConstraints constraints) {
+    final mediaKit = _mediaKitVideoController;
+    if (mediaKit != null) {
+      return Center(
+        child: SizedBox(
+          width: constraints.maxWidth,
+          height: constraints.maxHeight,
+          child: Video(controller: mediaKit),
+        ),
+      );
+    }
     final chewie = _chewieController;
     if (chewie == null) return const SizedBox.shrink();
     final isLarge = constraints.maxWidth > 600;
@@ -1142,8 +1328,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _overlayHideTimer?.cancel();
     final chewie = _chewieController;
     final video = _videoController;
+    final mediaKit = _mediaKitPlayer;
     _chewieController = null;
     _videoController = null;
+    _mediaKitPlayer = null;
+    _mediaKitVideoController = null;
     unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
     if (chewie != null) {
       unawaited(chewie.pause());
@@ -1153,6 +1342,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       unawaited(video.pause());
       video.dispose();
     }
+    mediaKit?.dispose();
     _skipAnimationController.dispose();
     unawaited(WakelockPlus.disable());
     unawaited(_stopHlsProxy());
@@ -1162,9 +1352,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final showCustomProgress = _chewieController != null && _durationSec > 0;
+    final usingMediaKit = _mediaKitVideoController != null;
+    final showCustomProgress =
+        (_chewieController != null || usingMediaKit) && _durationSec > 0;
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
-    final isPlaying = _videoController?.value.isPlaying ?? false;
+    final isPlaying = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
 
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
@@ -1254,7 +1446,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     ),
                   ),
                 )
-              else if (_chewieController != null)
+              else if (_chewieController != null || _mediaKitVideoController != null)
                 Positioned.fill(
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -1384,57 +1576,101 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 ],
                               ),
                               if (showCustomProgress)
-                                GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTapDown: (details) {
-                                    final box =
-                                        context.findRenderObject() as RenderBox?;
-                                    if (box == null) return;
-                                    final ratio =
-                                        (details.localPosition.dx / box.size.width)
-                                            .clamp(0.0, 1.0);
-                                    unawaited(_seekByRatio(ratio));
-                                    _registerInteraction();
-                                  },
-                                  onHorizontalDragStart: (_) {
-                                    _registerInteraction();
-                                    setState(() {
-                                      _isDragging = true;
-                                      _dragValueSec = uiCurrent;
-                                    });
-                                  },
-                                  onHorizontalDragUpdate: (details) {
-                                    final box =
-                                        context.findRenderObject() as RenderBox?;
-                                    if (box == null || _durationSec <= 0) return;
-                                    final localDx = details.localPosition.dx;
-                                    final ratio =
-                                        (localDx / box.size.width).clamp(0.0, 1.0);
-                                    setState(() {
-                                      _dragValueSec = _durationSec * ratio;
-                                    });
-                                  },
-                                  onHorizontalDragEnd: (_) {
-                                    final ratio = _durationSec <= 0
-                                        ? 0.0
-                                        : _dragValueSec / _durationSec;
-                                    setState(() => _isDragging = false);
-                                    unawaited(_seekByRatio(ratio));
-                                    _registerInteraction();
-                                  },
-                                  child: VideoProgressIndicator(
-                                    _videoController!,
-                                    allowScrubbing: false,
-                                    padding: const EdgeInsets.only(top: 10),
-                                    colors: VideoProgressColors(
-                                      playedColor: Colors.white,
-                                      bufferedColor:
-                                          Colors.white.withValues(alpha: 0.25),
-                                      backgroundColor:
-                                          Colors.white.withValues(alpha: 0.14),
-                                    ),
-                                  ),
-                                ),
+                                (_videoController != null)
+                                    ? GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTapDown: (details) {
+                                          final box = context.findRenderObject()
+                                              as RenderBox?;
+                                          if (box == null) return;
+                                          final ratio =
+                                              (details.localPosition.dx /
+                                                      box.size.width)
+                                                  .clamp(0.0, 1.0);
+                                          unawaited(_seekByRatio(ratio));
+                                          _registerInteraction();
+                                        },
+                                        onHorizontalDragStart: (_) {
+                                          _registerInteraction();
+                                          setState(() {
+                                            _isDragging = true;
+                                            _dragValueSec = uiCurrent;
+                                          });
+                                        },
+                                        onHorizontalDragUpdate: (details) {
+                                          final box = context.findRenderObject()
+                                              as RenderBox?;
+                                          if (box == null || _durationSec <= 0) {
+                                            return;
+                                          }
+                                          final localDx =
+                                              details.localPosition.dx;
+                                          final ratio =
+                                              (localDx / box.size.width)
+                                                  .clamp(0.0, 1.0);
+                                          setState(() {
+                                            _dragValueSec = _durationSec * ratio;
+                                          });
+                                        },
+                                        onHorizontalDragEnd: (_) {
+                                          final ratio = _durationSec <= 0
+                                              ? 0.0
+                                              : _dragValueSec / _durationSec;
+                                          setState(() => _isDragging = false);
+                                          unawaited(_seekByRatio(ratio));
+                                          _registerInteraction();
+                                        },
+                                        child: VideoProgressIndicator(
+                                          _videoController!,
+                                          allowScrubbing: false,
+                                          padding:
+                                              const EdgeInsets.only(top: 10),
+                                          colors: VideoProgressColors(
+                                            playedColor: Colors.white,
+                                            bufferedColor: Colors.white
+                                                .withValues(alpha: 0.25),
+                                            backgroundColor: Colors.white
+                                                .withValues(alpha: 0.14),
+                                          ),
+                                        ),
+                                      )
+                                    : SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 2.6,
+                                          activeTrackColor: Colors.white,
+                                          inactiveTrackColor: Colors.white
+                                              .withValues(alpha: 0.14),
+                                          thumbColor: Colors.white,
+                                          overlayColor: Colors.white
+                                              .withValues(alpha: 0.18),
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                                  enabledThumbRadius: 5),
+                                        ),
+                                        child: Slider(
+                                          min: 0,
+                                          max: _durationSec <= 0 ? 1 : _durationSec,
+                                          value: uiCurrent.clamp(
+                                            0.0,
+                                            _durationSec <= 0 ? 1.0 : _durationSec,
+                                          ),
+                                          onChanged: (value) {
+                                            _registerInteraction();
+                                            setState(() {
+                                              _isDragging = true;
+                                              _dragValueSec = value;
+                                            });
+                                          },
+                                          onChangeEnd: (value) {
+                                            final ratio = _durationSec <= 0
+                                                ? 0.0
+                                                : value / _durationSec;
+                                            setState(() => _isDragging = false);
+                                            unawaited(_seekByRatio(ratio));
+                                            _registerInteraction();
+                                          },
+                                        ),
+                                      ),
                               if (showCustomProgress) const SizedBox(height: 8),
                               if (showCustomProgress)
                                 Padding(

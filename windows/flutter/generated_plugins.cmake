@@ -5,9 +5,11 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   flutter_secure_storage_windows
+  media_kit_video
   screen_retriever_windows
   share_plus
   url_launcher_windows
+  volume_controller
   window_manager
 )
 

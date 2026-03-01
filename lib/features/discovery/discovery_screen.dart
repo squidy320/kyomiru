@@ -365,36 +365,52 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Positioned(
-                    top: 12,
-                    left: 12,
-                    child: LiquidGlass(
-                      shape: const LiquidRoundedSuperellipse(borderRadius: 999),
-                      child: const Padding(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        child: Text('Trending Now',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 12)),
+                  Positioned.fill(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              LiquidGlass(
+                                shape: const LiquidRoundedSuperellipse(
+                                  borderRadius: 999,
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  child: Text(
+                                    'Trending Now',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              _ScorePill(score: media.averageScore),
+                            ],
+                          ),
+                          const Spacer(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: Text(
+                              media.title.best,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 26,
+                                height: 1.1,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ),
-                  Positioned(
-                      top: 12,
-                      right: 12,
-                      child: _ScorePill(score: media.averageScore)),
-                  Positioned(
-                    left: 14,
-                    right: 14,
-                    bottom: 14,
-                    child: Text(
-                      media.title.best,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 26,
-                          height: 1.1,
-                          fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -484,20 +500,31 @@ class _AnimePosterCard extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-              top: 8, right: 8, child: _ScorePill(score: media.averageScore)),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
+          Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Text(
-                media.title.best,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Spacer(),
+                      _ScorePill(score: media.averageScore),
+                    ],
+                  ),
+                  const Spacer(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      media.title.best,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

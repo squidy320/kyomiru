@@ -3,12 +3,33 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 
 import 'app_shell.dart';
 import 'package:kyomiru_flutter/core/app_logger.dart';
+
+class LegacyType77Adapter extends TypeAdapter<Map<dynamic, dynamic>> {
+  @override
+  final int typeId = 77;
+
+  @override
+  Map<dynamic, dynamic> read(BinaryReader reader) {
+    try {
+      final value = reader.read();
+      if (value is Map) return value;
+    } catch (_) {}
+    return <dynamic, dynamic>{};
+  }
+
+  @override
+  void write(BinaryWriter writer, Map<dynamic, dynamic> obj) {
+    writer.write(obj);
+  }
+}
 
 class KyomiruShaderWarmUp extends ShaderWarmUp {
   const KyomiruShaderWarmUp();
@@ -88,7 +109,11 @@ Future<void> main() async {
   ));
   AppLogger.installGlobalHandlers();
   AppLogger.i('App', 'Boot start');
+  MediaKit.ensureInitialized();
   await Hive.initFlutter();
+  if (!Hive.isAdapterRegistered(77)) {
+    Hive.registerAdapter(LegacyType77Adapter());
+  }
   await _openHiveBoxSafe('episode_progress');
   await _openHiveBoxSafe('downloads');
   await _openHiveBoxSafe('app_settings');

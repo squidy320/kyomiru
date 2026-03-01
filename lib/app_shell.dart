@@ -394,7 +394,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
             child: Row(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(12, 16, 16, 16),
                   child: widget.liquidGlassEnabled
                       ? LiquidGlass.withOwnLayer(
                           settings: LiquidGlassSettings(
