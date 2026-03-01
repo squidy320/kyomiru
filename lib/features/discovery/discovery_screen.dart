@@ -18,6 +18,7 @@ import '../details/details_screen.dart';
 
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
+const Color _kDiscoveryBaseColor = Color(0xFF090B13);
 
 class DiscoveryScreen extends ConsumerStatefulWidget {
   const DiscoveryScreen({super.key});
@@ -173,9 +174,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
         final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
+        final hasHero = !showingSearch && trending.isNotEmpty;
         final topInset = MediaQuery.viewPaddingOf(context).top;
         final topSlivers = <Widget>[];
-        if (!showingSearch && trending.isNotEmpty) {
+        if (hasHero) {
           topSlivers.add(
             SliverToBoxAdapter(
               child: _DiscoveryHeroCarousel(
@@ -240,18 +242,22 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         );
         topSlivers.add(
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            padding: EdgeInsets.fromLTRB(14, hasHero ? 0 : 10, 14, 10),
             sliver: SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Discovery', style: Theme.of(context).textTheme.displaySmall),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Top rated, new releases, and hot anime',
-                    style: TextStyle(color: Color(0xFFA1A8BC)),
-                  ),
-                ],
+              child: Transform.translate(
+                offset: Offset(0, hasHero ? -54 : 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Discovery',
+                        style: Theme.of(context).textTheme.displaySmall),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Top Rated',
+                      style: TextStyle(color: Color(0xFFA1A8BC)),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -349,7 +355,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                               hapticTap();
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) => DetailsScreen(mediaId: item.id),
+                                  builder: (_) =>
+                                      DetailsScreen(mediaId: item.id),
                                 ),
                               );
                             },
@@ -376,13 +383,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             duration: const Duration(milliseconds: 420),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
+              color: _kDiscoveryBaseColor,
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
                   gradientTop,
-                  const Color(0xFF090B13),
+                  _kDiscoveryBaseColor,
                 ],
+                stops: const [0.0, 1.0],
               ),
             ),
             child: RefreshIndicator(
@@ -450,122 +459,122 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bannerHeight =
+        (MediaQuery.sizeOf(context).height * 0.44).clamp(320.0, 460.0);
     return SizedBox(
-      height: 360,
-      child: ClipRRect(
-        borderRadius: BorderRadius.zero,
-        child: PageView.builder(
-          controller: controller,
-          itemCount: items.length,
-          onPageChanged: onPageChanged,
-          itemBuilder: (context, index) {
-            final media = items[index];
-            final image = media.bannerImage ?? media.cover.best;
-            return GestureDetector(
-              onTap: () {
-                hapticTap();
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                      builder: (_) => DetailsScreen(mediaId: media.id)),
-                );
-              },
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (image != null)
-                    KyomiruImageCache.image(image, fit: BoxFit.cover)
-                  else
-                    const ColoredBox(color: Color(0x22111111)),
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            const Color(0xFF090B13),
-                          ],
-                          stops: const [0.75, 1.0],
-                        ),
+      height: bannerHeight,
+      child: PageView.builder(
+        controller: controller,
+        itemCount: items.length,
+        onPageChanged: onPageChanged,
+        itemBuilder: (context, index) {
+          final media = items[index];
+          final image = media.bannerImage ?? media.cover.best;
+          return GestureDetector(
+            onTap: () {
+              hapticTap();
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => DetailsScreen(mediaId: media.id)),
+              );
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (image != null)
+                  KyomiruImageCache.image(image, fit: BoxFit.cover)
+                else
+                  const ColoredBox(color: Color(0x22111111)),
+                Positioned.fill(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.transparent,
+                          _kDiscoveryBaseColor,
+                        ],
+                        stops: [0.0, 0.70, 1.0],
                       ),
                     ),
                   ),
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: 10,
-                    child: Container(
-                      height: 96,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.white.withValues(alpha: 0.05),
-                            Colors.black.withValues(alpha: 0.22),
-                          ],
-                        ),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.10),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              LiquidGlass(
-                                shape: const LiquidRoundedSuperellipse(
-                                  borderRadius: 999,
-                                ),
-                                child: const Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 5,
-                                  ),
-                                  child: Text(
-                                    'Trending Now',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const Spacer(),
-                              _ScorePill(score: media.averageScore),
-                            ],
-                          ),
-                          const Spacer(),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: Text(
-                              media.title.best,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 26,
-                                height: 1.1,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
+                ),
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 10,
+                  child: Container(
+                    height: 96,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.05),
+                          Colors.black.withValues(alpha: 0.22),
                         ],
                       ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.10),
+                      ),
                     ),
                   ),
-                ],
-              ),
-            );
-          },
-        ),
+                ),
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const LiquidGlass(
+                              shape: LiquidRoundedSuperellipse(
+                                borderRadius: 999,
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                child: Text(
+                                  'Trending Now',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            _ScorePill(score: media.averageScore),
+                          ],
+                        ),
+                        const Spacer(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          child: Text(
+                            media.title.best,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 26,
+                              height: 1.1,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
