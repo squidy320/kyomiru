@@ -438,7 +438,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await controller.initialize().timeout(const Duration(seconds: 6));
       if (isTsLocal) {
         if (mounted) {
-          setState(() => _initStatusMessage = 'Scanning local stream metadata...');
+          setState(
+              () => _initStatusMessage = 'Scanning local stream metadata...');
         }
         await _primeTsMetadata(controller);
       }
@@ -469,7 +470,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _isMediaKitPlaying = false;
 
       if (mounted) {
-        setState(() => _initStatusMessage = 'Scanning local stream metadata...');
+        setState(
+            () => _initStatusMessage = 'Scanning local stream metadata...');
       }
 
       await player.open(
@@ -664,8 +666,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     AppSettings settings,
     SessionSourceLock? lock,
   ) {
-    final sorted = [...sources]
-      ..sort((a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+    final sorted = [...sources]..sort(
+        (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
 
     if (lock != null) {
       var pool = sorted
@@ -680,8 +682,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         return q.contains(lock.quality) && a == lock.audio;
       }).toList();
       if (exact.isNotEmpty) return exact.first;
-      final qualityOnly =
-          pool.where((s) => s.quality.toLowerCase().contains(lock.quality)).toList();
+      final qualityOnly = pool
+          .where((s) => s.quality.toLowerCase().contains(lock.quality))
+          .toList();
       if (qualityOnly.isNotEmpty) return qualityOnly.first;
       return pool.first;
     }
@@ -690,12 +693,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final preferredAudio = settings.defaultAudio.toLowerCase();
     final preferredQuality = settings.defaultQuality.toLowerCase();
     if (preferredAudio != 'any') {
-      final audio = pool.where((s) => s.subOrDub.toLowerCase() == preferredAudio).toList();
+      final audio = pool
+          .where((s) => s.subOrDub.toLowerCase() == preferredAudio)
+          .toList();
       if (audio.isNotEmpty) pool = audio;
     }
     if (preferredQuality != 'auto') {
-      final quality =
-          pool.where((s) => s.quality.toLowerCase().contains(preferredQuality)).toList();
+      final quality = pool
+          .where((s) => s.quality.toLowerCase().contains(preferredQuality))
+          .toList();
       if (quality.isNotEmpty) return quality.first;
     }
     return pool.first;
@@ -712,7 +718,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _autoNextTriggered = true;
     final nextEpisode = widget.episodeNumber + 1;
     final downloader = ref.read(downloadControllerProvider.notifier);
-    final localNext = await downloader.getLocalEpisodeByMedia(widget.mediaId, nextEpisode);
+    final localNext =
+        await downloader.getLocalEpisodeByMedia(widget.mediaId, nextEpisode);
 
     if (!mounted) return;
     if (localNext != null) {
@@ -1169,7 +1176,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (raw == null || raw.trim().isEmpty) return null;
       return raw.trim();
     }
-    if (_activeCandidateIndex >= 0 && _activeCandidateIndex < _candidates.length) {
+    if (_activeCandidateIndex >= 0 &&
+        _activeCandidateIndex < _candidates.length) {
       final fromCandidate = _candidates[_activeCandidateIndex].url.trim();
       if (fromCandidate.isNotEmpty) return fromCandidate;
     }
@@ -1180,7 +1188,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Map<String, String> _activePlaybackHeaders() {
     if (widget.isLocal) return const {};
-    if (_activeCandidateIndex >= 0 && _activeCandidateIndex < _candidates.length) {
+    if (_activeCandidateIndex >= 0 &&
+        _activeCandidateIndex < _candidates.length) {
       return _candidates[_activeCandidateIndex].headers;
     }
     return widget.headers;
@@ -1212,8 +1221,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       lastPositionMs: positionMs,
       totalDurationMs: durationMs,
       isDownloaded: widget.isLocal,
-      lastCompletedEpisode:
-          ratio >= 0.85 ? widget.episodeNumber : (widget.episodeNumber - 1).clamp(0, 99999),
+      lastCompletedEpisode: ratio >= 0.85
+          ? widget.episodeNumber
+          : (widget.episodeNumber - 1).clamp(0, 99999),
       coverImageUrl: widget.backgroundImageUrl,
       headers: _activePlaybackHeaders(),
     );
@@ -1524,20 +1534,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _registerInteraction();
   }
 
-  bool get _isInEarlyPlaybackWindow => _currentSec >= 0 && _currentSec <= 150;
-
-  String get _adaptiveSkipLabel => _isInEarlyPlaybackWindow ? 'Skip Intro' : 'Skip 85s';
-
-  Future<void> _handleAdaptiveSkip() async {
-    HapticFeedback.lightImpact();
-    if (_isInEarlyPlaybackWindow && opEnd != null) {
-      await _skipIntro();
-      return;
-    }
-    await _seekRelative(const Duration(seconds: 85));
-    _registerInteraction();
-  }
-
   String _fmt(double sec) {
     if (!sec.isFinite || sec < 0) sec = 0;
     final d = Duration(milliseconds: (sec * 1000).round());
@@ -1628,214 +1624,120 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               }
             },
             child: Scaffold(
-        extendBodyBehindAppBar: true,
-        backgroundColor: Colors.black,
-        body: Stack(
-          children: [
-              const Positioned.fill(child: ColoredBox(color: Colors.black)),
-              if (_isInitializing)
-                Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(strokeWidth: 2),
-                      const SizedBox(height: 12),
-                      Text(
-                        _initStatusMessage,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
+              extendBodyBehindAppBar: true,
+              backgroundColor: Colors.black,
+              body: Stack(
+                children: [
+                  const Positioned.fill(child: ColoredBox(color: Colors.black)),
+                  if (_isInitializing)
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(strokeWidth: 2),
+                          const SizedBox(height: 12),
+                          Text(
+                            _initStatusMessage,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                )
-              else if (_initError != null)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _initError!,
-                          style: const TextStyle(color: Colors.white70),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton.tonal(
-                          onPressed: () {
-                            hapticTap();
-                            setState(() {
-                              _isInitializing = true;
-                              _initError = null;
-                            });
-                            _init();
-                          },
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else if (_chewieController != null || _mediaKitVideoController != null)
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _handleSurfaceTap,
-                    onDoubleTapDown: _handleDoubleTapSkip,
-                    onLongPressStart: _handleLongPressStart,
-                    onLongPressEnd: _handleLongPressEnd,
-                    onHorizontalDragStart: _handleHorizontalSeekStart,
-                    onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
-                    onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
-                    onHorizontalDragCancel: _handleHorizontalSeekEnd,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        return _buildAdaptivePlayerSurface(constraints);
-                      },
-                    ),
-                  ),
-                ),
-              AnimatedOpacity(
-                opacity: _overlayVisible ? 1 : 0,
-                duration: const Duration(milliseconds: 220),
-                child: IgnorePointer(
-                  ignoring: !_overlayVisible,
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        top: topHudOffset,
-                        right: 8,
-                        child: Row(
+                    )
+                  else if (_initError != null)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (_pipSupported)
-                              Material(
-                                color: const Color(0xFA1E1E1E),
-                                borderRadius: BorderRadius.circular(999),
-                                child: InkWell(
-                                  onTap: enterPictureInPictureMode,
-                                  borderRadius: BorderRadius.circular(999),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(10),
-                                    child: Icon(
-                                      Icons.picture_in_picture_alt_rounded,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(width: 8),
-                            Material(
-                              color: const Color(0xFA1E1E1E),
-                              borderRadius: BorderRadius.circular(999),
-                              child: InkWell(
-                                onTap: _closePlayer,
-                                borderRadius: BorderRadius.circular(999),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    color: Colors.white,
-                                    size: 24,
-                                  ),
-                                ),
-                              ),
+                            Text(
+                              _initError!,
+                              style: const TextStyle(color: Colors.white70),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.tonal(
+                              onPressed: () {
+                                hapticTap();
+                                setState(() {
+                                  _isInitializing = true;
+                                  _initError = null;
+                                });
+                                _init();
+                              },
+                              child: const Text('Retry'),
                             ),
                           ],
                         ),
                       ),
-                      Positioned(
-                        top: topHudOffset,
-                        left: 54,
-                        child: Material(
-                          color: const Color(0xFA1E1E1E),
-                          borderRadius: BorderRadius.circular(999),
-                          child: InkWell(
-                            onTap: _openSpeedMenu,
-                            borderRadius: BorderRadius.circular(999),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                              child: Text(
-                                '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
+                    )
+                  else if (_chewieController != null ||
+                      _mediaKitVideoController != null)
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _handleSurfaceTap,
+                        onDoubleTapDown: _handleDoubleTapSkip,
+                        onLongPressStart: _handleLongPressStart,
+                        onLongPressEnd: _handleLongPressEnd,
+                        onHorizontalDragStart: _handleHorizontalSeekStart,
+                        onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
+                        onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
+                        onHorizontalDragCancel: _handleHorizontalSeekEnd,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            return _buildAdaptivePlayerSurface(constraints);
+                          },
                         ),
                       ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        bottom: bottomHudOffset + 84,
-                        child: IgnorePointer(
-                          ignoring: !_overlayVisible,
-                          child: Center(
+                    ),
+                  AnimatedOpacity(
+                    opacity: _overlayVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    child: IgnorePointer(
+                      ignoring: !_overlayVisible,
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: topHudOffset,
+                            right: 8,
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Material(
-                                  color: Colors.black.withValues(alpha: 0.45),
-                                  shape: const CircleBorder(),
-                                  child: InkWell(
-                                    onTap: () {
-                                      hapticTap();
-                                      _togglePlayPause();
-                                    },
-                                    customBorder: const CircleBorder(),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(22),
-                                      child: Icon(
-                                        isPlaying
-                                            ? Icons.pause_rounded
-                                            : Icons.play_arrow_rounded,
-                                        color: Colors.white,
-                                        size: 44,
+                                if (_pipSupported)
+                                  Material(
+                                    color: const Color(0xFA1E1E1E),
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: InkWell(
+                                      onTap: enterPictureInPictureMode,
+                                      borderRadius: BorderRadius.circular(999),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(10),
+                                        child: Icon(
+                                          Icons.picture_in_picture_alt_rounded,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 8),
                                 Material(
-                                  color: Colors.black.withValues(alpha: 0.40),
+                                  color: const Color(0xFA1E1E1E),
                                   borderRadius: BorderRadius.circular(999),
                                   child: InkWell(
-                                    onTap: _handleAdaptiveSkip,
+                                    onTap: _closePlayer,
                                     borderRadius: BorderRadius.circular(999),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 10,
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(
-                                            Icons.skip_next_rounded,
-                                            color: Colors.white,
-                                            size: 18,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            _adaptiveSkipLabel,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: Icon(
+                                        Icons.close_rounded,
+                                        color: Colors.white,
+                                        size: 24,
                                       ),
                                     ),
                                   ),
@@ -1843,305 +1745,353 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               ],
                             ),
                           ),
-                        ),
-                      ),
-                      Positioned(
-                        left: 12,
-                        right: 12,
-                        bottom: bottomHudOffset,
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.52),
-                            borderRadius: BorderRadius.circular(16),
-                            border:
-                                Border.all(color: Colors.white.withValues(alpha: 0.10)),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (showCustomProgress)
-                                GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTapDown: (details) {
-                                    final box =
-                                        context.findRenderObject() as RenderBox?;
-                                    if (box == null) return;
-                                    final ratio =
-                                        (details.localPosition.dx / box.size.width)
-                                            .clamp(0.0, 1.0);
-                                    unawaited(_seekByRatio(ratio));
-                                    _registerInteraction();
-                                  },
-                                  onHorizontalDragStart: (_) {
-                                    _registerInteraction();
-                                    setState(() {
-                                      _isDragging = true;
-                                      _dragValueSec = uiCurrent;
-                                    });
-                                  },
-                                  onHorizontalDragUpdate: (details) {
-                                    final box =
-                                        context.findRenderObject() as RenderBox?;
-                                    if (box == null || _durationSec <= 0) return;
-                                    final localDx = details.localPosition.dx;
-                                    final ratio =
-                                        (localDx / box.size.width).clamp(0.0, 1.0);
-                                    setState(() {
-                                      _dragValueSec = _durationSec * ratio;
-                                    });
-                                  },
-                                  onHorizontalDragEnd: (_) {
-                                    final ratio = _durationSec <= 0
-                                        ? 0.0
-                                        : _dragValueSec / _durationSec;
-                                    setState(() => _isDragging = false);
-                                    unawaited(_seekByRatio(ratio));
-                                    _registerInteraction();
-                                  },
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 10),
-                                    child: SizedBox(
-                                      height: 14,
-                                      child: LayoutBuilder(
-                                        builder: (context, constraints) {
-                                          final ratio = _durationSec <= 0
-                                              ? 0.0
-                                              : (uiCurrent / _durationSec)
-                                                  .clamp(0.0, 1.0);
-                                          return Stack(
-                                            alignment: Alignment.centerLeft,
-                                            children: [
-                                              Container(
-                                                height: 3,
-                                                width: constraints.maxWidth,
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.14),
-                                                  borderRadius:
-                                                      BorderRadius.circular(999),
-                                                ),
-                                              ),
-                                              FractionallySizedBox(
-                                                widthFactor: ratio,
-                                                child: Container(
-                                                  height: 3,
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.white,
-                                                    borderRadius:
-                                                        BorderRadius.circular(999),
-                                                  ),
-                                                ),
-                                              ),
-                                              Positioned(
-                                                left: ((constraints.maxWidth * ratio) - 4)
-                                                    .clamp(0.0, constraints.maxWidth - 8),
-                                                child: Container(
-                                                  width: 8,
-                                                  height: 8,
-                                                  decoration: const BoxDecoration(
-                                                    color: Colors.white,
-                                                    shape: BoxShape.circle,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          );
-                                        },
-                                      ),
+                          Positioned(
+                            top: topHudOffset,
+                            left: 54,
+                            child: Material(
+                              color: const Color(0xFA1E1E1E),
+                              borderRadius: BorderRadius.circular(999),
+                              child: InkWell(
+                                onTap: _openSpeedMenu,
+                                borderRadius: BorderRadius.circular(999),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  child: Text(
+                                    '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                 ),
-                              if (showCustomProgress) const SizedBox(height: 8),
-                              if (showCustomProgress)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 6),
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        _fmt(uiCurrent),
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              ignoring: !_overlayVisible,
+                              child: Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Material(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.45),
+                                      shape: const CircleBorder(),
+                                      child: InkWell(
+                                        onTap: () {
+                                          hapticTap();
+                                          _togglePlayPause();
+                                        },
+                                        customBorder: const CircleBorder(),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(22),
+                                          child: Icon(
+                                            isPlaying
+                                                ? Icons.pause_rounded
+                                                : Icons.play_arrow_rounded,
+                                            color: Colors.white,
+                                            size: 44,
+                                          ),
                                         ),
                                       ),
-                                      const Spacer(),
-                                      Text(
-                                        '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 12,
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Visibility(
+                                      visible:
+                                          _currentSec > 5 && _currentSec < 150,
+                                      child: Material(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.40),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        child: InkWell(
+                                          onTap: _skipIntro,
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                          child: const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                              vertical: 10,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.skip_next_rounded,
+                                                  color: Colors.white,
+                                                  size: 18,
+                                                ),
+                                                SizedBox(width: 6),
+                                                Text(
+                                                  'Skip Intro',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 12,
+                            right: 12,
+                            bottom: bottomHudOffset,
+                            child: showCustomProgress
+                                ? Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 3,
+                                          inactiveTrackColor: Colors.white
+                                              .withValues(alpha: 0.18),
+                                          activeTrackColor: Colors.white,
+                                          thumbColor: Colors.white,
+                                          overlayColor: Colors.white
+                                              .withValues(alpha: 0.12),
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                            enabledThumbRadius: 5,
+                                          ),
+                                        ),
+                                        child: Slider(
+                                          min: 0,
+                                          max: _durationSec <= 0
+                                              ? 1
+                                              : _durationSec,
+                                          value: uiCurrent.clamp(
+                                            0.0,
+                                            _durationSec <= 0
+                                                ? 1.0
+                                                : _durationSec,
+                                          ),
+                                          onChangeStart: (_) {
+                                            _registerInteraction();
+                                            setState(() {
+                                              _isDragging = true;
+                                              _dragValueSec = uiCurrent;
+                                            });
+                                          },
+                                          onChanged: (v) {
+                                            setState(() => _dragValueSec = v);
+                                          },
+                                          onChangeEnd: (v) {
+                                            setState(() => _isDragging = false);
+                                            final ratio = _durationSec <= 0
+                                                ? 0.0
+                                                : v / _durationSec;
+                                            unawaited(_seekByRatio(ratio));
+                                            _registerInteraction();
+                                          },
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 2),
+                                        child: Row(
+                                          children: [
+                                            Text(
+                                              _fmt(uiCurrent),
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
-                                  ),
-                                ),
-                            ],
+                                  )
+                                : const SizedBox.shrink(),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (_isHorizontalSeeking)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFA1E1E1E),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.10),
-                      ),
-                    ),
-                    child: Text(
-                      '${_fmt(_horizontalSeekSec)} / ${_fmt(_durationSec)}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
+                        ],
                       ),
                     ),
                   ),
-                ),
-              Positioned(
-                top: topInset + 14,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 160),
-                    opacity: _isLongPressSpeeding ? 1 : 0,
-                    child: Center(
+                  if (_isHorizontalSeeking)
+                    Center(
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 7,
+                          horizontal: 20,
+                          vertical: 12,
                         ),
                         decoration: BoxDecoration(
                           color: const Color(0xFA1E1E1E),
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: Colors.white.withValues(alpha: 0.10),
                           ),
                         ),
-                        child: const Text(
-                          '2x Speed',
-                          style: TextStyle(
+                        child: Text(
+                          '${_fmt(_horizontalSeekSec)} / ${_fmt(_durationSec)}',
+                          style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 12,
+                            fontSize: 26,
                             fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    top: topInset + 14,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 160),
+                        opacity: _isLongPressSpeeding ? 1 : 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFA1E1E1E),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.10),
+                              ),
+                            ),
+                            child: const Text(
+                              '2x Speed',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: AnimatedBuilder(
-                    animation: _skipAnimationController,
-                    builder: (context, _) {
-                      if (!_skipAnimationController.isAnimating) {
-                        return const SizedBox.shrink();
-                      }
-                      final t = _skipAnimationController.value;
-                      final rippleSize = 40 + (t * 110);
-                      final iconOpacity = (1 - (t * 1.15)).clamp(0.0, 1.0);
-                      final iconScale = 0.86 + (t * 0.35);
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedBuilder(
+                        animation: _skipAnimationController,
+                        builder: (context, _) {
+                          if (!_skipAnimationController.isAnimating) {
+                            return const SizedBox.shrink();
+                          }
+                          final t = _skipAnimationController.value;
+                          final rippleSize = 40 + (t * 110);
+                          final iconOpacity = (1 - (t * 1.15)).clamp(0.0, 1.0);
+                          final iconScale = 0.86 + (t * 0.35);
 
-                      return Stack(
-                        children: [
-                          Positioned(
-                            left: _skipAnimationPosition.dx - (rippleSize / 2),
-                            top: _skipAnimationPosition.dy - (rippleSize / 2),
-                            child: Container(
-                              width: rippleSize,
-                              height: rippleSize,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white.withValues(
-                                  alpha: 0.06 * (1 - t),
-                                ),
-                                border: Border.all(
-                                  color: Colors.white.withValues(
-                                    alpha: 0.40 * (1 - t),
-                                  ),
-                                  width: 1.2,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.white.withValues(
-                                      alpha: 0.22 * (1 - t),
-                                    ),
-                                    blurRadius: 22,
-                                    spreadRadius: 1,
-                                  ),
-                                  BoxShadow(
-                                    color: Colors.blueAccent.withValues(
-                                      alpha: 0.16 * (1 - t),
-                                    ),
-                                    blurRadius: 36,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            left: _skipAnimationPosition.dx - 24,
-                            top: _skipAnimationPosition.dy - 24,
-                            child: Opacity(
-                              opacity: iconOpacity,
-                              child: Transform.scale(
-                                scale: iconScale,
+                          return Stack(
+                            children: [
+                              Positioned(
+                                left: _skipAnimationPosition.dx -
+                                    (rippleSize / 2),
+                                top: _skipAnimationPosition.dy -
+                                    (rippleSize / 2),
                                 child: Container(
-                                  width: 48,
-                                  height: 48,
+                                  width: rippleSize,
+                                  height: rippleSize,
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.28),
                                     shape: BoxShape.circle,
+                                    color: Colors.white.withValues(
+                                      alpha: 0.06 * (1 - t),
+                                    ),
                                     border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.26),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.40 * (1 - t),
+                                      ),
+                                      width: 1.2,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.14),
-                                        blurRadius: 14,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.22 * (1 - t),
+                                        ),
+                                        blurRadius: 22,
+                                        spreadRadius: 1,
+                                      ),
+                                      BoxShadow(
+                                        color: Colors.blueAccent.withValues(
+                                          alpha: 0.16 * (1 - t),
+                                        ),
+                                        blurRadius: 36,
+                                        spreadRadius: 2,
                                       ),
                                     ],
                                   ),
-                                  child: Icon(
-                                    _skipAnimationForward
-                                        ? Icons.forward_10_rounded
-                                        : Icons.replay_10_rounded,
-                                    color: Colors.white,
-                                    size: 22,
+                                ),
+                              ),
+                              Positioned(
+                                left: _skipAnimationPosition.dx - 24,
+                                top: _skipAnimationPosition.dy - 24,
+                                child: Opacity(
+                                  opacity: iconOpacity,
+                                  child: Transform.scale(
+                                    scale: iconScale,
+                                    child: Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.28),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.26),
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.14),
+                                            blurRadius: 14,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Icon(
+                                        _skipAnimationForward
+                                            ? Icons.forward_10_rounded
+                                            : Icons.replay_10_rounded,
+                                        color: Colors.white,
+                                        size: 22,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                            ],
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
-    ),
-  ),
-);
+    );
   }
 }

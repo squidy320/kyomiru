@@ -461,7 +461,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bannerHeight =
-        (MediaQuery.sizeOf(context).height * 0.44).clamp(320.0, 460.0);
+        (MediaQuery.sizeOf(context).height * 0.52).clamp(360.0, 560.0);
     return SizedBox(
       height: bannerHeight,
       child: PageView.builder(
@@ -495,10 +495,12 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                         colors: [
                           Colors.transparent,
                           Colors.transparent,
+                          Color(0x40090B13),
                           Color(0x80090B13),
+                          Color(0xD8090B13),
                           _kDiscoveryBaseColor,
                         ],
-                        stops: [0.0, 0.6, 0.8, 1.0],
+                        stops: [0.0, 0.42, 0.62, 0.78, 0.90, 1.0],
                       ),
                     ),
                   ),
