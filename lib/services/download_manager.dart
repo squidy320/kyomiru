@@ -100,8 +100,7 @@ class DownloadItem {
       error: map['error']?.toString(),
       downloadedBytes: (map['downloadedBytes'] as num?)?.toInt() ?? 0,
       totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
-      speedBitsPerSecond:
-          (map['speedBitsPerSecond'] as num?)?.toDouble() ?? 0,
+      speedBitsPerSecond: (map['speedBitsPerSecond'] as num?)?.toDouble() ?? 0,
       lastPositionMs: (map['lastPositionMs'] as num?)?.toInt() ?? 0,
       lastDurationMs: (map['lastDurationMs'] as num?)?.toInt() ?? 0,
     );
@@ -349,7 +348,8 @@ class DownloadController extends StateNotifier<DownloadState> {
     await _box.put(item.key, item.toJson());
   }
 
-  Future<void> _emitDownloadUpdate(DownloadItem item, {bool force = false}) async {
+  Future<void> _emitDownloadUpdate(DownloadItem item,
+      {bool force = false}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final last = _lastUiEmitMs[item.key] ?? 0;
     if (!force && (now - last) < _uiUpdateIntervalMs) return;
@@ -557,14 +557,14 @@ class DownloadController extends StateNotifier<DownloadState> {
       coverImageUrl: coverImageUrl,
       episodeThumbnailUrl: episodeThumbnailUrl,
     );
-      final manifestRelativePath = p.join(
-        safeTitle,
-        'Episode $episode',
-        'Episode $episode.m3u8',
-      );
-      final manifestPath = p.join(epDir.path, 'Episode $episode.m3u8');
-      final mergedTsRelativePath = p.join(safeTitle, 'Episode $episode.ts');
-      final mergedTsPath = p.join(animeDir.path, 'Episode $episode.ts');
+    final manifestRelativePath = p.join(
+      safeTitle,
+      'Episode $episode',
+      'Episode $episode.m3u8',
+    );
+    final manifestPath = p.join(epDir.path, 'Episode $episode.m3u8');
+    final mergedTsRelativePath = p.join(safeTitle, 'Episode $episode.ts');
+    final mergedTsPath = p.join(animeDir.path, 'Episode $episode.ts');
 
     final token = CancelToken();
     _cancelTokens[key] = token;
@@ -646,7 +646,8 @@ class DownloadController extends StateNotifier<DownloadState> {
                 status: 'downloading',
                 progress: progress,
                 downloadedBytes: downloadedBytes + received,
-                totalBytes: knownTotalBytes + (currentTotal > 0 ? currentTotal : 0),
+                totalBytes:
+                    knownTotalBytes + (currentTotal > 0 ? currentTotal : 0),
                 speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
               ),
             );
@@ -667,7 +668,6 @@ class DownloadController extends StateNotifier<DownloadState> {
               totalBytes: knownTotalBytes,
               speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
             ),
-            force: true,
           );
         }
       }
@@ -678,7 +678,8 @@ class DownloadController extends StateNotifier<DownloadState> {
         if (t.startsWith('#EXT-X-KEY') && t.contains('URI=')) {
           var updated = line;
           for (final entry in keyMap.entries) {
-            updated = updated.replaceAll('URI="${entry.key}"', 'URI="${entry.value}"');
+            updated = updated.replaceAll(
+                'URI="${entry.key}"', 'URI="${entry.value}"');
           }
           rewritten.add(updated);
           continue;
@@ -720,7 +721,8 @@ class DownloadController extends StateNotifier<DownloadState> {
                 status: 'downloading',
                 progress: progress,
                 downloadedBytes: downloadedBytes + received,
-                totalBytes: knownTotalBytes + (currentTotal > 0 ? currentTotal : 0),
+                totalBytes:
+                    knownTotalBytes + (currentTotal > 0 ? currentTotal : 0),
                 speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
               ),
             );
@@ -744,7 +746,6 @@ class DownloadController extends StateNotifier<DownloadState> {
               totalBytes: knownTotalBytes,
               speedBitsPerSecond: _speedWindows[key]?.bitsPerSecond() ?? 0,
             ),
-            force: true,
           );
         }
       }
@@ -835,9 +836,8 @@ class DownloadController extends StateNotifier<DownloadState> {
 
     final root = await _downloadsRoot();
     final rootPath = root.path.replaceAll('\\', '/');
-    final docsPath = (await getApplicationDocumentsDirectory())
-        .path
-        .replaceAll('\\', '/');
+    final docsPath =
+        (await getApplicationDocumentsDirectory()).path.replaceAll('\\', '/');
 
     final isAbsoluteUnix = path.startsWith('/');
     final isAbsoluteWin = RegExp(r'^[A-Za-z]:/').hasMatch(path);
@@ -856,9 +856,8 @@ class DownloadController extends StateNotifier<DownloadState> {
       return path;
     }
 
-    var cleaned = path.startsWith('Kyomiru/')
-        ? path.substring('Kyomiru/'.length)
-        : path;
+    var cleaned =
+        path.startsWith('Kyomiru/') ? path.substring('Kyomiru/'.length) : path;
     if (cleaned.startsWith('AnimePahe/')) {
       cleaned = cleaned.substring('AnimePahe/'.length);
     }
@@ -897,8 +896,9 @@ class DownloadController extends StateNotifier<DownloadState> {
     for (var i = 0; i < masterLines.length; i++) {
       final line = masterLines[i].trim();
       if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
-      final bandwidth =
-          int.tryParse(RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ?? '') ?? 0;
+      final bandwidth = int.tryParse(
+              RegExp(r'BANDWIDTH=(\d+)').firstMatch(line)?.group(1) ?? '') ??
+          0;
       for (var j = i + 1; j < masterLines.length; j++) {
         final cand = masterLines[j].trim();
         if (cand.isEmpty || cand.startsWith('#')) continue;
@@ -940,8 +940,8 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (Platform.isIOS) {
       base = await getApplicationDocumentsDirectory();
     } else if (Platform.isAndroid) {
-      base =
-          await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+      base = await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
     } else {
       base = await getApplicationDocumentsDirectory();
     }
@@ -1026,4 +1026,13 @@ final localEpisodeArtworkFileProvider =
   return ref
       .read(downloadControllerProvider.notifier)
       .getLocalEpisodeArtworkByMedia(query.mediaId, query.episode);
+});
+
+final downloadItemProvider =
+    Provider.family<DownloadItem?, LocalEpisodeQuery>((ref, query) {
+  return ref.watch(
+    downloadControllerProvider.select(
+      (state) => state.item(query.mediaId, query.episode),
+    ),
+  );
 });

@@ -325,7 +325,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           ),
           FilledButton(
             onPressed: () {
-              final start = int.tryParse(startController.text.trim()) ?? minEpisode;
+              final start =
+                  int.tryParse(startController.text.trim()) ?? minEpisode;
               final end = int.tryParse(endController.text.trim()) ?? maxEpisode;
               final clampedStart = start.clamp(minEpisode, maxEpisode);
               final clampedEnd = end.clamp(clampedStart, maxEpisode);
@@ -343,14 +344,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     List<SoraEpisode> episodes,
   ) async {
     if (_isBulkDownloading || episodes.isEmpty) return;
-    final range = await _pickEpisodeRange(episodes.first.number, episodes.last.number);
+    final range =
+        await _pickEpisodeRange(episodes.first.number, episodes.last.number);
     if (!mounted || range == null) return;
     final selectedEpisodes = episodes
         .where((ep) => ep.number >= range.start && ep.number <= range.end)
         .toList();
     if (selectedEpisodes.isEmpty) return;
 
-    final probeSources = await _loadSourcesWithOverlay(media, selectedEpisodes.first);
+    final probeSources =
+        await _loadSourcesWithOverlay(media, selectedEpisodes.first);
     if (!mounted || probeSources.isEmpty) return;
     final chosen = await _showSourcePicker(probeSources);
     if (!mounted || chosen == null) return;
@@ -385,7 +388,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               preferredQuality: chosen.quality,
               preferredAudio: chosen.subOrDub,
             );
-            await ref.read(downloadControllerProvider.notifier).downloadHlsEpisode(
+            await ref
+                .read(downloadControllerProvider.notifier)
+                .downloadHlsEpisode(
                   mediaId: media.id,
                   episode: ep.number,
                   animeTitle: media.title.best,
@@ -563,12 +568,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     AniListMedia media,
     SoraEpisode ep,
   ) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     final local = await ref
         .read(downloadControllerProvider.notifier)
         .getLocalEpisodeByMedia(media.id, ep.number);
     if (local != null) {
       if (!context.mounted) return;
-      Navigator.of(context).push(
+      navigator.push(
         MaterialPageRoute(
           builder: (_) => PlayerScreen(
             mediaId: media.id,
@@ -588,7 +595,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final sources = await _loadSourcesWithOverlay(media, ep);
     if (sources.isEmpty) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('No sources found for episode.')),
       );
       return;
@@ -602,7 +609,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final fallback = sources
         .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
         .toList();
-    Navigator.of(context).push(
+    navigator.push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
           mediaId: media.id,
@@ -649,7 +656,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Widget build(BuildContext context) {
     final client = ref.watch(anilistClientProvider);
     final progressStore = ref.watch(progressStoreProvider);
-    final downloads = ref.watch(downloadControllerProvider);
     final auth = ref.watch(authControllerProvider);
     final uiSettings = ref.watch(appSettingsProvider);
 
@@ -826,7 +832,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             children: [
                               Expanded(
                                 child: Container(
-                                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(14, 10, 10, 10),
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(16),
                                     gradient: LinearGradient(
@@ -838,7 +845,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       ],
                                     ),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.08),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.08),
                                     ),
                                   ),
                                   child: Row(
@@ -858,10 +866,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             vertical: 8,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: Colors.white.withValues(alpha: 0.08),
-                                            borderRadius: BorderRadius.circular(999),
+                                            color: Colors.white
+                                                .withValues(alpha: 0.08),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
                                             border: Border.all(
-                                              color: Colors.white.withValues(alpha: 0.12),
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.12),
                                             ),
                                           ),
                                           child: Row(
@@ -870,22 +881,26 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               const SizedBox(
                                                 width: 16,
                                                 height: 16,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                 ),
                                               ),
                                               const SizedBox(width: 8),
-                                              Text('Downloading $_bulkDone/$_bulkTotal'),
+                                              Text(
+                                                  'Downloading $_bulkDone/$_bulkTotal'),
                                             ],
                                           ),
                                         )
                                       else
                                         GlassButton(
-                                          onPressed: () => _downloadAllEpisodes(media, episodes),
+                                          onPressed: () => _downloadAllEpisodes(
+                                              media, episodes),
                                           child: const Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(Icons.download_for_offline_outlined),
+                                              Icon(Icons
+                                                  .download_for_offline_outlined),
                                               SizedBox(width: 6),
                                               Text('Download All'),
                                             ],
@@ -901,22 +916,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           ...episodes.map((ep) {
                             final p = progressStore.read(media.id, ep.number);
                             final pct = p?.percent ?? 0;
-                            final thumb = _episodeThumbnailUrl(media, ep.number);
+                            final thumb =
+                                _episodeThumbnailUrl(media, ep.number);
                             final fallbackThumb =
                                 media.cover.best ?? media.bannerImage;
                             final episodeSubtitle =
                                 _episodeSpecificTitle(media, ep.number);
-                            final d = downloads.item(media.id, ep.number);
-                            final localAsync = ref.watch(
-                              localEpisodeFileProvider(
-                                LocalEpisodeQuery(
-                                  mediaId: media.id,
-                                  episode: ep.number,
-                                ),
-                              ),
-                            );
-                            final hasLocal = localAsync.valueOrNull != null;
-                            final done = hasLocal || d?.status == 'done';
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
@@ -924,8 +929,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 settings: kyomiruLiquidGlassSettings(
                                   isOledBlack: uiSettings.isOledBlack,
                                 ),
-                                shape:
-                                    const LiquidRoundedSuperellipse(borderRadius: 14),
+                                shape: const LiquidRoundedSuperellipse(
+                                    borderRadius: 14),
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () => _playEpisode(media, ep),
@@ -937,176 +942,109 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     decoration: BoxDecoration(
                                       color: uiSettings.isOledBlack
                                           ? Colors.black.withValues(alpha: 0.18)
-                                          : Colors.white.withValues(alpha: 0.03),
+                                          : Colors.white
+                                              .withValues(alpha: 0.03),
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.10),
+                                        color: Colors.white
+                                            .withValues(alpha: 0.10),
                                       ),
                                     ),
                                     child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 104,
-                                        height: 64,
-                                        child: _EpisodeRowThumb(
-                                          mediaId: media.id,
-                                          episode: ep.number,
-                                          networkThumbUrl: thumb,
-                                          fallbackUrl: fallbackThumb,
+                                      children: [
+                                        SizedBox(
+                                          width: 104,
+                                          height: 64,
+                                          child: _EpisodeRowThumb(
+                                            mediaId: media.id,
+                                            episode: ep.number,
+                                            networkThumbUrl: thumb,
+                                            fallbackUrl: fallbackThumb,
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text('EP ${ep.number}',
-                                                style: const TextStyle(
-                                                    color: Color(0xFF8B5CF6),
-                                                    fontWeight: FontWeight.w700)),
-                                            const SizedBox(height: 2),
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    episodeSubtitle,
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                        fontSize: 15,
-                                                        fontWeight:
-                                                            FontWeight.w700),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text('EP ${ep.number}',
+                                                  style: const TextStyle(
+                                                      color: Color(0xFF8B5CF6),
+                                                      fontWeight:
+                                                          FontWeight.w700)),
+                                              const SizedBox(height: 2),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      episodeSubtitle,
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                          fontSize: 15,
+                                                          fontWeight:
+                                                              FontWeight.w700),
+                                                    ),
                                                   ),
-                                                ),
-                                                if (hasLocal) ...[
-                                                  const SizedBox(width: 6),
-                                                  const Icon(
-                                                    CupertinoIcons
-                                                        .check_mark_circled,
-                                                    size: 16,
-                                                    color: Color(0xFF22C55E),
+                                                  _EpisodeLocalCheck(
+                                                    mediaId: media.id,
+                                                    episodeNumber: ep.number,
                                                   ),
                                                 ],
-                                              ],
-                                            ),
-                                            if (d != null && d.status != 'done')
-                                              Padding(
-                                                padding:
-                                                    const EdgeInsets.only(top: 4),
-                                                child: Text(
-                                                    '${d.status} ${(d.progress * 100).toStringAsFixed(0)}%'),
                                               ),
-                                          ],
+                                              _EpisodeDownloadStatusText(
+                                                mediaId: media.id,
+                                                episodeNumber: ep.number,
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      ProgressRing(percent: pct, size: 52),
-                                      const SizedBox(width: 8),
-                                      Column(
-                                        children: [
-                                          if (d?.status == 'downloading')
-                                            IconButton.filledTonal(
-                                              style: IconButton.styleFrom(
-                                                  minimumSize: const Size(30, 30),
-                                                  padding: EdgeInsets.zero,
-                                                  visualDensity:
-                                                      VisualDensity.compact),
-                                              onPressed: () => ref
-                                                  .read(downloadControllerProvider
-                                                      .notifier)
-                                                  .cancel(media.id, ep.number),
-                                              icon: const Icon(Icons.close),
-                                            )
-                                          else if (done)
-                                            Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                IconButton.filledTonal(
-                                                  tooltip: 'Delete Download',
-                                                  style: IconButton.styleFrom(
-                                                      minimumSize:
-                                                          const Size(30, 30),
-                                                      padding: EdgeInsets.zero,
-                                                      visualDensity:
-                                                          VisualDensity.compact),
-                                                  onPressed: () => ref
-                                                      .read(
-                                                          downloadControllerProvider
-                                                              .notifier)
-                                                      .delete(
-                                                          media.id, ep.number),
-                                                  icon: const Icon(
-                                                      Icons.check_circle_rounded),
-                                                ),
-                                                const Text(
-                                                  'Downloaded',
-                                                  style: TextStyle(
-                                                    fontSize: 9,
-                                                    color: Color(0xFF86EFAC),
-                                                  ),
-                                                ),
-                                              ],
-                                            )
-                                          else
-                                            GestureDetector(
-                                              behavior: HitTestBehavior.opaque,
-                                              onTap: () async {
-                                                final sources =
-                                                    await _loadSourcesWithOverlay(
-                                                        media, ep);
-                                                if (sources.isEmpty) return;
-                                                final settings =
-                                                    ref.read(appSettingsProvider);
-                                                final selected = settings
-                                                        .chooseStreamEveryTime
+                                        const SizedBox(width: 8),
+                                        ProgressRing(percent: pct, size: 52),
+                                        const SizedBox(width: 8),
+                                        _EpisodeDownloadAction(
+                                          mediaId: media.id,
+                                          episodeNumber: ep.number,
+                                          onDownloadTap: () async {
+                                            final sources =
+                                                await _loadSourcesWithOverlay(
+                                              media,
+                                              ep,
+                                            );
+                                            if (sources.isEmpty) return;
+                                            final settings =
+                                                ref.read(appSettingsProvider);
+                                            final selected =
+                                                settings.chooseStreamEveryTime
                                                     ? await _showSourcePicker(
                                                         sources)
                                                     : _pickDownloadSource(
-                                                        sources, settings);
-                                                if (selected == null) return;
-                                                _lockSessionSource(selected);
-                                                await ref
-                                                    .read(
-                                                        downloadControllerProvider
-                                                            .notifier)
-                                                    .downloadHlsEpisode(
-                                                      mediaId: media.id,
-                                                      episode: ep.number,
-                                                      animeTitle:
-                                                          media.title.best,
-                                                      coverImageUrl:
-                                                          media.cover.best,
-                                                      episodeThumbnailUrl:
-                                                          _episodeThumbnailUrl(
-                                                              media, ep.number),
-                                                      source: selected,
-                                                    );
-                                              },
-                                              child: Container(
-                                                width: 34,
-                                                height: 34,
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.08),
-                                                  borderRadius:
-                                                      BorderRadius.circular(10),
-                                                  border: Border.all(
-                                                    color: Colors.white
-                                                        .withValues(alpha: 0.12),
+                                                        sources,
+                                                        settings,
+                                                      );
+                                            if (selected == null) return;
+                                            _lockSessionSource(selected);
+                                            await ref
+                                                .read(downloadControllerProvider
+                                                    .notifier)
+                                                .downloadHlsEpisode(
+                                                  mediaId: media.id,
+                                                  episode: ep.number,
+                                                  animeTitle: media.title.best,
+                                                  coverImageUrl:
+                                                      media.cover.best,
+                                                  episodeThumbnailUrl:
+                                                      _episodeThumbnailUrl(
+                                                    media,
+                                                    ep.number,
                                                   ),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.download_outlined,
-                                                  size: 29,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
+                                                  source: selected,
+                                                );
+                                          },
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -1312,6 +1250,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                 divisions: 100,
                 label: _score.round().toString(),
                 onChanged: (v) => setState(() {
+                  _loadedInitial = true;
                   _score = v.roundToDouble();
                   _pushOptimistic();
                   _persistLocalImmediate();
@@ -1331,6 +1270,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
               IconButton(
                 visualDensity: VisualDensity.compact,
                 onPressed: () => setState(() {
+                  _loadedInitial = true;
                   _score = i.toDouble();
                   _pushOptimistic();
                   _persistLocalImmediate();
@@ -1358,6 +1298,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
             for (final o in opts)
               TextButton.icon(
                 onPressed: () => setState(() {
+                  _loadedInitial = true;
                   _score = o.$3.toDouble();
                   _pushOptimistic();
                   _persistLocalImmediate();
@@ -1392,6 +1333,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                     ? _score.toStringAsFixed(1)
                     : _score.round().toString(),
                 onChanged: (v) => setState(() {
+                  _loadedInitial = true;
                   _score = format == 'POINT_10_DECIMAL'
                       ? (v * 10).round() / 10
                       : v.roundToDouble();
@@ -1468,6 +1410,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                         label: Text(s),
                         selected: _status == s,
                         onSelected: (_) => setState(() {
+                          _loadedInitial = true;
                           _status = s;
                           _pushOptimistic();
                           _persistLocalImmediate();
@@ -1487,6 +1430,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                         divisions: maxEp > 0 ? maxEp : 1,
                         label: '$_progress',
                         onChanged: (v) => setState(() {
+                          _loadedInitial = true;
                           _progress = v.round();
                           _pushOptimistic();
                           _persistLocalImmediate();
@@ -1807,6 +1751,147 @@ class ProgressRing extends StatelessWidget {
                     const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EpisodeLocalCheck extends ConsumerWidget {
+  const _EpisodeLocalCheck({
+    required this.mediaId,
+    required this.episodeNumber,
+  });
+
+  final int mediaId;
+  final int episodeNumber;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final item = ref.watch(
+      downloadItemProvider(
+        LocalEpisodeQuery(mediaId: mediaId, episode: episodeNumber),
+      ),
+    );
+    final isLocal = item?.status == 'done' &&
+        ((item?.localFilePath?.isNotEmpty ?? false) ||
+            (item?.sourceUrl.isNotEmpty ?? false));
+    if (!isLocal) return const SizedBox.shrink();
+    return const Padding(
+      padding: EdgeInsets.only(left: 6),
+      child: Icon(
+        CupertinoIcons.check_mark_circled,
+        size: 16,
+        color: Color(0xFF22C55E),
+      ),
+    );
+  }
+}
+
+class _EpisodeDownloadStatusText extends ConsumerWidget {
+  const _EpisodeDownloadStatusText({
+    required this.mediaId,
+    required this.episodeNumber,
+  });
+
+  final int mediaId;
+  final int episodeNumber;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = ref.watch(
+      downloadItemProvider(
+        LocalEpisodeQuery(mediaId: mediaId, episode: episodeNumber),
+      ),
+    );
+    if (d == null || d.status == 'done') return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text('${d.status} ${(d.progress * 100).toStringAsFixed(0)}%'),
+    );
+  }
+}
+
+class _EpisodeDownloadAction extends ConsumerWidget {
+  const _EpisodeDownloadAction({
+    required this.mediaId,
+    required this.episodeNumber,
+    required this.onDownloadTap,
+  });
+
+  final int mediaId;
+  final int episodeNumber;
+  final Future<void> Function() onDownloadTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = ref.watch(
+      downloadItemProvider(
+        LocalEpisodeQuery(mediaId: mediaId, episode: episodeNumber),
+      ),
+    );
+    final done = d?.status == 'done';
+
+    if (d?.status == 'downloading') {
+      return IconButton.filledTonal(
+        style: IconButton.styleFrom(
+          minimumSize: const Size(30, 30),
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: () => ref
+            .read(downloadControllerProvider.notifier)
+            .cancel(mediaId, episodeNumber),
+        icon: const Icon(Icons.close),
+      );
+    }
+
+    if (done) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton.filledTonal(
+            tooltip: 'Delete Download',
+            style: IconButton.styleFrom(
+              minimumSize: const Size(30, 30),
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => ref
+                .read(downloadControllerProvider.notifier)
+                .delete(mediaId, episodeNumber),
+            icon: const Icon(Icons.check_circle_rounded),
+          ),
+          const Text(
+            'Downloaded',
+            style: TextStyle(
+              fontSize: 9,
+              color: Color(0xFF86EFAC),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        unawaited(onDownloadTap());
+      },
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.12),
+          ),
+        ),
+        child: const Icon(
+          Icons.download_outlined,
+          size: 29,
+          color: Colors.white,
+        ),
       ),
     );
   }

@@ -239,6 +239,123 @@ class AniListClient {
     }());
   }
 
+  void _patchTrackingCaches({
+    required String token,
+    required int mediaId,
+    required String status,
+    required int progress,
+  }) {
+    for (final entry in _libraryCurrentCache.entries.toList()) {
+      if (!entry.key.startsWith('$token:')) continue;
+      final current = entry.value;
+      if (!current.isValid) continue;
+      var changed = false;
+      final patched = current.value.map((row) {
+        if (row.media.id != mediaId) return row;
+        changed = true;
+        return AniListLibraryEntry(
+          id: row.id,
+          progress: progress,
+          media: row.media,
+        );
+      }).toList();
+      if (!changed) continue;
+      _libraryCurrentCache[entry.key] = _CacheEntry<List<AniListLibraryEntry>>(
+        patched,
+        current.expiresAt,
+      );
+    }
+
+    for (final entry in _librarySectionsCache.entries.toList()) {
+      if (!entry.key.startsWith('$token:')) continue;
+      final current = entry.value;
+      if (!current.isValid) continue;
+      var changed = false;
+      final patchedSections = current.value.map((section) {
+        final patchedItems = section.items.map((row) {
+          if (row.media.id != mediaId) return row;
+          changed = true;
+          return AniListLibraryEntry(
+            id: row.id,
+            progress: progress,
+            media: row.media,
+          );
+        }).toList();
+        return AniListLibrarySection(title: section.title, items: patchedItems);
+      }).toList();
+      if (!changed) continue;
+
+      // Move media between sections if status changed.
+      AniListLibraryEntry? tracked;
+      for (final section in patchedSections) {
+        for (final item in section.items) {
+          if (item.media.id == mediaId) {
+            tracked = item;
+            break;
+          }
+        }
+        if (tracked != null) break;
+      }
+      if (tracked != null) {
+        final normalizedStatus = status.toUpperCase();
+        String targetTitle;
+        switch (normalizedStatus) {
+          case 'CURRENT':
+          case 'REPEATING':
+            targetTitle = 'Watching';
+            break;
+          case 'PLANNING':
+            targetTitle = 'Planning';
+            break;
+          case 'COMPLETED':
+            targetTitle = 'Completed';
+            break;
+          case 'PAUSED':
+            targetTitle = 'Paused';
+            break;
+          case 'DROPPED':
+            targetTitle = 'Dropped';
+            break;
+          default:
+            targetTitle = 'Watching';
+        }
+        final withoutMedia = patchedSections
+            .map(
+              (section) => AniListLibrarySection(
+                title: section.title,
+                items: section.items
+                    .where((item) => item.media.id != mediaId)
+                    .toList(),
+              ),
+            )
+            .toList();
+        final targetIndex =
+            withoutMedia.indexWhere((s) => s.title == targetTitle);
+        if (targetIndex >= 0) {
+          final target = withoutMedia[targetIndex];
+          withoutMedia[targetIndex] = AniListLibrarySection(
+            title: target.title,
+            items: [...target.items, tracked],
+          );
+        } else {
+          withoutMedia
+              .add(AniListLibrarySection(title: targetTitle, items: [tracked]));
+        }
+        _librarySectionsCache[entry.key] =
+            _CacheEntry<List<AniListLibrarySection>>(
+          withoutMedia,
+          current.expiresAt,
+        );
+      } else {
+        _librarySectionsCache[entry.key] =
+            _CacheEntry<List<AniListLibrarySection>>(
+          patchedSections,
+          current.expiresAt,
+        );
+      }
+    }
+  }
+
   String buildAuthUrl({
     required String clientId,
     required String redirectUri,
@@ -1339,9 +1456,16 @@ class AniListClient {
         'score': score,
       },
     );
-    return AniListTrackingEntry.fromJson(
+    final saved = AniListTrackingEntry.fromJson(
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
     );
+    _patchTrackingCaches(
+      token: token,
+      mediaId: mediaId,
+      status: saved.status,
+      progress: saved.progress,
+    );
+    return saved;
   }
 
   Future<AniListEpisodeAvailability?> episodeAvailability(
