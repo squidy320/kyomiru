@@ -1260,7 +1260,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         child: SizedBox(
           width: constraints.maxWidth,
           height: constraints.maxHeight,
-          child: Video(controller: mediaKit),
+          child: Video(
+            controller: mediaKit,
+            controls: NoVideoControls,
+            fit: BoxFit.contain,
+          ),
         ),
       );
     }
@@ -1576,101 +1580,97 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 ],
                               ),
                               if (showCustomProgress)
-                                (_videoController != null)
-                                    ? GestureDetector(
-                                        behavior: HitTestBehavior.opaque,
-                                        onTapDown: (details) {
-                                          final box = context.findRenderObject()
-                                              as RenderBox?;
-                                          if (box == null) return;
-                                          final ratio =
-                                              (details.localPosition.dx /
-                                                      box.size.width)
-                                                  .clamp(0.0, 1.0);
-                                          unawaited(_seekByRatio(ratio));
-                                          _registerInteraction();
-                                        },
-                                        onHorizontalDragStart: (_) {
-                                          _registerInteraction();
-                                          setState(() {
-                                            _isDragging = true;
-                                            _dragValueSec = uiCurrent;
-                                          });
-                                        },
-                                        onHorizontalDragUpdate: (details) {
-                                          final box = context.findRenderObject()
-                                              as RenderBox?;
-                                          if (box == null || _durationSec <= 0) {
-                                            return;
-                                          }
-                                          final localDx =
-                                              details.localPosition.dx;
-                                          final ratio =
-                                              (localDx / box.size.width)
-                                                  .clamp(0.0, 1.0);
-                                          setState(() {
-                                            _dragValueSec = _durationSec * ratio;
-                                          });
-                                        },
-                                        onHorizontalDragEnd: (_) {
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTapDown: (details) {
+                                    final box =
+                                        context.findRenderObject() as RenderBox?;
+                                    if (box == null) return;
+                                    final ratio =
+                                        (details.localPosition.dx / box.size.width)
+                                            .clamp(0.0, 1.0);
+                                    unawaited(_seekByRatio(ratio));
+                                    _registerInteraction();
+                                  },
+                                  onHorizontalDragStart: (_) {
+                                    _registerInteraction();
+                                    setState(() {
+                                      _isDragging = true;
+                                      _dragValueSec = uiCurrent;
+                                    });
+                                  },
+                                  onHorizontalDragUpdate: (details) {
+                                    final box =
+                                        context.findRenderObject() as RenderBox?;
+                                    if (box == null || _durationSec <= 0) return;
+                                    final localDx = details.localPosition.dx;
+                                    final ratio =
+                                        (localDx / box.size.width).clamp(0.0, 1.0);
+                                    setState(() {
+                                      _dragValueSec = _durationSec * ratio;
+                                    });
+                                  },
+                                  onHorizontalDragEnd: (_) {
+                                    final ratio = _durationSec <= 0
+                                        ? 0.0
+                                        : _dragValueSec / _durationSec;
+                                    setState(() => _isDragging = false);
+                                    unawaited(_seekByRatio(ratio));
+                                    _registerInteraction();
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: SizedBox(
+                                      height: 14,
+                                      child: LayoutBuilder(
+                                        builder: (context, constraints) {
                                           final ratio = _durationSec <= 0
                                               ? 0.0
-                                              : _dragValueSec / _durationSec;
-                                          setState(() => _isDragging = false);
-                                          unawaited(_seekByRatio(ratio));
-                                          _registerInteraction();
+                                              : (uiCurrent / _durationSec)
+                                                  .clamp(0.0, 1.0);
+                                          return Stack(
+                                            alignment: Alignment.centerLeft,
+                                            children: [
+                                              Container(
+                                                height: 3,
+                                                width: constraints.maxWidth,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.14),
+                                                  borderRadius:
+                                                      BorderRadius.circular(999),
+                                                ),
+                                              ),
+                                              FractionallySizedBox(
+                                                widthFactor: ratio,
+                                                child: Container(
+                                                  height: 3,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius:
+                                                        BorderRadius.circular(999),
+                                                  ),
+                                                ),
+                                              ),
+                                              Positioned(
+                                                left: ((constraints.maxWidth * ratio) - 4)
+                                                    .clamp(0.0, constraints.maxWidth - 8),
+                                                child: Container(
+                                                  width: 8,
+                                                  height: 8,
+                                                  decoration: const BoxDecoration(
+                                                    color: Colors.white,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          );
                                         },
-                                        child: VideoProgressIndicator(
-                                          _videoController!,
-                                          allowScrubbing: false,
-                                          padding:
-                                              const EdgeInsets.only(top: 10),
-                                          colors: VideoProgressColors(
-                                            playedColor: Colors.white,
-                                            bufferedColor: Colors.white
-                                                .withValues(alpha: 0.25),
-                                            backgroundColor: Colors.white
-                                                .withValues(alpha: 0.14),
-                                          ),
-                                        ),
-                                      )
-                                    : SliderTheme(
-                                        data: SliderTheme.of(context).copyWith(
-                                          trackHeight: 2.6,
-                                          activeTrackColor: Colors.white,
-                                          inactiveTrackColor: Colors.white
-                                              .withValues(alpha: 0.14),
-                                          thumbColor: Colors.white,
-                                          overlayColor: Colors.white
-                                              .withValues(alpha: 0.18),
-                                          thumbShape:
-                                              const RoundSliderThumbShape(
-                                                  enabledThumbRadius: 5),
-                                        ),
-                                        child: Slider(
-                                          min: 0,
-                                          max: _durationSec <= 0 ? 1 : _durationSec,
-                                          value: uiCurrent.clamp(
-                                            0.0,
-                                            _durationSec <= 0 ? 1.0 : _durationSec,
-                                          ),
-                                          onChanged: (value) {
-                                            _registerInteraction();
-                                            setState(() {
-                                              _isDragging = true;
-                                              _dragValueSec = value;
-                                            });
-                                          },
-                                          onChangeEnd: (value) {
-                                            final ratio = _durationSec <= 0
-                                                ? 0.0
-                                                : value / _durationSec;
-                                            setState(() => _isDragging = false);
-                                            unawaited(_seekByRatio(ratio));
-                                            _registerInteraction();
-                                          },
-                                        ),
                                       ),
+                                    ),
+                                  ),
+                                ),
                               if (showCustomProgress) const SizedBox(height: 8),
                               if (showCustomProgress)
                                 Padding(

@@ -1380,6 +1380,18 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                         onPressed: _saving
                             ? null
                             : () async {
+                                if (source == LibrarySource.anilist &&
+                                    (widget.token == null ||
+                                        widget.token!.isEmpty)) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'AniList token missing. Please reconnect your account.',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
                                 final messenger = ScaffoldMessenger.of(context);
                                 setState(() => _saving = true);
                                 final ok = await ref
@@ -1391,6 +1403,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                                       progress: _progress,
                                       score: _score,
                                       media: widget.media,
+                                      tokenOverride: widget.token,
                                     );
                                 if (!mounted) return;
                                 if (!ok) {

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/app_logger.dart';
 import '../models/anilist_models.dart';
 import '../services/local_library_store.dart';
 import 'auth_state.dart';
@@ -73,6 +74,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
     required int progress,
     required double score,
     AniListMedia? media,
+    String? tokenOverride,
   }) async {
     final source = _ref.read(librarySourceProvider);
     if (source == LibrarySource.local) {
@@ -104,8 +106,13 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
     }
 
     final auth = _ref.read(authControllerProvider);
-    final token = auth.token;
-    if (token == null || token.isEmpty) return false;
+    final token = (tokenOverride != null && tokenOverride.isNotEmpty)
+        ? tokenOverride
+        : auth.token;
+    if (token == null || token.isEmpty) {
+      AppLogger.e('AniList', 'AniList Update Failed: No Token');
+      return false;
+    }
 
     final previous = state;
     setLocal(status: status, progress: progress, score: score);
@@ -122,6 +129,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
       return true;
     } catch (_) {
       state = previous;
+      AppLogger.w('AniList', 'SaveMediaListEntry failed in controller.save');
       return false;
     }
   }
