@@ -397,6 +397,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             child: RefreshIndicator(
               onRefresh: _refresh,
               child: CustomScrollView(
+                shrinkWrap: false,
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   ...topSlivers,
@@ -494,9 +495,10 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                         colors: [
                           Colors.transparent,
                           Colors.transparent,
+                          Color(0x80090B13),
                           _kDiscoveryBaseColor,
                         ],
-                        stops: [0.0, 0.70, 1.0],
+                        stops: [0.0, 0.6, 0.8, 1.0],
                       ),
                     ),
                   ),

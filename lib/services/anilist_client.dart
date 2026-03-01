@@ -71,6 +71,7 @@ class AniListClient {
   final List<Future<void> Function()> _serialQueue = [];
   bool _serialRunning = false;
   DateTime _nextAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _anonymousCooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const Duration _staleTtl = Duration(minutes: 30);
   static const Duration _mediaTtl = Duration(hours: 24);
@@ -78,10 +79,14 @@ class AniListClient {
 
   final Map<String, _CacheEntry<AniListUser>> _viewerCache = {};
   final Map<String, _CacheEntry<int>> _unreadCache = {};
-  final Map<String, _CacheEntry<List<AniListLibraryEntry>>> _libraryCurrentCache = {};
-  final Map<String, _CacheEntry<List<AniListLibrarySection>>> _librarySectionsCache = {};
-  final Map<String, _CacheEntry<AniListEpisodeAvailability>> _episodeAvailabilityCache = {};
-  final Map<String, _CacheEntry<List<AniListNotificationItem>>> _notificationsCache = {};
+  final Map<String, _CacheEntry<List<AniListLibraryEntry>>>
+      _libraryCurrentCache = {};
+  final Map<String, _CacheEntry<List<AniListLibrarySection>>>
+      _librarySectionsCache = {};
+  final Map<String, _CacheEntry<AniListEpisodeAvailability>>
+      _episodeAvailabilityCache = {};
+  final Map<String, _CacheEntry<List<AniListNotificationItem>>>
+      _notificationsCache = {};
 
   _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
   _CacheEntry<List<AniListDiscoverySection>>? _discoverySectionsCache;
@@ -156,14 +161,19 @@ class AniListClient {
     return null;
   }
 
-  Map<String, dynamic>? _readQueryCache(String key) {
+  Map<String, dynamic>? _readQueryCache(
+    String key, {
+    Duration? maxAge = _mediaTtl,
+  }) {
     final raw = _queryBox()?.get(key);
     if (raw is! Map) return null;
     final cachedAtMs = (raw['cachedAtMs'] as num?)?.toInt() ?? 0;
     if (cachedAtMs <= 0) return null;
-    final age = DateTime.now()
-        .difference(DateTime.fromMillisecondsSinceEpoch(cachedAtMs));
-    if (age > _mediaTtl) return null;
+    if (maxAge != null) {
+      final age = DateTime.now()
+          .difference(DateTime.fromMillisecondsSinceEpoch(cachedAtMs));
+      if (age > maxAge) return null;
+    }
     final data = raw['data'];
     if (data is! Map) return null;
     return Map<String, dynamic>.from(data);
@@ -344,11 +354,15 @@ class AniListClient {
         'anonymous';
 
     return _serialize(() async {
+      final isAnonymous = token == null || token.isEmpty;
+      if (isAnonymous && DateTime.now().isBefore(_anonymousCooldownUntil)) {
+        throw Exception('AniList GraphQL cooldown active');
+      }
       var attempts = 0;
       while (true) {
         attempts++;
         final gate = _isAnonymousNonEssential(query, token)
-            ? const Duration(milliseconds: 500)
+            ? const Duration(milliseconds: 700)
             : const Duration(milliseconds: 300);
         await _respectGate(gate);
         try {
@@ -384,12 +398,22 @@ class AniListClient {
             final delayMs = 1200 * attempts;
             _nextAllowedAt =
                 DateTime.now().add(Duration(milliseconds: delayMs));
+            if (isAnonymous) {
+              _anonymousCooldownUntil = DateTime.now().add(
+                const Duration(seconds: 45),
+              );
+            }
             AppLogger.w('AniList',
                 'GraphQL 429 op=$operation; backing off ${delayMs}ms');
             continue;
           }
 
           if (status >= 400) {
+            if (status == 429 && isAnonymous) {
+              _anonymousCooldownUntil = DateTime.now().add(
+                const Duration(seconds: 45),
+              );
+            }
             AppLogger.e('AniList', 'GraphQL HTTP $status op=$operation',
                 error: {
                   'variables': variables,
@@ -510,10 +534,11 @@ class AniListClient {
     final cached = _libraryCurrentCache[cacheKey];
     if (cached != null) {
       if (cached.isValid) return cached.value;
-      _refreshInBackground('libraryCurrent:' + cacheKey, () async {
+      _refreshInBackground('libraryCurrent:$cacheKey', () async {
         _libraryCurrentCache.remove(cacheKey);
         final fresh = await libraryCurrent(token, userId: uid);
-        _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(fresh, DateTime.now().add(_staleTtl));
+        _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
+            fresh, DateTime.now().add(_staleTtl));
       });
       return cached.value;
     }
@@ -521,8 +546,8 @@ class AniListClient {
     if (persisted != null) {
       final rows = (persisted['items'] as List? ?? const [])
           .whereType<Map>()
-          .map((e) => AniListLibraryEntry.fromJson(
-              Map<String, dynamic>.from(e)))
+          .map(
+              (e) => AniListLibraryEntry.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
         rows,
@@ -581,7 +606,8 @@ class AniListClient {
         }
       }
     }
-    _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(out, DateTime.now().add(_staleTtl));
+    _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
+        out, DateTime.now().add(_staleTtl));
     _writeQueryCache(
       persistedKey,
       {
@@ -626,10 +652,12 @@ class AniListClient {
     final cached = _librarySectionsCache[cacheKey];
     if (cached != null) {
       if (cached.isValid) return cached.value;
-      _refreshInBackground('librarySections:' + cacheKey, () async {
+      _refreshInBackground('librarySections:$cacheKey', () async {
         _librarySectionsCache.remove(cacheKey);
         final fresh = await librarySections(token, userId: uid);
-        _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(fresh, DateTime.now().add(_staleTtl));
+        _librarySectionsCache[cacheKey] =
+            _CacheEntry<List<AniListLibrarySection>>(
+                fresh, DateTime.now().add(_staleTtl));
       });
       return cached.value;
     }
@@ -647,7 +675,8 @@ class AniListClient {
             .toList();
         return AniListLibrarySection(title: title, items: items);
       }).toList();
-      _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(
+      _librarySectionsCache[cacheKey] =
+          _CacheEntry<List<AniListLibrarySection>>(
         sections,
         DateTime.now().add(_staleTtl),
       );
@@ -724,7 +753,9 @@ class AniListClient {
         return order(a.title).compareTo(order(b.title));
       });
 
-      _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(out, DateTime.now().add(_staleTtl));
+      _librarySectionsCache[cacheKey] =
+          _CacheEntry<List<AniListLibrarySection>>(
+              out, DateTime.now().add(_staleTtl));
       _writeQueryCache(
         persistedKey,
         {
@@ -768,8 +799,12 @@ class AniListClient {
           error: e, stackTrace: st);
       final current = await libraryCurrent(token, userId: uid);
       if (current.isEmpty) return const [];
-      final fallback = [AniListLibrarySection(title: 'Watching', items: current)];
-      _librarySectionsCache[cacheKey] = _CacheEntry<List<AniListLibrarySection>>(fallback, DateTime.now().add(_staleTtl));
+      final fallback = [
+        AniListLibrarySection(title: 'Watching', items: current)
+      ];
+      _librarySectionsCache[cacheKey] =
+          _CacheEntry<List<AniListLibrarySection>>(
+              fallback, DateTime.now().add(_staleTtl));
       return fallback;
     }
   }
@@ -817,7 +852,20 @@ class AniListClient {
       }
     ''';
 
-    final data = await _graphql(query: q);
+    Map<String, dynamic> data;
+    try {
+      data = await _graphql(query: q);
+    } catch (_) {
+      final stale = _readQueryCache('discoveryTrending', maxAge: null);
+      if (stale != null) {
+        final rows = (stale['items'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => AniListMedia.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        if (rows.isNotEmpty) return rows;
+      }
+      rethrow;
+    }
     final media = (data['Page']?['media'] as List? ?? const []);
     final out = _sanitizeMediaList(media
         .whereType<Map<String, dynamic>>()
@@ -923,10 +971,30 @@ class AniListClient {
       }
     ''';
 
-    final data = await _graphql(query: q, variables: {
-      'currentSeason': currentSeason,
-      'currentYear': currentYear,
-    });
+    Map<String, dynamic> data;
+    try {
+      data = await _graphql(query: q, variables: {
+        'currentSeason': currentSeason,
+        'currentYear': currentYear,
+      });
+    } catch (_) {
+      final stale = _readQueryCache('discoverySections', maxAge: null);
+      if (stale != null) {
+        final sections =
+            (stale['sections'] as List? ?? const []).whereType<Map>().map((e) {
+          final map = Map<String, dynamic>.from(e);
+          final title = (map['title'] ?? 'Section').toString();
+          final items = (map['items'] as List? ?? const [])
+              .whereType<Map>()
+              .map((row) =>
+                  AniListMedia.fromJson(Map<String, dynamic>.from(row)))
+              .toList();
+          return AniListDiscoverySection(title: title, items: items);
+        }).toList();
+        if (sections.isNotEmpty) return sections;
+      }
+      rethrow;
+    }
 
     List<AniListMedia> listFrom(String key) {
       final raw = (data[key]?['media'] as List? ?? const []);
@@ -1063,7 +1131,7 @@ class AniListClient {
     final cached = _notificationsCache[token];
     if (cached != null) {
       if (cached.isValid) return cached.value;
-      _refreshInBackground('notifications:' + token, () async {
+      _refreshInBackground('notifications:$token', () async {
         _notificationsCache.remove(token);
         await notifications(token);
       });
@@ -1173,7 +1241,8 @@ class AniListClient {
           .where((n) => n.id != 0)
           .toList();
       AppLogger.i('AniList', 'notifications loaded count=${out.length}');
-      _notificationsCache[token] = _CacheEntry<List<AniListNotificationItem>>(out, DateTime.now().add(_staleTtl));
+      _notificationsCache[token] = _CacheEntry<List<AniListNotificationItem>>(
+          out, DateTime.now().add(_staleTtl));
       return out;
     } catch (e, st) {
       AppLogger.w(
@@ -1194,8 +1263,9 @@ class AniListClient {
           'AniList',
           'notifications fallback loaded count=${out.length}',
         );
-        _notificationsCache[token] = _CacheEntry<List<AniListNotificationItem>>(out, DateTime.now().add(_staleTtl));
-      return out;
+        _notificationsCache[token] = _CacheEntry<List<AniListNotificationItem>>(
+            out, DateTime.now().add(_staleTtl));
+        return out;
       } catch (e2, st2) {
         AppLogger.w(
           'AniList',
@@ -1306,9 +1376,8 @@ class AniListClient {
       mediaId: (media['id'] as num?)?.toInt() ?? mediaId,
       status: (media['status'] ?? '').toString(),
       episodes: (media['episodes'] as num?)?.toInt(),
-      nextAiringEpisode:
-          (media['nextAiringEpisode'] as Map<String, dynamic>?)?['episode']
-              as int?,
+      nextAiringEpisode: (media['nextAiringEpisode']
+          as Map<String, dynamic>?)?['episode'] as int?,
     );
     _episodeAvailabilityCache[key] = _CacheEntry<AniListEpisodeAvailability>(
       result,
@@ -1324,27 +1393,3 @@ class AniListClient {
     return 'FALL';
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -32,17 +32,15 @@ class KyomiruApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
-    final view = WidgetsBinding.instance.platformDispatcher.views.first;
-    final logicalSize = view.physicalSize / view.devicePixelRatio;
-    final shortestSide = logicalSize.shortestSide;
-    final isIosTablet = Platform.isIOS && shortestSide >= 600;
-    final enableLiquidLayer = liquidGlassEnabled && !isIosTablet;
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'kyomiru',
       theme: buildKyomiruTheme(settings),
       builder: (context, child) {
         final routedChild = child ?? const SizedBox.shrink();
+        final shortestSide = MediaQuery.sizeOf(context).shortestSide;
+        final isIosTablet = Platform.isIOS && shortestSide >= 600;
+        final enableLiquidLayer = liquidGlassEnabled && !isIosTablet;
         if (!enableLiquidLayer) {
           return routedChild;
         }
@@ -65,7 +63,7 @@ class KyomiruApp extends ConsumerWidget {
           },
         );
       },
-      home: AppTabs(liquidGlassEnabled: enableLiquidLayer),
+      home: AppTabs(liquidGlassEnabled: liquidGlassEnabled),
     );
   }
 }
@@ -259,6 +257,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
           )
         : const SizedBox.shrink();
 
+    final safeIndex = _index.clamp(0, _pages.length - 1);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isLarge = constraints.maxWidth > 600;
@@ -272,7 +271,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                 fit: StackFit.expand,
                 children: [
                   IndexedStack(
-                    index: _index,
+                    index: safeIndex,
                     children: _pages,
                   ),
                   Positioned(
@@ -299,7 +298,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                                     color: const Color(0xFA1E1E1E),
                                     borderRadius: BorderRadius.circular(40),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.10),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.10),
                                     ),
                                   ),
                                   child: navContent,
@@ -320,31 +320,32 @@ class _AppTabsState extends ConsumerState<AppTabs> {
           extendBodyBehindAppBar: true,
           resizeToAvoidBottomInset: false,
           body: GlassScaffoldBackground(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: IndexedStack(
-                    index: _index,
+            child: SizedBox.expand(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  IndexedStack(
+                    index: safeIndex,
                     children: _pages,
                   ),
-                ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: _TopPillNav(
-                        currentIndex: _index,
-                        onTap: _onItemTapped,
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                        child: _TopPillNav(
+                          currentIndex: safeIndex,
+                          onTap: _onItemTapped,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                offlineBadge,
-              ],
+                  offlineBadge,
+                ],
+              ),
             ),
           ),
         );
@@ -423,9 +424,8 @@ class _TopPillNav extends StatelessWidget {
       ('Library', 0),
     ];
 
-    final view = WidgetsBinding.instance.platformDispatcher.views.first;
-    final logicalSize = view.physicalSize / view.devicePixelRatio;
-    final isIosTablet = Platform.isIOS && logicalSize.shortestSide >= 600;
+    final isIosTablet =
+        Platform.isIOS && MediaQuery.sizeOf(context).shortestSide >= 600;
 
     final navBody = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
@@ -507,7 +507,9 @@ class _TopPillNavButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
-            color: active ? Colors.white.withValues(alpha: 0.16) : Colors.transparent,
+            color: active
+                ? Colors.white.withValues(alpha: 0.16)
+                : Colors.transparent,
           ),
           child: Text(
             label,
@@ -655,14 +657,18 @@ class _NotificationTile extends StatelessWidget {
       if (n.episode != null) return '$mediaTitle aired episode ${n.episode}';
       return n.context ?? mediaTitle;
     }
-    if (lower.contains('activity_like'))
+    if (lower.contains('activity_like')) {
       return '${n.userName ?? 'Someone'} liked your activity.';
-    if (lower.contains('activity_reply_like'))
+    }
+    if (lower.contains('activity_reply_like')) {
       return '${n.userName ?? 'Someone'} liked your reply.';
-    if (lower.contains('activity_reply'))
+    }
+    if (lower.contains('activity_reply')) {
       return '${n.userName ?? 'Someone'} replied to your activity.';
-    if (lower.contains('following'))
+    }
+    if (lower.contains('following')) {
       return '${n.userName ?? 'Someone'} started following you.';
+    }
     return n.context ?? n.media?.title.best ?? n.type;
   }
 

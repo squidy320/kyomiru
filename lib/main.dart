@@ -30,6 +30,36 @@ class LegacyType77Adapter extends TypeAdapter<Map<dynamic, dynamic>> {
   }
 }
 
+class LegacyType78Adapter extends TypeAdapter<Map<dynamic, dynamic>> {
+  @override
+  final int typeId = 78;
+
+  @override
+  Map<dynamic, dynamic> read(BinaryReader reader) {
+    try {
+      final value = reader.read();
+      if (value is Map) return value;
+    } catch (_) {}
+    return <dynamic, dynamic>{};
+  }
+
+  @override
+  void write(BinaryWriter writer, Map<dynamic, dynamic> obj) {
+    writer.write(obj);
+  }
+}
+
+void _registerHiveAdapters() {
+  // Keep adapter registration centralized so all typeIds are guaranteed
+  // to be available before any box is opened.
+  if (!Hive.isAdapterRegistered(77)) {
+    Hive.registerAdapter(LegacyType77Adapter());
+  }
+  if (!Hive.isAdapterRegistered(78)) {
+    Hive.registerAdapter(LegacyType78Adapter());
+  }
+}
+
 class KyomiruShaderWarmUp extends ShaderWarmUp {
   const KyomiruShaderWarmUp();
 
@@ -127,9 +157,7 @@ Future<void> main() async {
   AppLogger.i('App', 'Boot start');
   MediaKit.ensureInitialized();
   await Hive.initFlutter();
-  if (!Hive.isAdapterRegistered(77)) {
-    Hive.registerAdapter(LegacyType77Adapter());
-  }
+  _registerHiveAdapters();
   await _openHiveBoxSafe('episode_progress');
   await _openHiveBoxSafe('downloads');
   await _openHiveBoxSafe('app_settings');
