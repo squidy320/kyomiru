@@ -1,4 +1,4 @@
-name: Flutter CI Build
+name: Mobile Artifacts (APK + IPA)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   android:
-    name: Android Sideload Build
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +24,6 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.2'
           channel: stable
 
       - name: Flutter Pub Get
@@ -36,17 +35,49 @@ jobs:
       - name: Build Android APK (release)
         run: flutter build apk --release
 
-      - name: Build Android AppBundle (release)
-        run: flutter build appbundle --release
-
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk-release
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Upload Android AppBundle Artifact
+  ios:
+    name: Build iOS IPA (unsigned)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Pod Install
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          set -e
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          test -d "$APP_PATH"
+          rm -rf Payload kyomiru-ios-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent Payload kyomiru-ios-unsigned.ipa
+          test -f kyomiru-ios-unsigned.ipa
+
+      - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-appbundle-release
-          path: build/app/outputs/bundle/release/app-release.aab
+          name: ios-unsigned-ipa
+          path: kyomiru-ios-unsigned.ipa

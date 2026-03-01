@@ -1054,7 +1054,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final chewie = _chewieController;
     if (chewie == null) return const SizedBox.shrink();
     final isLarge = constraints.maxWidth > 600;
-    if (!isLarge) return Chewie(controller: chewie);
+    if (!isLarge) {
+      return Center(
+        child: Chewie(controller: chewie),
+      );
+    }
 
     final aspectRaw = _videoController?.value.aspectRatio ?? (16 / 9);
     final aspect = aspectRaw.clamp(0.5, 3.0);
@@ -1251,7 +1255,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     children: [
                       Positioned(
                         top: 8,
-                        left: 8,
+                        right: 8,
                         child: Material(
                           color: const Color(0xFA1E1E1E),
                           borderRadius: BorderRadius.circular(999),
@@ -1259,11 +1263,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                             onTap: _closePlayer,
                             borderRadius: BorderRadius.circular(999),
                             child: const Padding(
-                              padding: EdgeInsets.all(10),
+                              padding: EdgeInsets.all(12),
                               child: Icon(
                                 Icons.close_rounded,
                                 color: Colors.white,
-                                size: 18,
+                                size: 24,
                               ),
                             ),
                           ),
@@ -1298,7 +1302,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       if (_pipSupported)
                         Positioned(
                           top: 8,
-                          left: 126,
+                          left: 124,
                           child: Material(
                             color: const Color(0xFA1E1E1E),
                             borderRadius: BorderRadius.circular(999),

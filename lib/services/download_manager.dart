@@ -248,7 +248,7 @@ class DownloadController extends StateNotifier<DownloadState> {
   }) async {
     final completer = Completer<bool>();
     final cmd =
-        '-i ${_escapeArg(inputManifestPath)} -c copy -bsf:a aac_adtstoasc ${_escapeArg(outputMp4Path)}';
+        '-i ${_escapeArg(inputManifestPath)} -c copy ${_escapeArg(outputMp4Path)}';
     await FFmpegKit.executeAsync(cmd, (session) async {
       final code = await session.getReturnCode();
       completer.complete(ReturnCode.isSuccess(code));
