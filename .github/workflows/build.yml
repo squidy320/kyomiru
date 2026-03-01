@@ -59,7 +59,7 @@ jobs:
 
       - name: Ensure iOS Platform Folder
         run: |
-          if [ ! -d "ios" ]; then
+          if [ ! -d "ios" ] || [ ! -d "ios/Runner.xcodeproj" ]; then
             flutter create --platforms=ios .
           fi
 
