@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter/return_code.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
@@ -238,6 +240,22 @@ class DownloadController extends StateNotifier<DownloadState> {
   static const MethodChannel _mediaScanChannel =
       MethodChannel('kyomiru/media_scan');
 
+  String _escapeArg(String value) => '"${value.replaceAll('"', r'\"')}"';
+
+  Future<bool> _convertHlsToMp4({
+    required String inputManifestPath,
+    required String outputMp4Path,
+  }) async {
+    final completer = Completer<bool>();
+    final cmd =
+        '-i ${_escapeArg(inputManifestPath)} -c copy -bsf:a aac_adtstoasc ${_escapeArg(outputMp4Path)}';
+    await FFmpegKit.executeAsync(cmd, (session) async {
+      final code = await session.getReturnCode();
+      completer.complete(ReturnCode.isSuccess(code));
+    });
+    return completer.future;
+  }
+
   void _load() {
     final map = <String, DownloadItem>{};
     for (final k in _box.keys) {
@@ -437,12 +455,14 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (!await epDir.exists()) {
       await epDir.create(recursive: true);
     }
-    final manifestRelativePath = p.join(
-      safeTitle,
-      'Episode $episode',
-      'Episode $episode.m3u8',
-    );
-    final manifestPath = p.join(epDir.path, 'Episode $episode.m3u8');
+      final manifestRelativePath = p.join(
+        safeTitle,
+        'Episode $episode',
+        'Episode $episode.m3u8',
+      );
+      final manifestPath = p.join(epDir.path, 'Episode $episode.m3u8');
+      final mp4RelativePath = p.join(safeTitle, 'Episode $episode.mp4');
+      final mp4Path = p.join(animeDir.path, 'Episode $episode.mp4');
 
     final token = CancelToken();
     _cancelTokens[key] = token;
@@ -627,16 +647,64 @@ class DownloadController extends StateNotifier<DownloadState> {
 
       await File(manifestPath).writeAsString(rewritten.join('\n'));
 
-      await _saveItem(
-        state.items[key]!.copyWith(
-          status: 'done',
-          progress: 1,
-          resumable: false,
-          speedBitsPerSecond: 0,
-          clearError: true,
-        ),
-      );
-      await _scanOnAndroid(manifestPath);
+      final finalizingItem = state.items[key];
+      if (finalizingItem != null) {
+        await _emitDownloadUpdate(
+          finalizingItem.copyWith(
+            status: 'finalizing',
+            progress: 1,
+            speedBitsPerSecond: 0,
+            clearError: true,
+          ),
+          force: true,
+        );
+      }
+
+      var finalizedToMp4 = false;
+      try {
+        finalizedToMp4 = await _convertHlsToMp4(
+          inputManifestPath: manifestPath,
+          outputMp4Path: mp4Path,
+        );
+      } catch (e, st) {
+        AppLogger.w(
+          'Download',
+          'FFmpeg finalize failed for $key',
+          error: e,
+          stackTrace: st,
+        );
+      }
+
+      if (finalizedToMp4 && await File(mp4Path).exists()) {
+        try {
+          if (await epDir.exists()) {
+            await epDir.delete(recursive: true);
+          }
+        } catch (_) {}
+        await _saveItem(
+          state.items[key]!.copyWith(
+            status: 'done',
+            progress: 1,
+            resumable: false,
+            speedBitsPerSecond: 0,
+            localFilePath: mp4RelativePath,
+            clearError: true,
+          ),
+        );
+        await _scanOnAndroid(mp4Path);
+      } else {
+        await _saveItem(
+          state.items[key]!.copyWith(
+            status: 'done',
+            progress: 1,
+            resumable: false,
+            speedBitsPerSecond: 0,
+            localFilePath: manifestRelativePath,
+            error: 'Finalizing failed; using HLS file.',
+          ),
+        );
+        await _scanOnAndroid(manifestPath);
+      }
     } catch (e, st) {
       final cancelled = e is DioException && e.type == DioExceptionType.cancel;
       AppLogger.e('Download', 'HLS download failed', error: e, stackTrace: st);

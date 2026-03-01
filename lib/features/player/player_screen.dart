@@ -943,6 +943,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     await _enterPip();
   }
 
+  Future<void> enterPictureInPictureMode() async {
+    await _enterPip();
+  }
+
   Future<void> _setPlaybackSpeed(double speed) async {
     final c = _videoController;
     if (c == null || !c.value.isInitialized) return;
@@ -1026,6 +1030,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } else {
       await c.play();
       _registerInteraction();
+    }
+  }
+
+  Future<void> _closePlayer() async {
+    _overlayHideTimer?.cancel();
+    _persistTimer?.cancel();
+    _uiPollTimer?.cancel();
+    try {
+      await _persistProgress();
+      await _disposeControllers();
+    } catch (_) {}
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.maybePop();
     }
   }
 
@@ -1235,6 +1256,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           color: const Color(0xFA1E1E1E),
                           borderRadius: BorderRadius.circular(999),
                           child: InkWell(
+                            onTap: _closePlayer,
+                            borderRadius: BorderRadius.circular(999),
+                            child: const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        left: 54,
+                        child: Material(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(999),
+                          child: InkWell(
                             onTap: _openSpeedMenu,
                             borderRadius: BorderRadius.circular(999),
                             child: Padding(
@@ -1257,12 +1298,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       if (_pipSupported)
                         Positioned(
                           top: 8,
-                          right: 8,
+                          left: 126,
                           child: Material(
                             color: const Color(0xFA1E1E1E),
                             borderRadius: BorderRadius.circular(999),
                             child: InkWell(
-                              onTap: togglePiP,
+                              onTap: enterPictureInPictureMode,
                               borderRadius: BorderRadius.circular(999),
                               child: const Padding(
                                 padding: EdgeInsets.all(10),
@@ -1279,224 +1320,115 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         left: 12,
                         right: 12,
                         bottom: 18,
-                        child: LiquidGlass.withOwnLayer(
-                          settings: const LiquidGlassSettings(
-                            blur: 30,
-                            thickness: 15,
-                            refractiveIndex: 1.1,
-                            saturation: 1.5,
-                            glassColor: Color.fromRGBO(0, 0, 0, 0.2),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.52),
+                            borderRadius: BorderRadius.circular(16),
+                            border:
+                                Border.all(color: Colors.white.withValues(alpha: 0.10)),
                           ),
-                          shape:
-                              const LiquidRoundedSuperellipse(borderRadius: 16),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    IconButton(
-                                      style: IconButton.styleFrom(
-                                        backgroundColor:
-                                            Colors.black.withValues(alpha: 0.35),
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      onPressed: () {
-                                        hapticTap();
-                                        _togglePlayPause();
-                                      },
-                                      icon: Icon(
-                                        isPlaying
-                                            ? Icons.pause_rounded
-                                            : Icons.play_arrow_rounded,
-                                      ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    style: IconButton.styleFrom(
+                                      backgroundColor:
+                                          Colors.black.withValues(alpha: 0.35),
+                                      foregroundColor: Colors.white,
                                     ),
-                                  ],
-                                ),
-                                if (showCustomProgress) ...[
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTapDown: (details) {
-                                      final box =
-                                          context.findRenderObject() as RenderBox?;
-                                      if (box == null) return;
-                                      final ratio = (details.localPosition.dx /
-                                              box.size.width)
-                                          .clamp(0.0, 1.0);
-                                      unawaited(_seekByRatio(ratio));
-                                      _registerInteraction();
+                                    onPressed: () {
+                                      hapticTap();
+                                      _togglePlayPause();
                                     },
-                                    onHorizontalDragStart: (_) {
-                                      _registerInteraction();
-                                      setState(() {
-                                        _isDragging = true;
-                                        _dragValueSec = uiCurrent;
-                                      });
-                                    },
-                                    onHorizontalDragUpdate: (details) {
-                                      final box =
-                                          context.findRenderObject() as RenderBox?;
-                                      if (box == null || _durationSec <= 0) return;
-                                      final localDx = details.localPosition.dx;
-                                      final ratio = (localDx / box.size.width)
-                                          .clamp(0.0, 1.0);
-                                      setState(() =>
-                                          _dragValueSec = _durationSec * ratio);
-                                    },
-                                    onHorizontalDragEnd: (_) {
-                                      final ratio = _durationSec <= 0
-                                          ? 0.0
-                                          : _dragValueSec / _durationSec;
-                                      setState(() => _isDragging = false);
-                                      unawaited(_seekByRatio(ratio));
-                                      _registerInteraction();
-                                    },
-                                    child: LayoutBuilder(
-                                      builder: (context, constraints) {
-                                        final width = constraints.maxWidth;
-                                        final safeDuration = _durationSec <= 0
-                                            ? 1.0
-                                            : _durationSec;
-                                        final playedRatio =
-                                            (uiCurrent / safeDuration)
-                                                .clamp(0.0, 1.0);
-                                        final playedWidth = width * playedRatio;
-
-                                        final start = opStart;
-                                        final end = opEnd;
-                                        final hasOpening = start != null &&
-                                            end != null &&
-                                            end > start;
-
-                                        final openingLeft = hasOpening
-                                            ? (start / safeDuration) * width
-                                            : 0.0;
-                                        final openingWidth = hasOpening
-                                            ? ((end - start) / safeDuration) *
-                                                width
-                                            : 0.0;
-
-                                        return SizedBox(
-                                          height: 52,
-                                          child: Stack(
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              Positioned(
-                                                left: 0,
-                                                right: 0,
-                                                top: 26,
-                                                child: Container(
-                                                  height: 6,
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.white24,
-                                                    borderRadius:
-                                                        BorderRadius.circular(8),
-                                                  ),
-                                                ),
-                                              ),
-                                              if (hasOpening)
-                                                Positioned(
-                                                  left: openingLeft.clamp(
-                                                      0.0, width),
-                                                  top: 26,
-                                                  child: Container(
-                                                    height: 6,
-                                                    width: openingWidth.clamp(
-                                                        0.0, width),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.yellow
-                                                          .withValues(
-                                                              alpha: 0.3),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              8),
-                                                    ),
-                                                  ),
-                                                ),
-                                              Positioned(
-                                                left: 0,
-                                                top: 26,
-                                                child: Container(
-                                                  height: 6,
-                                                  width: playedWidth,
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.white,
-                                                    borderRadius:
-                                                        BorderRadius.circular(8),
-                                                  ),
-                                                ),
-                                              ),
-                                              Positioned(
-                                                left: (playedWidth - 8).clamp(
-                                                    0.0,
-                                                    (width - 16)
-                                                        .clamp(0.0, width)),
-                                                top: 21,
-                                                child: Container(
-                                                  width: 16,
-                                                  height: 16,
-                                                  decoration: const BoxDecoration(
-                                                    color: Colors.white,
-                                                    shape: BoxShape.circle,
-                                                  ),
-                                                ),
-                                              ),
-                                              Positioned(
-                                                left: (playedWidth - 28).clamp(
-                                                    0.0,
-                                                    (width - 56)
-                                                        .clamp(0.0, width)),
-                                                top: 0,
-                                                child: Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 3),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.black87,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            999),
-                                                  ),
-                                                  child: Text(
-                                                    _fmt(uiCurrent),
-                                                    style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 10),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          _fmt(uiCurrent),
-                                          style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 12),
-                                        ),
-                                        const Spacer(),
-                                        Text(
-                                          '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
-                                          style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 12),
-                                        ),
-                                      ],
+                                    icon: Icon(
+                                      isPlaying
+                                          ? Icons.pause_rounded
+                                          : Icons.play_arrow_rounded,
                                     ),
                                   ),
                                 ],
-                              ],
-                            ),
+                              ),
+                              if (showCustomProgress)
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTapDown: (details) {
+                                    final box =
+                                        context.findRenderObject() as RenderBox?;
+                                    if (box == null) return;
+                                    final ratio =
+                                        (details.localPosition.dx / box.size.width)
+                                            .clamp(0.0, 1.0);
+                                    unawaited(_seekByRatio(ratio));
+                                    _registerInteraction();
+                                  },
+                                  onHorizontalDragStart: (_) {
+                                    _registerInteraction();
+                                    setState(() {
+                                      _isDragging = true;
+                                      _dragValueSec = uiCurrent;
+                                    });
+                                  },
+                                  onHorizontalDragUpdate: (details) {
+                                    final box =
+                                        context.findRenderObject() as RenderBox?;
+                                    if (box == null || _durationSec <= 0) return;
+                                    final localDx = details.localPosition.dx;
+                                    final ratio =
+                                        (localDx / box.size.width).clamp(0.0, 1.0);
+                                    setState(() {
+                                      _dragValueSec = _durationSec * ratio;
+                                    });
+                                  },
+                                  onHorizontalDragEnd: (_) {
+                                    final ratio = _durationSec <= 0
+                                        ? 0.0
+                                        : _dragValueSec / _durationSec;
+                                    setState(() => _isDragging = false);
+                                    unawaited(_seekByRatio(ratio));
+                                    _registerInteraction();
+                                  },
+                                  child: VideoProgressIndicator(
+                                    _videoController!,
+                                    allowScrubbing: false,
+                                    padding: const EdgeInsets.only(top: 10),
+                                    colors: VideoProgressColors(
+                                      playedColor: Colors.white,
+                                      bufferedColor:
+                                          Colors.white.withValues(alpha: 0.25),
+                                      backgroundColor:
+                                          Colors.white.withValues(alpha: 0.14),
+                                    ),
+                                  ),
+                                ),
+                              if (showCustomProgress) const SizedBox(height: 8),
+                              if (showCustomProgress)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        _fmt(uiCurrent),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        '-${_fmt((_durationSec - uiCurrent).clamp(0, _durationSec))}',
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
