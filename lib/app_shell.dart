@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -31,13 +32,18 @@ class KyomiruApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final logicalSize = view.physicalSize / view.devicePixelRatio;
+    final shortestSide = logicalSize.shortestSide;
+    final isIosTablet = Platform.isIOS && shortestSide >= 600;
+    final enableLiquidLayer = liquidGlassEnabled && !isIosTablet;
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'kyomiru',
       theme: buildKyomiruTheme(settings),
       builder: (context, child) {
         final routedChild = child ?? const SizedBox.shrink();
-        if (!liquidGlassEnabled) {
+        if (!enableLiquidLayer) {
           return routedChild;
         }
         return LayoutBuilder(
@@ -59,7 +65,7 @@ class KyomiruApp extends ConsumerWidget {
           },
         );
       },
-      home: AppTabs(liquidGlassEnabled: liquidGlassEnabled),
+      home: AppTabs(liquidGlassEnabled: enableLiquidLayer),
     );
   }
 }
@@ -110,7 +116,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     DownloadsScreen(),
     SettingsScreen(),
   ];
-  final Set<int> _initializedTabs = <int>{0};
 
   @override
   void initState() {
@@ -168,7 +173,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       setState(() {
         _offlineMode = true;
         _index = 3;
-        _initializedTabs.add(3);
       });
       return;
     }
@@ -180,7 +184,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   void _onItemTapped(int value) {
     hapticTap();
     setState(() {
-      _initializedTabs.add(value);
       _index = value;
       if (value == 2) {
         _alertsSeenForCurrentUnread = true;
@@ -270,10 +273,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                 children: [
                   IndexedStack(
                     index: _index,
-                    children: List<Widget>.generate(_pages.length, (i) {
-                      if (_initializedTabs.contains(i)) return _pages[i];
-                      return const SizedBox.shrink();
-                    }),
+                    children: _pages,
                   ),
                   Positioned(
                     left: 0,
@@ -325,10 +325,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                 Positioned.fill(
                   child: IndexedStack(
                     index: _index,
-                    children: List<Widget>.generate(_pages.length, (i) {
-                      if (_initializedTabs.contains(i)) return _pages[i];
-                      return const SizedBox.shrink();
-                    }),
+                    children: _pages,
                   ),
                 ),
                 Positioned(
