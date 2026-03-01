@@ -6,7 +6,7 @@ import FlutterMacOS
 import Foundation
 
 import connectivity_plus
-import ffmpeg_kit_flutter
+import ffmpeg_kit_flutter_new
 import flutter_secure_storage_macos
 import package_info_plus
 import screen_retriever_macos

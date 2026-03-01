@@ -31,7 +31,7 @@ dependencies:
   shared_preferences: ^2.5.2
   path: ^1.9.1
   window_manager: ^0.4.3
-  ffmpeg_kit_flutter: ^6.0.3
+  ffmpeg_kit_flutter_new: ^4.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

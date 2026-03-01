@@ -12,7 +12,7 @@
         "connectivity_plus",
         "cupertino_icons",
         "dio",
-        "ffmpeg_kit_flutter",
+        "ffmpeg_kit_flutter_new",
         "flutter",
         "flutter_cache_manager",
         "flutter_riverpod",
@@ -63,8 +63,8 @@
       ]
     },
     {
-      "name": "ffmpeg_kit_flutter",
-      "version": "6.0.3",
+      "name": "ffmpeg_kit_flutter_new",
+      "version": "4.1.0",
       "dependencies": [
         "ffmpeg_kit_flutter_platform_interface",
         "flutter"
