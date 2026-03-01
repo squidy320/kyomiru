@@ -27,6 +27,7 @@ import '../../state/auth_state.dart';
 import '../../state/episode_state.dart';
 import '../../state/library_source_state.dart';
 import '../../state/tracking_state.dart';
+import '../../state/watch_history_state.dart';
 
 class PlayerSourceOption {
   const PlayerSourceOption({required this.url, this.headers = const {}});
@@ -60,6 +61,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
     this.backgroundImageUrl,
     this.malId,
     this.fallbackSources = const [],
+    this.resumePositionMs,
   });
 
   final int mediaId;
@@ -72,6 +74,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String? backgroundImageUrl;
   final int? malId;
   final List<PlayerSourceOption> fallbackSources;
+  final int? resumePositionMs;
 
   @override
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
@@ -473,7 +476,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await _primeMediaKitTsMetadata(player);
 
       final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-      var initialPositionMs = saved?.positionMs ?? 0;
+      var initialPositionMs = widget.resumePositionMs ?? saved?.positionMs ?? 0;
+      if (saved != null && saved.positionMs > initialPositionMs) {
+        initialPositionMs = saved.positionMs;
+      }
       if (initialPositionMs <= 0 && widget.isLocal) {
         final downloadItem = ref
             .read(downloadControllerProvider)
@@ -785,7 +791,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
 
     final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-    var initialPositionMs = saved?.positionMs ?? 0;
+    var initialPositionMs = widget.resumePositionMs ?? saved?.positionMs ?? 0;
+    if (saved != null && saved.positionMs > initialPositionMs) {
+      initialPositionMs = saved.positionMs;
+    }
     if (initialPositionMs <= 0 && widget.isLocal) {
       final downloadItem = ref
           .read(downloadControllerProvider)
@@ -1000,6 +1009,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       positionMs: positionMs,
       durationMs: durationMs,
     );
+    await _syncContinueWatching(positionMs: positionMs, durationMs: durationMs);
     if (widget.isLocal) {
       await ref
           .read(downloadControllerProvider.notifier)
@@ -1010,6 +1020,60 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             durationMs: durationMs,
           );
     }
+  }
+
+  String? _activePlaybackUrl() {
+    if (widget.isLocal) {
+      final raw = widget.sourceUrl;
+      if (raw == null || raw.trim().isEmpty) return null;
+      return raw.trim();
+    }
+    if (_activeCandidateIndex >= 0 && _activeCandidateIndex < _candidates.length) {
+      final fromCandidate = _candidates[_activeCandidateIndex].url.trim();
+      if (fromCandidate.isNotEmpty) return fromCandidate;
+    }
+    final raw = widget.sourceUrl;
+    if (raw == null || raw.trim().isEmpty) return null;
+    return raw.trim();
+  }
+
+  Map<String, String> _activePlaybackHeaders() {
+    if (widget.isLocal) return const {};
+    if (_activeCandidateIndex >= 0 && _activeCandidateIndex < _candidates.length) {
+      return _candidates[_activeCandidateIndex].headers;
+    }
+    return widget.headers;
+  }
+
+  Future<void> _syncContinueWatching({
+    required int positionMs,
+    required int durationMs,
+  }) async {
+    if (durationMs <= 0) return;
+    final ratio = (positionMs / durationMs).clamp(0.0, 1.0);
+    final store = ref.read(watchHistoryStoreProvider);
+    if (ratio >= 0.90) {
+      await store.remove(
+        mediaId: widget.mediaId,
+        episodeNumber: widget.episodeNumber,
+      );
+      return;
+    }
+
+    final activeUrl = _activePlaybackUrl();
+    if (activeUrl == null || activeUrl.isEmpty) return;
+    await store.upsert(
+      mediaId: widget.mediaId,
+      episodeNumber: widget.episodeNumber,
+      mediaTitle: widget.mediaTitle ?? 'Media ${widget.mediaId}',
+      episodeTitle: widget.episodeTitle,
+      sourceUrl: activeUrl,
+      lastPositionMs: positionMs,
+      totalDurationMs: durationMs,
+      isDownloaded: widget.isLocal,
+      coverImageUrl: widget.backgroundImageUrl,
+      headers: _activePlaybackHeaders(),
+    );
   }
 
   Future<void> _seekByRatio(double ratio) async {

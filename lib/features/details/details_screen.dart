@@ -687,58 +687,90 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           const SizedBox(height: 12),
                           Row(
                             children: [
-                              const Text('Episodes',
-                                  style: TextStyle(
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w800)),
-                              const Spacer(),
-                              FilledButton.tonalIcon(
-                                onPressed: () async {
-                                  final settings =
-                                      ref.read(appSettingsProvider);
-                                  String? bulkQuality;
-                                  String? bulkAudio;
-                                  if (settings.chooseStreamEveryTime &&
-                                      episodes.isNotEmpty) {
-                                    final probeSources =
-                                        await _sora.getSourcesForEpisode(
-                                            episodes.first.playUrl);
-                                    if (probeSources.isEmpty) return;
-                                    final chosen =
-                                        await _showSourcePicker(probeSources);
-                                    if (chosen == null) return;
-                                    bulkQuality = chosen.quality;
-                                    bulkAudio = chosen.subOrDub;
-                                  }
-                                  for (final ep in episodes) {
-                                    final local = await ref
-                                        .read(
-                                            downloadControllerProvider.notifier)
-                                        .localManifestPath(media.id, ep.number);
-                                    if (local != null) continue;
-                                    final sources =
-                                        await _loadSourcesWithOverlay(
-                                            media, ep);
-                                    if (sources.isEmpty) continue;
-                                    final selected = _pickDownloadSource(
-                                        sources, settings,
-                                        preferredQuality: bulkQuality,
-                                        preferredAudio: bulkAudio);
-                                    await ref
-                                        .read(
-                                            downloadControllerProvider.notifier)
-                                        .downloadHlsEpisode(
-                                          mediaId: media.id,
-                                          episode: ep.number,
-                                          animeTitle: media.title.best,
-                                          coverImageUrl: media.cover.best,
-                                          source: selected,
-                                        );
-                                  }
-                                },
-                                icon: const Icon(
-                                    Icons.download_for_offline_outlined),
-                                label: const Text('Download All'),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.white.withValues(alpha: 0.04),
+                                        Colors.black.withValues(alpha: 0.20),
+                                      ],
+                                    ),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.08),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Text(
+                                        'Episodes',
+                                        style: TextStyle(
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      FilledButton.tonalIcon(
+                                        onPressed: () async {
+                                          final settings =
+                                              ref.read(appSettingsProvider);
+                                          String? bulkQuality;
+                                          String? bulkAudio;
+                                          if (settings.chooseStreamEveryTime &&
+                                              episodes.isNotEmpty) {
+                                            final probeSources =
+                                                await _sora.getSourcesForEpisode(
+                                                    episodes.first.playUrl);
+                                            if (probeSources.isEmpty) return;
+                                            final chosen =
+                                                await _showSourcePicker(
+                                                    probeSources);
+                                            if (chosen == null) return;
+                                            bulkQuality = chosen.quality;
+                                            bulkAudio = chosen.subOrDub;
+                                          }
+                                          for (final ep in episodes) {
+                                            final local = await ref
+                                                .read(downloadControllerProvider
+                                                    .notifier)
+                                                .localManifestPath(
+                                                    media.id, ep.number);
+                                            if (local != null) continue;
+                                            final sources =
+                                                await _loadSourcesWithOverlay(
+                                                    media, ep);
+                                            if (sources.isEmpty) continue;
+                                            final selected =
+                                                _pickDownloadSource(
+                                              sources,
+                                              settings,
+                                              preferredQuality: bulkQuality,
+                                              preferredAudio: bulkAudio,
+                                            );
+                                            await ref
+                                                .read(downloadControllerProvider
+                                                    .notifier)
+                                                .downloadHlsEpisode(
+                                                  mediaId: media.id,
+                                                  episode: ep.number,
+                                                  animeTitle: media.title.best,
+                                                  coverImageUrl:
+                                                      media.cover.best,
+                                                  source: selected,
+                                                );
+                                          }
+                                        },
+                                        icon: const Icon(
+                                            Icons.download_for_offline_outlined),
+                                        label: const Text('Download All'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -1489,10 +1521,32 @@ class _BadlandsHero extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withValues(alpha: 0.35),
-                  Colors.black,
+                  Colors.black.withValues(alpha: 0.55),
+                  const Color(0xFF090B13),
                 ],
-                stops: const [0.40, 0.70, 1.0],
+                stops: const [0.45, 0.78, 1.0],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 18,
+          child: Container(
+            height: 120,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(22),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withValues(alpha: 0.05),
+                  Colors.black.withValues(alpha: 0.24),
+                ],
+              ),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.10),
               ),
             ),
           ),

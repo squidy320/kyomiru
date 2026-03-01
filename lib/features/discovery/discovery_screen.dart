@@ -179,77 +179,185 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
         final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
-
-        final topContent = <Widget>[
-          Text('Discovery', style: Theme.of(context).textTheme.displaySmall),
-          const SizedBox(height: 4),
-          const Text('Top rated, new releases, and hot anime',
-              style: TextStyle(color: Color(0xFFA1A8BC))),
-          const SizedBox(height: 10),
-          LiquidGlass.withOwnLayer(
-            settings:
-                kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
-            shape: const LiquidRoundedSuperellipse(borderRadius: 14),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: TextField(
-                controller: _search,
-                onChanged: _onSearchChanged,
-                decoration: InputDecoration(
-                  hintText: 'Search anime...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _search.text.isEmpty
-                      ? null
-                      : IconButton(
-                          onPressed: () {
-                            hapticTap();
-                            _search.clear();
-                            setState(() => _searchResults = const []);
-                          },
-                          icon: const Icon(Icons.close),
-                        ),
+        final topSlivers = <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            sliver: SliverPersistentHeader(
+              pinned: false,
+              delegate: _FixedExtentHeaderDelegate(
+                extent: 82,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Discovery',
+                        style: Theme.of(context).textTheme.displaySmall),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Top rated, new releases, and hot anime',
+                      style: TextStyle(color: Color(0xFFA1A8BC)),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+            sliver: SliverToBoxAdapter(
+              child: LiquidGlass.withOwnLayer(
+                settings: kyomiruLiquidGlassSettings(
+                  isOledBlack: settings.isOledBlack,
+                ),
+                shape: const LiquidRoundedSuperellipse(borderRadius: 14),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: TextField(
+                    controller: _search,
+                    onChanged: _onSearchChanged,
+                    decoration: InputDecoration(
+                      hintText: 'Search anime...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _search.text.isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                hapticTap();
+                                _search.clear();
+                                setState(() => _searchResults = const []);
+                              },
+                              icon: const Icon(Icons.close),
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ];
-        final listContent = <Widget>[];
 
         if (showingSearch) {
           if (_searching) {
-            listContent.add(const _DiscoverySkeleton());
+            topSlivers.add(
+              const SliverPadding(
+                padding: EdgeInsets.fromLTRB(14, 0, 14, 0),
+                sliver: SliverToBoxAdapter(child: _DiscoverySkeleton()),
+              ),
+            );
           } else if (_searchResults.isEmpty) {
-            listContent.add(const GlassCard(child: Text('No results.')));
-          } else {
-            listContent.add(
-              _HorizontalSection(
-                  title: 'Search Results', items: _searchResults),
-            );
-          }
-        } else {
-          if ((_discoveryFuture == null ||
-                  dataSnap.connectionState == ConnectionState.waiting) &&
-              payload == null) {
-            listContent.add(const _DiscoverySkeleton());
-          } else if (dataSnap.hasError && payload == null) {
-            listContent.add(
-              GlassCard(
-                  child: Text('Discovery load failed: ${dataSnap.error}')),
+            topSlivers.add(
+              const SliverPadding(
+                padding: EdgeInsets.fromLTRB(14, 0, 14, 0),
+                sliver: SliverToBoxAdapter(
+                  child: GlassCard(child: Text('No results.')),
+                ),
+              ),
             );
           } else {
-            for (final section in sections) {
-              listContent.add(
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
+            topSlivers.add(
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                sliver: SliverToBoxAdapter(
                   child: _HorizontalSection(
-                    title: section.title,
-                    items: section.items,
+                    title: 'Search Results',
+                    items: _searchResults,
                   ),
                 ),
-              );
-            }
+              ),
+            );
           }
+        } else if ((_discoveryFuture == null ||
+                dataSnap.connectionState == ConnectionState.waiting) &&
+            payload == null) {
+          topSlivers.add(
+            const SliverPadding(
+              padding: EdgeInsets.fromLTRB(14, 0, 14, 0),
+              sliver: SliverToBoxAdapter(child: _DiscoverySkeleton()),
+            ),
+          );
+        } else if (dataSnap.hasError && payload == null) {
+          topSlivers.add(
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+              sliver: SliverToBoxAdapter(
+                child: GlassCard(
+                  child: Text('Discovery load failed: ${dataSnap.error}'),
+                ),
+              ),
+            ),
+          );
+        } else {
+          final sectionSlivers = <Widget>[];
+          if (trending.isNotEmpty) {
+            sectionSlivers.add(
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: _DiscoveryHeroCarousel(
+                    items: trending,
+                    controller: _heroController,
+                    onPageChanged: (index) {
+                      setState(() => _heroIndex = index);
+                      unawaited(_updateBackgroundForTrending(trending, index));
+                    },
+                  ),
+                ),
+              ),
+            );
+          }
+          for (final section in sections) {
+            if (section.items.isEmpty) continue;
+            final cols = _adaptiveGridCount(MediaQuery.sizeOf(context).width - 28);
+            sectionSlivers.addAll([
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                sliver: SliverPersistentHeader(
+                  pinned: false,
+                  delegate: _FixedExtentHeaderDelegate(
+                    extent: 38,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        section.title,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                sliver: SliverGrid(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final item = section.items[index];
+                      return _HoverPosterTile(
+                        onTap: () {
+                          hapticTap();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => DetailsScreen(mediaId: item.id),
+                            ),
+                          );
+                        },
+                        child: _AnimePosterCard(media: item),
+                      );
+                    },
+                    childCount: section.items.length,
+                  ),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: cols,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: _kCardWidth / _kCardHeight,
+                  ),
+                ),
+              ),
+            ]);
+          }
+          topSlivers.addAll(sectionSlivers);
         }
 
         return AnimatedContainer(
@@ -271,33 +379,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate(topContent),
-                    ),
-                  ),
-                  if (!showingSearch && trending.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _DiscoveryHeroCarousel(
-                          items: trending,
-                          controller: _heroController,
-                          onPageChanged: (index) {
-                            setState(() => _heroIndex = index);
-                            unawaited(
-                                _updateBackgroundForTrending(trending, index));
-                          },
-                        ),
-                      ),
-                    ),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate(listContent),
-                    ),
-                  ),
+                  ...topSlivers,
                   const SliverPadding(
                     padding: EdgeInsets.only(bottom: 120),
                     sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
@@ -309,6 +391,38 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         );
       },
     );
+  }
+}
+
+class _FixedExtentHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _FixedExtentHeaderDelegate({
+    required this.extent,
+    required this.child,
+  });
+
+  final double extent;
+  final Widget child;
+
+  @override
+  double get minExtent => extent;
+
+  @override
+  double get maxExtent => extent;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return RepaintBoundary(
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _FixedExtentHeaderDelegate oldDelegate) {
+    return extent != oldDelegate.extent || child != oldDelegate.child;
   }
 }
 
@@ -359,8 +473,32 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.transparent,
-                            Colors.black.withValues(alpha: 0.9),
+                            Colors.black.withValues(alpha: 0.55),
+                            const Color(0xFF090B13),
                           ],
+                          stops: const [0.45, 0.78, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 10,
+                    child: Container(
+                      height: 96,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.05),
+                            Colors.black.withValues(alpha: 0.22),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.10),
                         ),
                       ),
                     ),

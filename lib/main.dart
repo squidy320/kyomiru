@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
@@ -119,6 +118,7 @@ Future<void> main() async {
   await _openHiveBoxSafe('app_settings');
   await _openHiveBoxSafe('manual_matches');
   await _openHiveBoxSafe('local_library');
+  await _openHiveBoxSafe('watch_history');
   await _openHiveBoxSafe('anilist_media_cache');
   await _openHiveBoxSafe('anilist_query_cache');
   final liquidGlassEnabled = await _runShaderWarmup();

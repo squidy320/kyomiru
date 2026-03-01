@@ -336,11 +336,12 @@ class _AppTabsState extends ConsumerState<AppTabs> {
 
         final rail = NavigationRail(
           extended: _railExtended,
+          minExtendedWidth: 0,
+          useIndicator: false,
           selectedIndex: _railIndexFromTab(_index),
           onDestinationSelected: (value) => _onItemTapped(_tabIndexFromRail(value)),
           backgroundColor: Colors.transparent,
           elevation: 0,
-          indicatorColor: Colors.white.withValues(alpha: 0.16),
           unselectedIconTheme: const IconThemeData(color: Colors.white54),
           selectedIconTheme: const IconThemeData(color: Colors.white),
           unselectedLabelTextStyle: const TextStyle(color: Colors.white70),
@@ -394,7 +395,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
             child: Row(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 16, 16, 16),
+                  padding: const EdgeInsets.all(16),
                   child: widget.liquidGlassEnabled
                       ? LiquidGlass.withOwnLayer(
                           settings: LiquidGlassSettings(
@@ -413,7 +414,12 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                                 color: Colors.white.withValues(alpha: 0.10),
                               ),
                             ),
-                            child: RepaintBoundary(child: rail),
+                            child: Theme(
+                              data: Theme.of(context).copyWith(
+                                dividerColor: Colors.transparent,
+                              ),
+                              child: RepaintBoundary(child: rail),
+                            ),
                           ),
                         )
                       : Container(
@@ -424,7 +430,12 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                               color: Colors.white.withValues(alpha: 0.10),
                             ),
                           ),
-                          child: rail,
+                          child: Theme(
+                            data: Theme.of(context).copyWith(
+                              dividerColor: Colors.transparent,
+                            ),
+                            child: rail,
+                          ),
                         ),
                 ),
                 Expanded(

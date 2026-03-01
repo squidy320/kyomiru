@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -10,11 +11,15 @@ import '../../core/liquid_glass_preset.dart';
 import '../../features/auth/anilist_login_webview_screen.dart';
 import '../../features/details/details_screen.dart';
 import '../../features/discovery/discovery_screen.dart';
+import '../../features/player/player_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../services/local_library_store.dart';
+import '../../services/watch_history_store.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/library_source_state.dart';
+import '../../state/tracking_state.dart';
+import '../../state/watch_history_state.dart';
 
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
@@ -171,6 +176,8 @@ class _LibraryDataView extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 12),
+              const _ContinueWatchingShelf(),
+              const SizedBox(height: 12),
               SizedBox(
                 height: 38,
                 child: ListView.separated(
@@ -254,6 +261,8 @@ class _LocalLibraryView extends ConsumerWidget {
                   style: Theme.of(context).textTheme.displaySmall),
               const Text('Stored on this device',
                   style: TextStyle(color: Color(0xFFA1A8BC))),
+              const SizedBox(height: 12),
+              const _ContinueWatchingShelf(),
               const SizedBox(height: 12),
               if (entries.isEmpty) ...[
                 const GlassCard(child: Text('Your local library is empty.')),
@@ -605,6 +614,275 @@ class _HoverPosterTileState extends State<_HoverPosterTile> {
         child: GestureDetector(
           onTap: widget.onTap,
           child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+class _ContinueWatchingShelf extends ConsumerWidget {
+  const _ContinueWatchingShelf();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final box = Hive.box('watch_history');
+    return ValueListenableBuilder(
+      valueListenable: box.listenable(),
+      builder: (context, Box<dynamic> _, __) {
+        final entries = ref.read(watchHistoryStoreProvider).allEntries();
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Continue Watching',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 152,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  return _ContinueWatchingCard(entry: entry);
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ContinueWatchingCard extends ConsumerWidget {
+  const _ContinueWatchingCard({required this.entry});
+
+  final WatchHistoryEntry entry;
+
+  Future<void> _markWatched(BuildContext context, WidgetRef ref) async {
+    final auth = ref.read(authControllerProvider);
+    final token = auth.token;
+    if (token != null && token.isNotEmpty) {
+      try {
+        final client = ref.read(anilistClientProvider);
+        final current = await client.trackingEntry(token, entry.mediaId);
+        final targetProgress =
+            ((current?.progress ?? 0) > entry.episodeNumber)
+                ? (current?.progress ?? 0)
+                : entry.episodeNumber;
+        final currentStatus = current?.status ?? 'CURRENT';
+        final nextStatus =
+            currentStatus == 'PLANNING' ? 'CURRENT' : currentStatus;
+        await client.saveTrackingEntry(
+          token: token,
+          mediaId: entry.mediaId,
+          status: nextStatus,
+          progress: targetProgress,
+          score: current?.score ?? 0,
+        );
+        ref.invalidate(mediaListProvider(entry.mediaId));
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('AniList sync failed')),
+          );
+        }
+      }
+    }
+
+    await ref
+        .read(watchHistoryStoreProvider)
+        .removeByStorageKey(entry.storageKey);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Marked as watched')),
+    );
+  }
+
+  String _formatDurationMs(int ms) {
+    if (ms <= 0) return '0:00';
+    final d = Duration(milliseconds: ms);
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (d.inHours > 0) {
+      return '${d.inHours}:$m:$s';
+    }
+    return '$m:$s';
+  }
+
+  String _formatTimeLeft(int remainingMs) {
+    if (remainingMs <= 0) return 'Done';
+    final totalMinutes = (remainingMs / 60000).ceil();
+    if (totalMinutes < 1) return '<1 min left';
+    if (totalMinutes < 60) return '$totalMinutes min left';
+    final hours = totalMinutes ~/ 60;
+    final mins = totalMinutes % 60;
+    if (mins == 0) return '${hours}h left';
+    return '${hours}h ${mins}m left';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = entry.progress;
+    final percent = (progress * 100).round();
+    final remainingMs = (entry.totalDurationMs - entry.lastPositionMs).clamp(0, entry.totalDurationMs);
+    final timeLeftLabel = _formatTimeLeft(remainingMs);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onLongPress: () => _markWatched(context, ref),
+        onTap: () {
+          hapticTap();
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PlayerScreen(
+                mediaId: entry.mediaId,
+                episodeNumber: entry.episodeNumber,
+                episodeTitle: entry.episodeTitle,
+                sourceUrl: entry.sourceUrl,
+                mediaTitle: entry.mediaTitle,
+                headers: entry.headers,
+                isLocal: entry.isDownloaded,
+                backgroundImageUrl: entry.coverImageUrl,
+                resumePositionMs: entry.lastPositionMs,
+              ),
+            ),
+          );
+        },
+        child: Container(
+          width: 252,
+          decoration: BoxDecoration(
+            color: const Color(0xFA1E1E1E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final progressWidth = (constraints.maxWidth * progress).clamp(0.0, constraints.maxWidth);
+              return Stack(
+                children: [
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: const BorderRadius.horizontal(
+                          left: Radius.circular(16),
+                        ),
+                        child: SizedBox(
+                          width: 92,
+                          height: double.infinity,
+                          child: entry.coverImageUrl != null
+                              ? KyomiruImageCache.image(
+                                  entry.coverImageUrl!,
+                                  fit: BoxFit.cover,
+                                )
+                              : const ColoredBox(color: Color(0x22111111)),
+                        ),
+                      ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                entry.mediaTitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Episode ${entry.episodeNumber}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '$percent% • ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)}${entry.isDownloaded ? ' • Local' : ''}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      height: 4,
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.vertical(
+                          bottom: Radius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    bottom: 0,
+                    child: Container(
+                      height: 4,
+                      width: progressWidth,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF3B82F6),
+                        borderRadius: BorderRadius.vertical(
+                          bottom: Radius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 4,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 10, 4),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.55),
+                          ],
+                        ),
+                      ),
+                      child: Text(
+                        timeLeftLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
