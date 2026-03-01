@@ -140,6 +140,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void initState() {
     super.initState();
+    unawaited(
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+    );
     _progressStore = ref.read(progressStoreProvider);
     _skipAnimationController = AnimationController(
       vsync: this,
@@ -1244,6 +1247,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await _mediaKitPlayer?.pause();
       await _disposeControllers();
     } catch (_) {}
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     if (!mounted) return;
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
@@ -1351,6 +1355,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     unawaited(WakelockPlus.disable());
     unawaited(_stopHlsProxy());
     unawaited(_clearPlaybackCaches());
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     super.dispose();
   }
 
@@ -1361,6 +1366,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         (_chewieController != null || usingMediaKit) && _durationSec > 0;
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
     final isPlaying = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final topInset = viewPadding.top;
+    final bottomInset = viewPadding.bottom;
+    final topHudOffset = topInset + 8;
+    final bottomHudOffset = bottomInset + 12;
+    final skipIntroBottom = bottomInset + 68;
 
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
@@ -1477,7 +1488,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   child: Stack(
                     children: [
                       Positioned(
-                        top: 8,
+                        top: topHudOffset,
                         right: 8,
                         child: Material(
                           color: const Color(0xFA1E1E1E),
@@ -1497,7 +1508,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         ),
                       ),
                       Positioned(
-                        top: 8,
+                        top: topHudOffset,
                         left: 54,
                         child: Material(
                           color: const Color(0xFA1E1E1E),
@@ -1524,7 +1535,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       ),
                       if (_pipSupported)
                         Positioned(
-                          top: 8,
+                          top: topHudOffset,
                           left: 124,
                           child: Material(
                             color: const Color(0xFA1E1E1E),
@@ -1546,7 +1557,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       Positioned(
                         left: 12,
                         right: 12,
-                        bottom: 18,
+                        bottom: bottomHudOffset,
                         child: Container(
                           padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                           decoration: BoxDecoration(
@@ -1701,7 +1712,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       ),
                       Positioned(
                         right: 12,
-                        bottom: 74,
+                        bottom: skipIntroBottom,
                         child: AnimatedOpacity(
                           duration: const Duration(milliseconds: 180),
                           opacity: _isWithinOpeningRange ? 1.0 : 0.0,
@@ -1780,7 +1791,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   ),
                 ),
               Positioned(
-                top: 14,
+                top: topInset + 14,
                 left: 0,
                 right: 0,
                 child: IgnorePointer(
