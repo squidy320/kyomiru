@@ -44,3 +44,8 @@ app-example
 # generated native folders
 /ios
 /android
+
+# allow committing only iOS pod configuration override
+!/ios
+/ios/*
+!/ios/Podfile
