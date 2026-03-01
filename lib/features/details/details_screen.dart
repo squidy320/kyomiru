@@ -15,6 +15,7 @@ import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
 import '../../services/local_library_store.dart';
+import '../../services/progress_store.dart';
 import '../../services/sora_runtime.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
@@ -392,9 +393,99 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
   }
 
-  Future<void> _playFirstEpisode(
+  SoraEpisode _pickSmartEpisode(
+    List<SoraEpisode> episodes,
+    ProgressStore progressStore,
+  ) {
+    if (episodes.isEmpty) {
+      throw StateError('No episodes available');
+    }
+    var watchedUpTo = 0;
+    for (final entry in progressStore.allForMedia(widget.mediaId)) {
+      if (entry.value.percent >= 0.85 && entry.key > watchedUpTo) {
+        watchedUpTo = entry.key;
+      }
+    }
+    if (watchedUpTo <= 0) {
+      return episodes.first;
+    }
+    final target = watchedUpTo + 1;
+    for (final ep in episodes) {
+      if (ep.number == target) {
+        return ep;
+      }
+    }
+    for (final ep in episodes) {
+      if (ep.number > watchedUpTo) {
+        return ep;
+      }
+    }
+    return episodes.first;
+  }
+
+  Future<void> _playEpisode(
+    AniListMedia media,
+    SoraEpisode ep,
+  ) async {
+    final local = await ref
+        .read(downloadControllerProvider.notifier)
+        .getLocalEpisodeByMedia(media.id, ep.number);
+    if (local != null) {
+      if (!context.mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            mediaId: media.id,
+            episodeNumber: ep.number,
+            episodeTitle: _episodePlaybackTitle(media, ep.number),
+            sourceUrl: local.path,
+            isLocal: true,
+            backgroundImageUrl: media.cover.best ?? media.bannerImage,
+            mediaTitle: media.title.best,
+            malId: media.idMal,
+          ),
+        ),
+      );
+      return;
+    }
+
+    final sources = await _loadSourcesWithOverlay(media, ep);
+    if (sources.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No sources found for episode.')),
+      );
+      return;
+    }
+    final settings = ref.read(appSettingsProvider);
+    final selected = settings.chooseStreamEveryTime
+        ? await _showSourcePicker(sources)
+        : _pickSourceByPreference(sources, settings);
+    if (selected == null || !context.mounted) return;
+    final fallback = sources
+        .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
+        .toList();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          mediaId: media.id,
+          episodeNumber: ep.number,
+          episodeTitle: _episodePlaybackTitle(media, ep.number),
+          sourceUrl: selected.url,
+          headers: selected.headers,
+          backgroundImageUrl: media.cover.best ?? media.bannerImage,
+          mediaTitle: media.title.best,
+          malId: media.idMal,
+          fallbackSources: fallback,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playSmartEpisode(
     AniListMedia media,
     EpisodeQuery episodeQuery,
+    ProgressStore progressStore,
   ) async {
     try {
       final result = await ref.read(episodeProvider(episodeQuery).future);
@@ -407,60 +498,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         return;
       }
 
-      final ep = episodes.first;
-      final local = await ref
-          .read(downloadControllerProvider.notifier)
-          .getLocalEpisodeByMedia(media.id, ep.number);
-      if (local != null) {
-        if (!context.mounted) return;
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => PlayerScreen(
-              mediaId: media.id,
-              episodeNumber: ep.number,
-              episodeTitle: _episodePlaybackTitle(media, ep.number),
-              sourceUrl: local.path,
-              isLocal: true,
-              backgroundImageUrl: media.cover.best ?? media.bannerImage,
-              mediaTitle: media.title.best,
-              malId: media.idMal,
-            ),
-          ),
-        );
-        return;
-      }
-
-      final sources = await _loadSourcesWithOverlay(media, ep);
-      if (sources.isEmpty) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No sources found for episode.')),
-        );
-        return;
-      }
-      final settings = ref.read(appSettingsProvider);
-      final selected = settings.chooseStreamEveryTime
-          ? await _showSourcePicker(sources)
-          : _pickSourceByPreference(sources, settings);
-      if (selected == null || !context.mounted) return;
-      final fallback = sources
-          .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
-          .toList();
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => PlayerScreen(
-            mediaId: media.id,
-            episodeNumber: ep.number,
-            episodeTitle: _episodePlaybackTitle(media, ep.number),
-            sourceUrl: selected.url,
-            headers: selected.headers,
-            backgroundImageUrl: media.cover.best ?? media.bannerImage,
-            mediaTitle: media.title.best,
-            malId: media.idMal,
-            fallbackSources: fallback,
-          ),
-        ),
-      );
+      final ep = _pickSmartEpisode(episodes, progressStore);
+      await _playEpisode(media, ep);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -523,7 +562,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                   collapseMode: CollapseMode.parallax,
                   background: _BadlandsHero(
                     media: media,
-                    onPlay: () => _playFirstEpisode(media, episodeQuery),
+                    onPlay: () =>
+                        _playSmartEpisode(media, episodeQuery, progressStore),
                     onBookmark: () => _openTrackingSheet(media, auth.token),
                   ),
                 ),
@@ -736,21 +776,24 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 ),
                                 shape:
                                     const LiquidRoundedSuperellipse(borderRadius: 14),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: uiSettings.isOledBlack
-                                        ? Colors.black.withValues(alpha: 0.22)
-                                        : Colors.white.withValues(alpha: 0.04),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.10),
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => _playEpisode(media, ep),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
                                     ),
-                                  ),
-                                  child: Row(
+                                    decoration: BoxDecoration(
+                                      color: uiSettings.isOledBlack
+                                          ? Colors.black.withValues(alpha: 0.18)
+                                          : Colors.white.withValues(alpha: 0.03),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(alpha: 0.10),
+                                      ),
+                                    ),
+                                    child: Row(
                                     children: [
                                       Container(
                                         width: 104,
@@ -819,94 +862,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       const SizedBox(width: 8),
                                       Column(
                                         children: [
-                                          IconButton.filledTonal(
-                                            style: IconButton.styleFrom(
-                                                minimumSize: const Size(30, 30),
-                                                padding: EdgeInsets.zero,
-                                                visualDensity:
-                                                    VisualDensity.compact),
-                                            onPressed: () async {
-                                            final local = await ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .getLocalEpisodeByMedia(
-                                                    media.id, ep.number);
-                                            if (local != null) {
-                                              if (!context.mounted) return;
-                                              Navigator.of(context).push(
-                                                MaterialPageRoute(
-                                                  builder: (_) => PlayerScreen(
-                                                    mediaId: media.id,
-                                                    episodeNumber: ep.number,
-                                                    episodeTitle:
-                                                        _episodePlaybackTitle(
-                                                            media, ep.number),
-                                                    sourceUrl: local.path,
-                                                    isLocal: true,
-                                                    backgroundImageUrl:
-                                                        media.cover.best ??
-                                                            media.bannerImage,
-                                                    mediaTitle:
-                                                        media.title.best,
-                                                    malId: media.idMal,
-                                                  ),
-                                                ),
-                                              );
-                                              return;
-                                            }
-
-                                            final sources =
-                                                await _loadSourcesWithOverlay(
-                                                    media, ep);
-                                            if (sources.isEmpty) {
-                                              if (!context.mounted) return;
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                const SnackBar(
-                                                    content: Text(
-                                                        'No sources found for episode.')),
-                                              );
-                                              return;
-                                            }
-                                            final settings =
-                                                ref.read(appSettingsProvider);
-                                            final selected =
-                                                settings.chooseStreamEveryTime
-                                                    ? await _showSourcePicker(
-                                                        sources)
-                                                    : _pickSourceByPreference(
-                                                        sources, settings);
-                                            if (selected == null) return;
-                                            final fallback = sources
-                                                .map((s) => PlayerSourceOption(
-                                                      url: s.url,
-                                                      headers: s.headers,
-                                                    ))
-                                                .toList();
-                                            if (!context.mounted) return;
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (_) => PlayerScreen(
-                                                  mediaId: media.id,
-                                                  episodeNumber: ep.number,
-                                                  episodeTitle:
-                                                      _episodePlaybackTitle(
-                                                          media, ep.number),
-                                                  sourceUrl: selected.url,
-                                                  headers: selected.headers,
-                                                  backgroundImageUrl:
-                                                      media.cover.best ??
-                                                          media.bannerImage,
-                                                  mediaTitle: media.title.best,
-                                                  malId: media.idMal,
-                                                  fallbackSources: fallback,
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                            icon: const Icon(Icons.play_arrow),
-                                          ),
-                                          const SizedBox(height: 4),
                                           if (d?.status == 'downloading')
                                             IconButton.filledTonal(
                                               style: IconButton.styleFrom(
@@ -951,46 +906,60 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               ],
                                             )
                                           else
-                                            IconButton.filledTonal(
-                                              style: IconButton.styleFrom(
-                                                  minimumSize: const Size(30, 30),
-                                                  padding: EdgeInsets.zero,
-                                                  visualDensity:
-                                                      VisualDensity.compact),
-                                              onPressed: () async {
-                                              final sources =
-                                                  await _loadSourcesWithOverlay(
-                                                      media, ep);
-                                              if (sources.isEmpty) return;
-                                              final settings =
-                                                  ref.read(appSettingsProvider);
-                                              final selected =
-                                                  settings.chooseStreamEveryTime
-                                                      ? await _showSourcePicker(
-                                                          sources)
-                                                      : _pickDownloadSource(
-                                                          sources, settings);
-                                              if (selected == null) return;
-                                              await ref
-                                                  .read(
-                                                      downloadControllerProvider
-                                                          .notifier)
-                                                  .downloadHlsEpisode(
-                                                    mediaId: media.id,
-                                                    episode: ep.number,
-                                                    animeTitle:
-                                                        media.title.best,
-                                                    coverImageUrl:
-                                                        media.cover.best,
-                                                    source: selected,
-                                                  );
-                                            },
-                                              icon: const Icon(
-                                                  Icons.download_rounded),
+                                            GestureDetector(
+                                              behavior: HitTestBehavior.opaque,
+                                              onTap: () async {
+                                                final sources =
+                                                    await _loadSourcesWithOverlay(
+                                                        media, ep);
+                                                if (sources.isEmpty) return;
+                                                final settings =
+                                                    ref.read(appSettingsProvider);
+                                                final selected = settings
+                                                        .chooseStreamEveryTime
+                                                    ? await _showSourcePicker(
+                                                        sources)
+                                                    : _pickDownloadSource(
+                                                        sources, settings);
+                                                if (selected == null) return;
+                                                await ref
+                                                    .read(
+                                                        downloadControllerProvider
+                                                            .notifier)
+                                                    .downloadHlsEpisode(
+                                                      mediaId: media.id,
+                                                      episode: ep.number,
+                                                      animeTitle:
+                                                          media.title.best,
+                                                      coverImageUrl:
+                                                          media.cover.best,
+                                                      source: selected,
+                                                    );
+                                              },
+                                              child: Container(
+                                                width: 34,
+                                                height: 34,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.08),
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  border: Border.all(
+                                                    color: Colors.white
+                                                        .withValues(alpha: 0.12),
+                                                  ),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.download_outlined,
+                                                  size: 29,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
                                             ),
                                         ],
                                       ),
                                     ],
+                                    ),
                                   ),
                                 ),
                               ),
