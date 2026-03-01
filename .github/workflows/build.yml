@@ -63,6 +63,33 @@ jobs:
             flutter create --platforms=ios .
           fi
 
+      - name: Patch ffmpeg kit podspec dependency
+        run: |
+          set -e
+          SPEC_PATH="$(find "$PUB_CACHE/hosted" -type f -name ffmpeg_kit_flutter.podspec | head -n 1)"
+          if [ -z "$SPEC_PATH" ]; then
+            echo "ffmpeg_kit_flutter.podspec not found"
+            exit 1
+          fi
+          echo "Patching $SPEC_PATH"
+          sed -i '' "s/ffmpeg-kit-ios-https/ffmpeg-kit-ios-full/g" "$SPEC_PATH"
+
+      - name: Inject ffmpeg mirror pod into Podfile
+        run: |
+          set -e
+          PODFILE="ios/Podfile"
+          if ! grep -q "ffmpeg-kit-ios-full" "$PODFILE"; then
+            awk '
+              /target '\''Runner'\'' do/ {
+                print;
+                print "  pod '\''ffmpeg-kit-ios-full'\'', :podspec => '\''https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'\''";
+                next
+              }
+              { print }
+            ' "$PODFILE" > "$PODFILE.tmp"
+            mv "$PODFILE.tmp" "$PODFILE"
+          fi
+
       - name: Pod Install
         run: |
           cd ios
