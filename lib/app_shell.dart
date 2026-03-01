@@ -423,48 +423,61 @@ class _TopPillNav extends StatelessWidget {
       ('Library', 0),
     ];
 
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final logicalSize = view.physicalSize / view.devicePixelRatio;
+    final isIosTablet = Platform.isIOS && logicalSize.shortestSide >= 600;
+
+    final navBody = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.46),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: _TopPillNavButton(
+                label: item.$1,
+                active: currentIndex == item.$2,
+                onTap: () => onTap(item.$2),
+              ),
+            ),
+          const SizedBox(width: 2),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () => onTap(1),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Icon(
+                  CupertinoIcons.search,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (isIosTablet) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: navBody,
+      );
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.46),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final item in items)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: _TopPillNavButton(
-                    label: item.$1,
-                    active: currentIndex == item.$2,
-                    onTap: () => onTap(item.$2),
-                  ),
-                ),
-              const SizedBox(width: 2),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  onTap: () => onTap(1),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    child: Icon(
-                      CupertinoIcons.search,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        child: navBody,
       ),
     );
   }
