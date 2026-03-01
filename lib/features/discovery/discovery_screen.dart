@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:palette_generator/palette_generator.dart';
@@ -179,24 +180,30 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
         final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
+        final topInset = MediaQuery.viewPaddingOf(context).top;
+        final showHeroBackground = !showingSearch && trending.isNotEmpty;
+        final heroBackgroundHeight = topInset + 360.0;
         final topSlivers = <Widget>[
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
             sliver: SliverPersistentHeader(
               pinned: false,
               delegate: _FixedExtentHeaderDelegate(
-                extent: 82,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Discovery',
-                        style: Theme.of(context).textTheme.displaySmall),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Top rated, new releases, and hot anime',
-                      style: TextStyle(color: Color(0xFFA1A8BC)),
-                    ),
-                  ],
+                extent: topInset + 82,
+                child: Padding(
+                  padding: EdgeInsets.only(top: topInset + 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Discovery',
+                          style: Theme.of(context).textTheme.displaySmall),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Top rated, new releases, and hot anime',
+                        style: TextStyle(color: Color(0xFFA1A8BC)),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -209,24 +216,33 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                   isOledBlack: settings.isOledBlack,
                 ),
                 shape: const LiquidRoundedSuperellipse(borderRadius: 14),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: TextField(
-                    controller: _search,
-                    onChanged: _onSearchChanged,
-                    decoration: InputDecoration(
-                      hintText: 'Search anime...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _search.text.isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                hapticTap();
-                                _search.clear();
-                                setState(() => _searchResults = const []);
-                              },
-                              icon: const Icon(Icons.close),
-                            ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.10),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: TextField(
+                      controller: _search,
+                      onChanged: _onSearchChanged,
+                      decoration: InputDecoration(
+                        hintText: 'Search anime...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _search.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  hapticTap();
+                                  _search.clear();
+                                  setState(() => _searchResults = const []);
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
                     ),
                   ),
                 ),
@@ -287,22 +303,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           );
         } else {
           final sectionSlivers = <Widget>[];
-          if (trending.isNotEmpty) {
-            sectionSlivers.add(
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _DiscoveryHeroCarousel(
-                    items: trending,
-                    controller: _heroController,
-                    onPageChanged: (index) {
-                      setState(() => _heroIndex = index);
-                      unawaited(_updateBackgroundForTrending(trending, index));
-                    },
-                  ),
-                ),
-              ),
-            );
+          if (showHeroBackground) {
+            sectionSlivers.add(const SliverToBoxAdapter(child: SizedBox(height: 190)));
           }
           for (final section in sections) {
             if (section.items.isEmpty) continue;
@@ -360,32 +362,78 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           topSlivers.addAll(sectionSlivers);
         }
 
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 420),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                gradientTop,
-                const Color(0xFF090B13),
-              ],
-            ),
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.light,
+            statusBarBrightness: Brightness.dark,
           ),
-          child: SafeArea(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  ...topSlivers,
-                  const SliverPadding(
-                    padding: EdgeInsets.only(bottom: 120),
-                    sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
-                  ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  gradientTop,
+                  const Color(0xFF090B13),
                 ],
               ),
+            ),
+            child: Stack(
+              children: [
+                if (showHeroBackground)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: heroBackgroundHeight,
+                    child: _DiscoveryHeroCarousel(
+                      items: trending,
+                      controller: _heroController,
+                      onPageChanged: (index) {
+                        setState(() => _heroIndex = index);
+                        unawaited(_updateBackgroundForTrending(trending, index));
+                      },
+                    ),
+                  ),
+                if (showHeroBackground)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: heroBackgroundHeight,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              const Color(0xFF090B13),
+                            ],
+                            stops: const [0.75, 1.0],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      ...topSlivers,
+                      const SliverPadding(
+                        padding: EdgeInsets.only(bottom: 120),
+                        sliver: SliverToBoxAdapter(child: SizedBox.shrink()),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -440,7 +488,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 340,
+      height: 360,
       child: ClipRRect(
         borderRadius: BorderRadius.zero,
         child: PageView.builder(
@@ -473,10 +521,9 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.transparent,
-                            Colors.black.withValues(alpha: 0.55),
                             const Color(0xFF090B13),
                           ],
-                          stops: const [0.45, 0.78, 1.0],
+                          stops: const [0.75, 1.0],
                         ),
                       ),
                     ),
@@ -679,19 +726,26 @@ class _ScorePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LiquidGlass(
-      shape: const LiquidRoundedSuperellipse(borderRadius: 999),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        child: Row(
-          children: [
-            const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
-            const SizedBox(width: 3),
-            Text(score?.toString() ?? 'NR',
-                style:
-                    const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xE61A1A1A),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+          const SizedBox(width: 3),
+          Text(
+            score?.toString() ?? 'NR',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+        ],
       ),
     );
   }

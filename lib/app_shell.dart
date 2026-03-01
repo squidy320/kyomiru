@@ -5,6 +5,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
@@ -102,6 +103,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   bool _offlineMode = false;
   bool _bootConnectivityResolved = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  ProviderSubscription<AuthState>? _authSub;
 
   static const _pages = <Widget>[
     LibraryScreen(),
@@ -116,6 +118,34 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   void initState() {
     super.initState();
     _initConnectivity();
+    _authSub = ref.listenManual<AuthState>(
+      authControllerProvider,
+      (previous, next) {
+        final token = next.token;
+        if (token != null && token.isNotEmpty) {
+          unawaited(_warmContinueWatchingNotifiers(token));
+        }
+      },
+      fireImmediately: true,
+    );
+  }
+
+  Future<void> _warmContinueWatchingNotifiers(String token) async {
+    try {
+      if (!Hive.isBoxOpen('watch_history')) return;
+      final box = Hive.box('watch_history');
+      final mediaIds = <int>{};
+      for (final key in box.keys) {
+        final raw = box.get(key);
+        if (raw is! Map) continue;
+        final mediaId = (raw['mediaId'] as num?)?.toInt();
+        if (mediaId != null && mediaId > 0) mediaIds.add(mediaId);
+      }
+      final client = ref.read(anilistClientProvider);
+      for (final mediaId in mediaIds) {
+        unawaited(client.episodeAvailability(token, mediaId));
+      }
+    } catch (_) {}
   }
 
   Future<void> _initConnectivity() async {
@@ -195,6 +225,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   @override
   void dispose() {
     _connectivitySub?.cancel();
+    _authSub?.close();
     super.dispose();
   }
 

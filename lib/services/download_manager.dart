@@ -205,6 +205,26 @@ class LocalEpisodeQuery {
   int get hashCode => Object.hash(mediaId, episode);
 }
 
+class LocalEpisodeArtworkQuery {
+  const LocalEpisodeArtworkQuery({
+    required this.mediaId,
+    required this.episode,
+  });
+
+  final int mediaId;
+  final int episode;
+
+  @override
+  bool operator ==(Object other) {
+    return other is LocalEpisodeArtworkQuery &&
+        other.mediaId == mediaId &&
+        other.episode == episode;
+  }
+
+  @override
+  int get hashCode => Object.hash(mediaId, episode);
+}
+
 class _ResolvedPlaylist {
   const _ResolvedPlaylist({required this.url, required this.text});
 
@@ -219,7 +239,7 @@ class DownloadController extends StateNotifier<DownloadState> {
               BaseOptions(
                 connectTimeout: const Duration(seconds: 10),
                 sendTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 10),
+                receiveTimeout: const Duration(seconds: 45),
               ),
             ),
         _box = box ?? Hive.box('downloads'),
@@ -237,6 +257,43 @@ class DownloadController extends StateNotifier<DownloadState> {
   static const int _diskPersistIntervalMs = 1200;
   static const MethodChannel _mediaScanChannel =
       MethodChannel('kyomiru/media_scan');
+
+  bool _isRetriableDioError(DioException e) {
+    return e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.unknown;
+  }
+
+  Future<void> _downloadUriWithRetry(
+    Uri uri,
+    String savePath, {
+    required Map<String, String> headers,
+    required CancelToken cancelToken,
+    ProgressCallback? onReceiveProgress,
+    int maxAttempts = 3,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      attempt++;
+      try {
+        await _dio.downloadUri(
+          uri,
+          savePath,
+          options: Options(headers: headers),
+          cancelToken: cancelToken,
+          onReceiveProgress: onReceiveProgress,
+        );
+        return;
+      } on DioException catch (e) {
+        if (cancelToken.isCancelled) rethrow;
+        final shouldRetry = _isRetriableDioError(e) && attempt < maxAttempts;
+        if (!shouldRetry) rethrow;
+        await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+      }
+    }
+  }
 
   Future<void> mergeTSFiles(List<File> segments, String outputPath) async {
     if (segments.isEmpty) {
@@ -382,6 +439,25 @@ class DownloadController extends StateNotifier<DownloadState> {
     return null;
   }
 
+  Future<File?> getLocalEpisodeArtworkByMedia(int mediaId, int episode) async {
+    final item = state.items['$mediaId:$episode'];
+    if (item == null) return null;
+    final root = await _downloadsRoot();
+    final safeTitle = _safe(item.animeTitle);
+    final episodeDir =
+        Directory(p.join(root.path, safeTitle, 'Episode $episode'));
+    final candidates = <String>[
+      p.join(episodeDir.path, 'episode_thumb.jpg'),
+      p.join(root.path, safeTitle, 'Episode ${episode}_thumb.jpg'),
+      p.join(root.path, safeTitle, 'cover.jpg'),
+    ];
+    for (final candidate in candidates) {
+      final file = File(candidate);
+      if (await file.exists()) return file;
+    }
+    return null;
+  }
+
   Future<int> removeDownloadsForMedia(int mediaId) async {
     final targets = state.items.values
         .where((e) => e.mediaId == mediaId)
@@ -439,6 +515,7 @@ class DownloadController extends StateNotifier<DownloadState> {
     required int episode,
     required String animeTitle,
     String? coverImageUrl,
+    String? episodeThumbnailUrl,
     required SoraSource source,
   }) async {
     final key = '$mediaId:$episode';
@@ -473,6 +550,13 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (!await epDir.exists()) {
       await epDir.create(recursive: true);
     }
+    await _cacheArtworkFiles(
+      animeDir: animeDir,
+      episodeDir: epDir,
+      episode: episode,
+      coverImageUrl: coverImageUrl,
+      episodeThumbnailUrl: episodeThumbnailUrl,
+    );
       final manifestRelativePath = p.join(
         safeTitle,
         'Episode $episode',
@@ -538,10 +622,10 @@ class DownloadController extends StateNotifier<DownloadState> {
         final keyPath = p.join(epDir.path, keyName);
         var lastReceived = 0;
         var currentTotal = 0;
-        await _dio.downloadUri(
+        await _downloadUriWithRetry(
           uri,
           keyPath,
-          options: Options(headers: source.headers),
+          headers: source.headers,
           cancelToken: token,
           onReceiveProgress: (received, total) {
             final delta = received - lastReceived;
@@ -612,10 +696,10 @@ class DownloadController extends StateNotifier<DownloadState> {
         final segPath = p.join(epDir.path, name);
         var lastReceived = 0;
         var currentTotal = 0;
-        await _dio.downloadUri(
+        await _downloadUriWithRetry(
           segUri,
           segPath,
-          options: Options(headers: source.headers),
+          headers: source.headers,
           cancelToken: token,
           onReceiveProgress: (received, total) {
             final delta = received - lastReceived;
@@ -761,7 +845,7 @@ class DownloadController extends StateNotifier<DownloadState> {
       if (await File(path).exists()) return path;
 
       if (Platform.isIOS) {
-        final marker = '/Documents/Kyomiru/AnimePahe/';
+        const marker = '/Documents/Kyomiru/AnimePahe/';
         final markerIndex = path.lastIndexOf(marker);
         if (markerIndex >= 0) {
           final suffix = path.substring(markerIndex + '/Documents/'.length);
@@ -788,7 +872,7 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (normalized.startsWith('$rootPath/')) {
       return normalized.substring(rootPath.length + 1);
     }
-    final marker = '/Kyomiru/AnimePahe/';
+    const marker = '/Kyomiru/AnimePahe/';
     final markerIndex = normalized.lastIndexOf(marker);
     if (markerIndex >= 0) {
       return normalized.substring(markerIndex + marker.length);
@@ -885,6 +969,42 @@ class DownloadController extends StateNotifier<DownloadState> {
       AppLogger.w('Download', 'Media scan failed', error: e, stackTrace: st);
     }
   }
+
+  Future<void> _cacheArtworkFiles({
+    required Directory animeDir,
+    required Directory episodeDir,
+    required int episode,
+    String? coverImageUrl,
+    String? episodeThumbnailUrl,
+  }) async {
+    Future<void> saveIfMissing(String? url, String savePath) async {
+      if (url == null || url.trim().isEmpty) return;
+      final file = File(savePath);
+      if (await file.exists()) return;
+      try {
+        final response = await _dio.get<List<int>>(
+          url,
+          options: Options(
+            responseType: ResponseType.bytes,
+            receiveTimeout: const Duration(seconds: 20),
+          ),
+        );
+        final bytes = response.data;
+        if (bytes == null || bytes.isEmpty) return;
+        await file.writeAsBytes(bytes, flush: true);
+      } catch (_) {}
+    }
+
+    await saveIfMissing(coverImageUrl, p.join(animeDir.path, 'cover.jpg'));
+    await saveIfMissing(
+      episodeThumbnailUrl,
+      p.join(episodeDir.path, 'episode_thumb.jpg'),
+    );
+    await saveIfMissing(
+      episodeThumbnailUrl ?? coverImageUrl,
+      p.join(animeDir.path, 'Episode ${episode}_thumb.jpg'),
+    );
+  }
 }
 
 final downloadControllerProvider =
@@ -898,4 +1018,12 @@ final localEpisodeFileProvider =
   return ref
       .read(downloadControllerProvider.notifier)
       .getLocalEpisodeByMedia(query.mediaId, query.episode);
+});
+
+final localEpisodeArtworkFileProvider =
+    FutureProvider.family<File?, LocalEpisodeArtworkQuery>((ref, query) async {
+  ref.watch(downloadControllerProvider);
+  return ref
+      .read(downloadControllerProvider.notifier)
+      .getLocalEpisodeArtworkByMedia(query.mediaId, query.episode);
 });

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
@@ -13,6 +13,7 @@ import '../../features/details/details_screen.dart';
 import '../../features/discovery/discovery_screen.dart';
 import '../../features/player/player_screen.dart';
 import '../../models/anilist_models.dart';
+import '../../services/download_manager.dart';
 import '../../services/local_library_store.dart';
 import '../../services/watch_history_store.dart';
 import '../../state/app_settings_state.dart';
@@ -23,6 +24,49 @@ import '../../state/watch_history_state.dart';
 
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
+
+class _ContinueWatchingNotifierMeta {
+  const _ContinueWatchingNotifierMeta({
+    required this.unseen,
+    required this.totalAvailable,
+    required this.status,
+  });
+
+  final int unseen;
+  final int totalAvailable;
+  final String status;
+}
+
+final continueWatchingNotifierProvider = FutureProvider.family<
+    _ContinueWatchingNotifierMeta,
+    ({int mediaId, int lastCompleted})>((ref, query) async {
+  final auth = ref.watch(authControllerProvider);
+  final token = auth.token;
+  if (token == null || token.isEmpty) {
+    return const _ContinueWatchingNotifierMeta(
+      unseen: 0,
+      totalAvailable: 0,
+      status: '',
+    );
+  }
+  final info =
+      await ref.watch(anilistClientProvider).episodeAvailability(token, query.mediaId);
+  if (info == null) {
+    return const _ContinueWatchingNotifierMeta(
+      unseen: 0,
+      totalAvailable: 0,
+      status: '',
+    );
+  }
+  final available = info.availableEpisodes;
+  final unseen =
+      info.status == 'RELEASING' ? (available - query.lastCompleted).clamp(0, 9999) : 0;
+  return _ContinueWatchingNotifierMeta(
+    unseen: unseen,
+    totalAvailable: available,
+    status: info.status,
+  );
+});
 
 int _adaptiveGridCount(double width) {
   if (width >= 1200) return 6;
@@ -729,8 +773,32 @@ class _ContinueWatchingCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final progress = entry.progress;
     final percent = (progress * 100).round();
-    final remainingMs = (entry.totalDurationMs - entry.lastPositionMs).clamp(0, entry.totalDurationMs);
+    final remainingMs =
+        (entry.totalDurationMs - entry.lastPositionMs).clamp(0, entry.totalDurationMs);
     final timeLeftLabel = _formatTimeLeft(remainingMs);
+    final notifierAsync = ref.watch(
+      continueWatchingNotifierProvider(
+        (
+          mediaId: entry.mediaId,
+          lastCompleted: entry.lastCompletedEpisode,
+        ),
+      ),
+    );
+    final notifier = notifierAsync.valueOrNull;
+    final unseen = notifier?.unseen ?? 0;
+    final showUnseen = unseen > 0 && notifier?.status == 'RELEASING';
+    final globalProgressTotal = (notifier?.totalAvailable ?? 0) > 0
+        ? notifier!.totalAvailable
+        : entry.episodeNumber;
+    final localArtworkAsync = ref.watch(
+      localEpisodeArtworkFileProvider(
+        LocalEpisodeArtworkQuery(
+          mediaId: entry.mediaId,
+          episode: entry.episodeNumber,
+        ),
+      ),
+    );
+    final localArtwork = localArtworkAsync.valueOrNull;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -775,12 +843,53 @@ class _ContinueWatchingCard extends ConsumerWidget {
                         child: SizedBox(
                           width: 92,
                           height: double.infinity,
-                          child: entry.coverImageUrl != null
-                              ? KyomiruImageCache.image(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (localArtwork != null)
+                                Image.file(
+                                  localArtwork,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) {
+                                    final fallback =
+                                        (entry.coverImageUrl ?? '').trim();
+                                    if (fallback.isNotEmpty) {
+                                      return KyomiruImageCache.image(
+                                        fallback,
+                                        fit: BoxFit.cover,
+                                        error: const ColoredBox(
+                                            color: Color(0x22111111)),
+                                      );
+                                    }
+                                    return const ColoredBox(
+                                        color: Color(0x22111111));
+                                  },
+                                )
+                              else if ((entry.coverImageUrl ?? '').trim().isNotEmpty)
+                                KyomiruImageCache.image(
                                   entry.coverImageUrl!,
                                   fit: BoxFit.cover,
+                                  error: const ColoredBox(color: Color(0x22111111)),
                                 )
-                              : const ColoredBox(color: Color(0x22111111)),
+                              else
+                                const ColoredBox(color: Color(0x22111111)),
+                              Positioned.fill(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.transparent,
+                                        Colors.black.withValues(alpha: 0.45),
+                                      ],
+                                      stops: const [0.58, 1.0],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       Expanded(
@@ -810,7 +919,7 @@ class _ContinueWatchingCard extends ConsumerWidget {
                               ),
                               const Spacer(),
                               Text(
-                                '$percent% • ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)}${entry.isDownloaded ? ' • Local' : ''}',
+                                '$percent% • ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} • ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' • Local' : ''}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -879,6 +988,30 @@ class _ContinueWatchingCard extends ConsumerWidget {
                       ),
                     ),
                   ),
+                  if (showUnseen)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Text(
+                          '+$unseen',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               );
             },
@@ -960,3 +1093,5 @@ class _LibrarySkeletonBody extends StatelessWidget {
     );
   }
 }
+
+

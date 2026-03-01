@@ -59,7 +59,13 @@ Future<bool> _runShaderWarmup() async {
   }
 }
 
-Future<void> _openHiveBoxSafe(String name) async {
+Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
+  Future<void> closeIfOpen() async {
+    if (Hive.isBoxOpen(name)) {
+      await Hive.box(name).close();
+    }
+  }
+
   try {
     await Hive.openBox(name).timeout(const Duration(seconds: 8));
     return;
@@ -73,6 +79,7 @@ Future<void> _openHiveBoxSafe(String name) async {
   }
 
   try {
+    await closeIfOpen();
     await Hive.deleteBoxFromDisk(name);
   } catch (e, st) {
     AppLogger.w(
@@ -83,7 +90,17 @@ Future<void> _openHiveBoxSafe(String name) async {
     );
   }
 
-  await Hive.openBox(name).timeout(const Duration(seconds: 8));
+  try {
+    await Hive.openBox(name).timeout(const Duration(seconds: 8));
+  } catch (e, st) {
+    AppLogger.e(
+      'Boot',
+      'Hive second open failed for "$name"',
+      error: e,
+      stackTrace: st,
+    );
+    if (critical) rethrow;
+  }
 }
 
 Future<void> main() async {
@@ -119,8 +136,8 @@ Future<void> main() async {
   await _openHiveBoxSafe('manual_matches');
   await _openHiveBoxSafe('local_library');
   await _openHiveBoxSafe('watch_history');
-  await _openHiveBoxSafe('anilist_media_cache');
-  await _openHiveBoxSafe('anilist_query_cache');
+  await _openHiveBoxSafe('anilist_media_cache', critical: false);
+  await _openHiveBoxSafe('anilist_query_cache', critical: false);
   final liquidGlassEnabled = await _runShaderWarmup();
   runApp(
     ProviderScope(

@@ -80,6 +80,7 @@ class AniListClient {
   final Map<String, _CacheEntry<int>> _unreadCache = {};
   final Map<String, _CacheEntry<List<AniListLibraryEntry>>> _libraryCurrentCache = {};
   final Map<String, _CacheEntry<List<AniListLibrarySection>>> _librarySectionsCache = {};
+  final Map<String, _CacheEntry<AniListEpisodeAvailability>> _episodeAvailabilityCache = {};
   final Map<String, _CacheEntry<List<AniListNotificationItem>>> _notificationsCache = {};
 
   _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
@@ -1271,6 +1272,49 @@ class AniListClient {
     return AniListTrackingEntry.fromJson(
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
     );
+  }
+
+  Future<AniListEpisodeAvailability?> episodeAvailability(
+    String token,
+    int mediaId,
+  ) async {
+    final key = '$token:$mediaId';
+    final cached = _episodeAvailabilityCache[key];
+    if (cached != null && cached.isValid) {
+      return cached.value;
+    }
+
+    const q = r'''
+      query ($mediaId: Int!) {
+        Media(id: $mediaId, type: ANIME) {
+          id
+          status
+          episodes
+          nextAiringEpisode { episode }
+        }
+      }
+    ''';
+
+    final data = await _graphql(
+      query: q,
+      token: token,
+      variables: {'mediaId': mediaId},
+    );
+    final media = data['Media'];
+    if (media is! Map<String, dynamic>) return null;
+    final result = AniListEpisodeAvailability(
+      mediaId: (media['id'] as num?)?.toInt() ?? mediaId,
+      status: (media['status'] ?? '').toString(),
+      episodes: (media['episodes'] as num?)?.toInt(),
+      nextAiringEpisode:
+          (media['nextAiringEpisode'] as Map<String, dynamic>?)?['episode']
+              as int?,
+    );
+    _episodeAvailabilityCache[key] = _CacheEntry<AniListEpisodeAvailability>(
+      result,
+      DateTime.now().add(_staleTtl),
+    );
+    return result;
   }
 
   String _season(int month) {

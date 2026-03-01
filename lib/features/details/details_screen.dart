@@ -21,6 +21,7 @@ import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/episode_state.dart';
 import '../../state/library_source_state.dart';
+import '../../state/source_lock_state.dart';
 import '../../state/tracking_state.dart';
 import '../player/player_screen.dart';
 
@@ -36,6 +37,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   int _tab = 0;
   SoraAnimeMatch? _manualMatch;
   int? _prefetchedForMediaId;
+  bool _isBulkDownloading = false;
+  int _bulkDone = 0;
+  int _bulkTotal = 0;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
@@ -126,6 +130,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       return '${media.title.best} - $title';
     }
     return title;
+  }
+
+  String? _episodeThumbnailUrl(AniListMedia media, int episodeNumber) {
+    for (final se in media.streamingEpisodes) {
+      if (se.guessedEpisodeNumber == episodeNumber) {
+        final thumb = se.thumbnail?.trim();
+        if (thumb != null && thumb.isNotEmpty) return thumb;
+      }
+    }
+    return null;
   }
 
   int _qualityRank(String q) {
@@ -267,6 +281,128 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         ),
       ),
     );
+  }
+
+  void _lockSessionSource(SoraSource source) {
+    ref.read(sessionSourceLockProvider.notifier).lockFromSelection(
+          sourceUrl: source.url,
+          quality: source.quality,
+          audio: source.subOrDub,
+          format: source.format,
+        );
+  }
+
+  Future<({int start, int end})?> _pickEpisodeRange(
+    int minEpisode,
+    int maxEpisode,
+  ) async {
+    final startController = TextEditingController(text: '$minEpisode');
+    final endController = TextEditingController(text: '$maxEpisode');
+    return showDialog<({int start, int end})>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Range'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: startController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Start Episode'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: endController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'End Episode'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final start = int.tryParse(startController.text.trim()) ?? minEpisode;
+              final end = int.tryParse(endController.text.trim()) ?? maxEpisode;
+              final clampedStart = start.clamp(minEpisode, maxEpisode);
+              final clampedEnd = end.clamp(clampedStart, maxEpisode);
+              Navigator.of(context).pop((start: clampedStart, end: clampedEnd));
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadAllEpisodes(
+    AniListMedia media,
+    List<SoraEpisode> episodes,
+  ) async {
+    if (_isBulkDownloading || episodes.isEmpty) return;
+    final range = await _pickEpisodeRange(episodes.first.number, episodes.last.number);
+    if (!mounted || range == null) return;
+    final selectedEpisodes = episodes
+        .where((ep) => ep.number >= range.start && ep.number <= range.end)
+        .toList();
+    if (selectedEpisodes.isEmpty) return;
+
+    final probeSources = await _loadSourcesWithOverlay(media, selectedEpisodes.first);
+    if (!mounted || probeSources.isEmpty) return;
+    final chosen = await _showSourcePicker(probeSources);
+    if (!mounted || chosen == null) return;
+    _lockSessionSource(chosen);
+
+    setState(() {
+      _isBulkDownloading = true;
+      _bulkDone = 0;
+      _bulkTotal = selectedEpisodes.length;
+    });
+
+    final settings = ref.read(appSettingsProvider);
+    try {
+      for (final ep in selectedEpisodes) {
+        final local = await ref
+            .read(downloadControllerProvider.notifier)
+            .localManifestPath(media.id, ep.number);
+        if (local == null) {
+          final sources = await _loadSourcesWithOverlay(media, ep);
+          if (sources.isNotEmpty) {
+            final sameProvider = sources
+                .where(
+                  (s) =>
+                      sourceProviderIdFromUrl(s.url) ==
+                      sourceProviderIdFromUrl(chosen.url),
+                )
+                .toList();
+            final pool = sameProvider.isNotEmpty ? sameProvider : sources;
+            final selected = _pickDownloadSource(
+              pool,
+              settings,
+              preferredQuality: chosen.quality,
+              preferredAudio: chosen.subOrDub,
+            );
+            await ref.read(downloadControllerProvider.notifier).downloadHlsEpisode(
+                  mediaId: media.id,
+                  episode: ep.number,
+                  animeTitle: media.title.best,
+                  coverImageUrl: media.cover.best,
+                  episodeThumbnailUrl: _episodeThumbnailUrl(media, ep.number),
+                  source: selected,
+                );
+          }
+        }
+        if (!mounted) return;
+        setState(() => _bulkDone++);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBulkDownloading = false);
+      }
+    }
   }
 
   Future<SoraAnimeMatch?> _openManualMatchPicker(AniListMedia media) async {
@@ -462,6 +598,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         ? await _showSourcePicker(sources)
         : _pickSourceByPreference(sources, settings);
     if (selected == null || !context.mounted) return;
+    _lockSessionSource(selected);
     final fallback = sources
         .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
         .toList();
@@ -714,60 +851,46 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         ),
                                       ),
                                       const Spacer(),
-                                      FilledButton.tonalIcon(
-                                        onPressed: () async {
-                                          final settings =
-                                              ref.read(appSettingsProvider);
-                                          String? bulkQuality;
-                                          String? bulkAudio;
-                                          if (settings.chooseStreamEveryTime &&
-                                              episodes.isNotEmpty) {
-                                            final probeSources =
-                                                await _sora.getSourcesForEpisode(
-                                                    episodes.first.playUrl);
-                                            if (probeSources.isEmpty) return;
-                                            final chosen =
-                                                await _showSourcePicker(
-                                                    probeSources);
-                                            if (chosen == null) return;
-                                            bulkQuality = chosen.quality;
-                                            bulkAudio = chosen.subOrDub;
-                                          }
-                                          for (final ep in episodes) {
-                                            final local = await ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .localManifestPath(
-                                                    media.id, ep.number);
-                                            if (local != null) continue;
-                                            final sources =
-                                                await _loadSourcesWithOverlay(
-                                                    media, ep);
-                                            if (sources.isEmpty) continue;
-                                            final selected =
-                                                _pickDownloadSource(
-                                              sources,
-                                              settings,
-                                              preferredQuality: bulkQuality,
-                                              preferredAudio: bulkAudio,
-                                            );
-                                            await ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .downloadHlsEpisode(
-                                                  mediaId: media.id,
-                                                  episode: ep.number,
-                                                  animeTitle: media.title.best,
-                                                  coverImageUrl:
-                                                      media.cover.best,
-                                                  source: selected,
-                                                );
-                                          }
-                                        },
-                                        icon: const Icon(
-                                            Icons.download_for_offline_outlined),
-                                        label: const Text('Download All'),
-                                      ),
+                                      if (_isBulkDownloading)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.08),
+                                            borderRadius: BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: Colors.white.withValues(alpha: 0.12),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text('Downloading $_bulkDone/$_bulkTotal'),
+                                            ],
+                                          ),
+                                        )
+                                      else
+                                        GlassButton(
+                                          onPressed: () => _downloadAllEpisodes(media, episodes),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.download_for_offline_outlined),
+                                              SizedBox(width: 6),
+                                              Text('Download All'),
+                                            ],
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -778,14 +901,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           ...episodes.map((ep) {
                             final p = progressStore.read(media.id, ep.number);
                             final pct = p?.percent ?? 0;
-                            final streamMeta = media.streamingEpisodes
-                                .where((se) =>
-                                    se.guessedEpisodeNumber == ep.number)
-                                .toList();
-                            final thumb = streamMeta.isNotEmpty
-                                ? (streamMeta.first.thumbnail ??
-                                    media.cover.best)
-                                : media.cover.best;
+                            final thumb = _episodeThumbnailUrl(media, ep.number);
+                            final fallbackThumb =
+                                media.cover.best ?? media.bannerImage;
                             final episodeSubtitle =
                                 _episodeSpecificTitle(media, ep.number);
                             final d = downloads.item(media.id, ep.number);
@@ -827,20 +945,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     ),
                                     child: Row(
                                     children: [
-                                      Container(
+                                      SizedBox(
                                         width: 104,
                                         height: 64,
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(10),
-                                          color: const Color(0x22111111),
-                                          image: thumb == null
-                                              ? null
-                                              : DecorationImage(
-                                                  image:
-                                                      KyomiruImageCache.provider(
-                                                          thumb),
-                                                  fit: BoxFit.cover,
-                                                ),
+                                        child: _EpisodeRowThumb(
+                                          mediaId: media.id,
+                                          episode: ep.number,
+                                          networkThumbUrl: thumb,
+                                          fallbackUrl: fallbackThumb,
                                         ),
                                       ),
                                       const SizedBox(width: 10),
@@ -954,6 +1066,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                     : _pickDownloadSource(
                                                         sources, settings);
                                                 if (selected == null) return;
+                                                _lockSessionSource(selected);
                                                 await ref
                                                     .read(
                                                         downloadControllerProvider
@@ -965,6 +1078,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                           media.title.best,
                                                       coverImageUrl:
                                                           media.cover.best,
+                                                      episodeThumbnailUrl:
+                                                          _episodeThumbnailUrl(
+                                                              media, ep.number),
                                                       source: selected,
                                                     );
                                               },
@@ -1755,6 +1871,92 @@ class _EpisodeListLoadingSkeleton extends StatelessWidget {
                 color: Colors.white, borderRadius: BorderRadius.circular(14)),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EpisodeRowThumb extends ConsumerWidget {
+  const _EpisodeRowThumb({
+    required this.mediaId,
+    required this.episode,
+    required this.networkThumbUrl,
+    required this.fallbackUrl,
+  });
+
+  final int mediaId;
+  final int episode;
+  final String? networkThumbUrl;
+  final String? fallbackUrl;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final localThumb = ref.watch(
+      localEpisodeArtworkFileProvider(
+        LocalEpisodeArtworkQuery(mediaId: mediaId, episode: episode),
+      ),
+    );
+    final localFile = localThumb.valueOrNull;
+    final network = (networkThumbUrl ?? '').trim();
+    final fallback = (fallbackUrl ?? '').trim();
+
+    Widget base;
+    if (localFile != null) {
+      base = Image.file(
+        localFile,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback.isNotEmpty
+            ? KyomiruImageCache.image(
+                fallback,
+                fit: BoxFit.cover,
+                error: const ColoredBox(color: Color(0x22111111)),
+              )
+            : const ColoredBox(color: Color(0x22111111)),
+      );
+    } else if (network.isNotEmpty) {
+      base = KyomiruImageCache.image(
+        network,
+        fit: BoxFit.cover,
+        error: fallback.isNotEmpty
+            ? KyomiruImageCache.image(
+                fallback,
+                fit: BoxFit.cover,
+                error: const ColoredBox(color: Color(0x22111111)),
+              )
+            : const ColoredBox(color: Color(0x22111111)),
+      );
+    } else if (fallback.isNotEmpty) {
+      base = KyomiruImageCache.image(
+        fallback,
+        fit: BoxFit.cover,
+        error: const ColoredBox(color: Color(0x22111111)),
+      );
+    } else {
+      base = const ColoredBox(color: Color(0x22111111));
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          base,
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.46),
+                  ],
+                  stops: const [0.58, 1.0],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

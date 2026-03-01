@@ -12,6 +12,7 @@ class WatchHistoryEntry {
     required this.lastPositionMs,
     required this.totalDurationMs,
     required this.isDownloaded,
+    required this.lastCompletedEpisode,
     required this.updatedAtMs,
     this.coverImageUrl,
     this.headers = const {},
@@ -27,6 +28,7 @@ class WatchHistoryEntry {
   final int lastPositionMs;
   final int totalDurationMs;
   final bool isDownloaded;
+  final int lastCompletedEpisode;
   final int updatedAtMs;
   final String? coverImageUrl;
   final Map<String, String> headers;
@@ -46,6 +48,7 @@ class WatchHistoryEntry {
         'lastPositionMs': lastPositionMs,
         'totalDurationMs': totalDurationMs,
         'isDownloaded': isDownloaded,
+        'lastCompletedEpisode': lastCompletedEpisode,
         'updatedAtMs': updatedAtMs,
         'coverImageUrl': coverImageUrl,
         'headers': headers,
@@ -80,6 +83,8 @@ class WatchHistoryEntry {
       lastPositionMs: (json['lastPositionMs'] as num?)?.toInt() ?? 0,
       totalDurationMs: (json['totalDurationMs'] as num?)?.toInt() ?? 0,
       isDownloaded: (json['isDownloaded'] as bool?) ?? false,
+      lastCompletedEpisode: (json['lastCompletedEpisode'] as num?)?.toInt() ??
+          (((json['episodeNumber'] as num?)?.toInt() ?? 1) - 1).clamp(0, 99999),
       updatedAtMs:
           (json['updatedAtMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
       coverImageUrl: json['coverImageUrl'] as String?,
@@ -104,6 +109,7 @@ class WatchHistoryStore {
     required int lastPositionMs,
     required int totalDurationMs,
     required bool isDownloaded,
+    required int lastCompletedEpisode,
     String? coverImageUrl,
     Map<String, String> headers = const {},
   }) async {
@@ -121,6 +127,7 @@ class WatchHistoryStore {
       lastPositionMs: lastPositionMs,
       totalDurationMs: totalDurationMs,
       isDownloaded: isDownloaded,
+      lastCompletedEpisode: lastCompletedEpisode,
       updatedAtMs: now,
       coverImageUrl: coverImageUrl,
       headers: headers,

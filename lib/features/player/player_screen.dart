@@ -19,6 +19,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/app_logger.dart';
 import '../../core/haptics.dart';
 import '../../core/liquid_glass_preset.dart';
+import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
 import '../../services/local_library_store.dart';
 import '../../services/progress_store.dart';
@@ -26,6 +27,7 @@ import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/episode_state.dart';
 import '../../state/library_source_state.dart';
+import '../../state/source_lock_state.dart';
 import '../../state/tracking_state.dart';
 import '../../state/watch_history_state.dart';
 
@@ -118,6 +120,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _lastHorizontalSeekX = 0;
   bool _pipSupported = false;
   bool _autoTrackingSyncTriggered = false;
+  bool _autoNextTriggered = false;
   bool _isHlsPlayback = false;
   bool _didEpisodeEndCleanup = false;
   DateTime? _lastLiveTrimAt;
@@ -647,7 +650,145 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       _trimLiveHlsSegments();
       unawaited(_maybeAutoUpdateTracking());
+      unawaited(_maybeAutoPlayNext());
     });
+  }
+
+  int _qualityRank(String q) {
+    final m = RegExp(r'(\d+)').firstMatch(q);
+    return int.tryParse(m?.group(1) ?? '') ?? 0;
+  }
+
+  SoraSource _pickSourceByLock(
+    List<SoraSource> sources,
+    AppSettings settings,
+    SessionSourceLock? lock,
+  ) {
+    final sorted = [...sources]
+      ..sort((a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+
+    if (lock != null) {
+      var pool = sorted
+          .where(
+            (s) => sourceProviderIdFromUrl(s.url) == lock.providerId,
+          )
+          .toList();
+      if (pool.isEmpty) pool = sorted;
+      final exact = pool.where((s) {
+        final q = s.quality.toLowerCase();
+        final a = s.subOrDub.toLowerCase();
+        return q.contains(lock.quality) && a == lock.audio;
+      }).toList();
+      if (exact.isNotEmpty) return exact.first;
+      final qualityOnly =
+          pool.where((s) => s.quality.toLowerCase().contains(lock.quality)).toList();
+      if (qualityOnly.isNotEmpty) return qualityOnly.first;
+      return pool.first;
+    }
+
+    var pool = sorted;
+    final preferredAudio = settings.defaultAudio.toLowerCase();
+    final preferredQuality = settings.defaultQuality.toLowerCase();
+    if (preferredAudio != 'any') {
+      final audio = pool.where((s) => s.subOrDub.toLowerCase() == preferredAudio).toList();
+      if (audio.isNotEmpty) pool = audio;
+    }
+    if (preferredQuality != 'auto') {
+      final quality =
+          pool.where((s) => s.quality.toLowerCase().contains(preferredQuality)).toList();
+      if (quality.isNotEmpty) return quality.first;
+    }
+    return pool.first;
+  }
+
+  Future<void> _maybeAutoPlayNext() async {
+    if (_autoNextTriggered) return;
+    if (_durationSec <= 0) return;
+    if ((_durationSec - _currentSec) > 5) return;
+    if (!mounted) return;
+    final mediaTitle = widget.mediaTitle;
+    if (mediaTitle == null || mediaTitle.trim().isEmpty) return;
+
+    _autoNextTriggered = true;
+    final nextEpisode = widget.episodeNumber + 1;
+    final downloader = ref.read(downloadControllerProvider.notifier);
+    final localNext = await downloader.getLocalEpisodeByMedia(widget.mediaId, nextEpisode);
+
+    if (!mounted) return;
+    if (localNext != null) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            mediaId: widget.mediaId,
+            episodeNumber: nextEpisode,
+            episodeTitle: '${mediaTitle.trim()} - Episode $nextEpisode',
+            sourceUrl: localNext.path,
+            isLocal: true,
+            backgroundImageUrl: widget.backgroundImageUrl,
+            mediaTitle: mediaTitle,
+            malId: widget.malId,
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final episodeResult = await ref.read(
+        episodeProvider(
+          EpisodeQuery(mediaId: widget.mediaId, title: mediaTitle),
+        ).future,
+      );
+      SoraEpisode? next;
+      for (final ep in episodeResult.episodes) {
+        if (ep.number == nextEpisode) {
+          next = ep;
+          break;
+        }
+      }
+      if (next == null || !mounted) return;
+      final nextEp = next;
+
+      final sources = await ref.read(
+        episodeSourcesProvider(
+          EpisodeSourceQuery(
+            playUrl: nextEp.playUrl,
+            anilistId: widget.mediaId,
+            episodeNumber: nextEp.number,
+          ),
+        ).future,
+      );
+      if (sources.isEmpty || !mounted) return;
+      final settings = ref.read(appSettingsProvider);
+      final lock = ref.read(sessionSourceLockProvider);
+      final selected = _pickSourceByLock(sources, settings, lock);
+      ref.read(sessionSourceLockProvider.notifier).lockFromSelection(
+            sourceUrl: selected.url,
+            quality: selected.quality,
+            audio: selected.subOrDub,
+            format: selected.format,
+          );
+      final fallback = sources
+          .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
+          .toList();
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            mediaId: widget.mediaId,
+            episodeNumber: nextEp.number,
+            episodeTitle: '${mediaTitle.trim()} - Episode ${nextEp.number}',
+            sourceUrl: selected.url,
+            headers: selected.headers,
+            backgroundImageUrl: widget.backgroundImageUrl,
+            mediaTitle: mediaTitle,
+            malId: widget.malId,
+            fallbackSources: fallback,
+          ),
+        ),
+      );
+    } catch (_) {
+      _autoNextTriggered = false;
+    }
   }
 
   void _trimLiveHlsSegments() {
@@ -1071,6 +1212,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       lastPositionMs: positionMs,
       totalDurationMs: durationMs,
       isDownloaded: widget.isLocal,
+      lastCompletedEpisode:
+          ratio >= 0.85 ? widget.episodeNumber : (widget.episodeNumber - 1).clamp(0, 99999),
       coverImageUrl: widget.backgroundImageUrl,
       headers: _activePlaybackHeaders(),
     );
@@ -1366,20 +1509,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
-  bool get _isWithinOpeningRange {
-    final s = opStart;
-    final e = opEnd;
-    if (s == null || e == null) return false;
-    final current = _currentSec;
-    return current >= s && current <= e;
-  }
-
   Future<void> _skipIntro() async {
     final c = _videoController;
+    final mk = _mediaKitPlayer;
     final end = opEnd;
-    if (c == null || end == null) return;
+    if (end == null || (c == null && mk == null)) return;
     HapticFeedback.lightImpact();
-    await c.seekTo(Duration(milliseconds: (end * 1000).round()));
+    final target = Duration(milliseconds: (end * 1000).round());
+    if (c != null) {
+      await c.seekTo(target);
+    } else if (mk != null) {
+      await mk.seek(target);
+    }
+    _registerInteraction();
+  }
+
+  bool get _isInEarlyPlaybackWindow => _currentSec >= 0 && _currentSec <= 150;
+
+  String get _adaptiveSkipLabel => _isInEarlyPlaybackWindow ? 'Skip Intro' : 'Skip 85s';
+
+  Future<void> _handleAdaptiveSkip() async {
+    HapticFeedback.lightImpact();
+    if (_isInEarlyPlaybackWindow && opEnd != null) {
+      await _skipIntro();
+      return;
+    }
+    await _seekRelative(const Duration(seconds: 85));
     _registerInteraction();
   }
 
@@ -1435,7 +1590,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final bottomInset = viewPadding.bottom;
     final topHudOffset = topInset + 8;
     final bottomHudOffset = bottomInset + 12;
-    final skipIntroBottom = bottomInset + 68;
 
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
@@ -1554,21 +1708,44 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       Positioned(
                         top: topHudOffset,
                         right: 8,
-                        child: Material(
-                          color: const Color(0xFA1E1E1E),
-                          borderRadius: BorderRadius.circular(999),
-                          child: InkWell(
-                            onTap: _closePlayer,
-                            borderRadius: BorderRadius.circular(999),
-                            child: const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: Icon(
-                                Icons.close_rounded,
-                                color: Colors.white,
-                                size: 24,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_pipSupported)
+                              Material(
+                                color: const Color(0xFA1E1E1E),
+                                borderRadius: BorderRadius.circular(999),
+                                child: InkWell(
+                                  onTap: enterPictureInPictureMode,
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(10),
+                                    child: Icon(
+                                      Icons.picture_in_picture_alt_rounded,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 8),
+                            Material(
+                              color: const Color(0xFA1E1E1E),
+                              borderRadius: BorderRadius.circular(999),
+                              child: InkWell(
+                                onTap: _closePlayer,
+                                borderRadius: BorderRadius.circular(999),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                       Positioned(
@@ -1597,27 +1774,77 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           ),
                         ),
                       ),
-                      if (_pipSupported)
-                        Positioned(
-                          top: topHudOffset,
-                          left: 124,
-                          child: Material(
-                            color: const Color(0xFA1E1E1E),
-                            borderRadius: BorderRadius.circular(999),
-                            child: InkWell(
-                              onTap: enterPictureInPictureMode,
-                              borderRadius: BorderRadius.circular(999),
-                              child: const Padding(
-                                padding: EdgeInsets.all(10),
-                                child: Icon(
-                                  Icons.picture_in_picture_alt_rounded,
-                                  color: Colors.white,
-                                  size: 18,
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        bottom: bottomHudOffset + 84,
+                        child: IgnorePointer(
+                          ignoring: !_overlayVisible,
+                          child: Center(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Material(
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    onTap: () {
+                                      hapticTap();
+                                      _togglePlayPause();
+                                    },
+                                    customBorder: const CircleBorder(),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(22),
+                                      child: Icon(
+                                        isPlaying
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        color: Colors.white,
+                                        size: 44,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 16),
+                                Material(
+                                  color: Colors.black.withValues(alpha: 0.40),
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: InkWell(
+                                    onTap: _handleAdaptiveSkip,
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.skip_next_rounded,
+                                            color: Colors.white,
+                                            size: 18,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            _adaptiveSkipLabel,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
+                      ),
                       Positioned(
                         left: 12,
                         right: 12,
@@ -1633,27 +1860,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  IconButton(
-                                    style: IconButton.styleFrom(
-                                      backgroundColor:
-                                          Colors.black.withValues(alpha: 0.35),
-                                      foregroundColor: Colors.white,
-                                    ),
-                                    onPressed: () {
-                                      hapticTap();
-                                      _togglePlayPause();
-                                    },
-                                    icon: Icon(
-                                      isPlaying
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
-                                    ),
-                                  ),
-                                ],
-                              ),
                               if (showCustomProgress)
                                 GestureDetector(
                                   behavior: HitTestBehavior.opaque,
@@ -1771,57 +1977,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   ),
                                 ),
                             ],
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 12,
-                        bottom: skipIntroBottom,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 180),
-                          opacity: _isWithinOpeningRange ? 1.0 : 0.0,
-                          child: IgnorePointer(
-                            ignoring: !_isWithinOpeningRange,
-                            child: Material(
-                              color: const Color(0xFA1E1E1E),
-                              borderRadius: BorderRadius.circular(999),
-                              child: InkWell(
-                                onTap: _skipIntro,
-                                borderRadius: BorderRadius.circular(999),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.10),
-                                    ),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.skip_next_rounded,
-                                        color: Colors.white,
-                                        size: 16,
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        'Skip Intro',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ),

@@ -272,6 +272,26 @@ class AniListTrackingEntry {
       );
 }
 
+class AniListEpisodeAvailability {
+  const AniListEpisodeAvailability({
+    required this.mediaId,
+    required this.status,
+    required this.episodes,
+    required this.nextAiringEpisode,
+  });
+
+  final int mediaId;
+  final String status;
+  final int? episodes;
+  final int? nextAiringEpisode;
+
+  int get availableEpisodes {
+    final ep = episodes ?? 0;
+    final next = nextAiringEpisode ?? 0;
+    return ep > next ? ep : next;
+  }
+}
+
 class SoraExtensionManifest {
   final String id;
   final String? name;
