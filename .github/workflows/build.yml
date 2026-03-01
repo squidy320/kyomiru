@@ -57,6 +57,12 @@ jobs:
       - name: Flutter Pub Get
         run: flutter pub get
 
+      - name: Ensure iOS Platform Folder
+        run: |
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios .
+          fi
+
       - name: Pod Install
         run: |
           cd ios
