@@ -95,7 +95,6 @@ class AppTabs extends ConsumerStatefulWidget {
 }
 
 class _AppTabsState extends ConsumerState<AppTabs> {
-  static const int _searchTabIndex = 1;
   int _index = 0;
   bool _railExtended = false;
   int _lastServerUnread = 0;
@@ -171,6 +170,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         return 0; // Library
       case 2:
         return 3; // Downloads
+      case 3:
+        return 4; // Settings
       default:
         return 1;
     }
@@ -182,6 +183,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         return 1;
       case 3:
         return 2;
+      case 4:
+        return 3;
       case 1:
         return 0;
       default:
@@ -343,27 +346,13 @@ class _AppTabsState extends ConsumerState<AppTabs> {
           unselectedLabelTextStyle: const TextStyle(color: Colors.white70),
           selectedLabelTextStyle:
               const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          leading: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: 'Search',
-                onPressed: () => _onItemTapped(_searchTabIndex),
-                icon: _RailGlowIcon(
-                  icon: Icons.search_rounded,
-                  selected: _index == _searchTabIndex,
-                ),
-              ),
-              const SizedBox(height: 6),
-              IconButton(
-                tooltip: _railExtended ? 'Collapse' : 'Menu',
-                onPressed: () => setState(() => _railExtended = !_railExtended),
-                icon: Icon(
-                  _railExtended ? Icons.menu_open_rounded : Icons.menu_rounded,
-                  color: Colors.white,
-                ),
-              ),
-            ],
+          leading: IconButton(
+            tooltip: _railExtended ? 'Collapse' : 'Menu',
+            onPressed: () => setState(() => _railExtended = !_railExtended),
+            icon: Icon(
+              _railExtended ? Icons.menu_open_rounded : Icons.menu_rounded,
+              color: Colors.white,
+            ),
           ),
           destinations: [
             NavigationRailDestination(
@@ -387,6 +376,13 @@ class _AppTabsState extends ConsumerState<AppTabs> {
               ),
               label: Text('Downloads'),
             ),
+            NavigationRailDestination(
+              icon: _RailGlowIcon(
+                icon: CupertinoIcons.gear,
+                selected: _index == 4,
+              ),
+              label: Text('Settings'),
+            ),
           ],
         );
 
@@ -398,8 +394,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
             child: Row(
               children: [
                 Padding(
-                  padding: EdgeInsets.fromLTRB(
-                      12, MediaQuery.of(context).padding.top + 8, 8, 12),
+                  padding: const EdgeInsets.all(16),
                   child: widget.liquidGlassEnabled
                       ? LiquidGlass.withOwnLayer(
                           settings: LiquidGlassSettings(
@@ -410,13 +405,21 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                             glassColor: Colors.black.withValues(alpha: 0.10),
                           ),
                           shape: const LiquidRoundedSuperellipse(
-                              borderRadius: 24),
-                          child: RepaintBoundary(child: rail),
+                              borderRadius: 30),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(30),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.10),
+                              ),
+                            ),
+                            child: RepaintBoundary(child: rail),
+                          ),
                         )
                       : Container(
                           decoration: BoxDecoration(
                             color: const Color(0xFA1E1E1E),
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(30),
                             border: Border.all(
                               color: Colors.white.withValues(alpha: 0.10),
                             ),

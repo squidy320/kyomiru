@@ -407,6 +407,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           ? File.fromUri(uri)
           : File(rawUrl);
       final isHlsLocal = file.path.toLowerCase().endsWith('.m3u8');
+      final isTsLocal = file.path.toLowerCase().endsWith('.ts');
       final controller = isHlsLocal
           ? VideoPlayerController.networkUrl(
               Uri.parse(await _startLocalHlsProxy(file)),
@@ -418,6 +419,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             )
           : VideoPlayerController.file(file);
       await controller.initialize().timeout(const Duration(seconds: 6));
+      if (isTsLocal) {
+        if (mounted) {
+          setState(() => _initStatusMessage = 'Scanning local stream metadata...');
+        }
+        await _primeTsMetadata(controller);
+      }
       _isHlsPlayback = isHlsLocal;
       return controller;
     } catch (e, st) {
@@ -425,6 +432,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           error: e, stackTrace: st);
       return null;
     }
+  }
+
+  Future<void> _primeTsMetadata(VideoPlayerController controller) async {
+    try {
+      if (!controller.value.isInitialized) return;
+      if (controller.value.duration.inMilliseconds > 0) return;
+      final wasPlaying = controller.value.isPlaying;
+      await controller.setVolume(0);
+      await controller.play();
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      await controller.pause();
+      await controller.seekTo(Duration.zero);
+      for (var i = 0; i < 6; i++) {
+        if (controller.value.duration.inMilliseconds > 0) break;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      if (wasPlaying) {
+        await controller.play();
+      }
+    } catch (_) {}
   }
 
   Future<String> _startLocalHlsProxy(File manifest) async {
