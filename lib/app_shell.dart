@@ -100,7 +100,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
   bool _offlineMode = false;
-  bool _bootConnectivityResolved = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   ProviderSubscription<AuthState>? _authSub;
 
@@ -149,17 +148,15 @@ class _AppTabsState extends ConsumerState<AppTabs> {
 
   Future<void> _initConnectivity() async {
     try {
-      final now = await Connectivity().checkConnectivity();
+      final now = await Connectivity()
+          .checkConnectivity()
+          .timeout(const Duration(seconds: 2));
       _applyConnectivity(now);
       _connectivitySub =
           Connectivity().onConnectivityChanged.listen(_applyConnectivity);
     } catch (_) {
       if (!mounted) return;
       setState(() => _offlineMode = true);
-    } finally {
-      if (mounted && !_bootConnectivityResolved) {
-        setState(() => _bootConnectivityResolved = true);
-      }
     }
   }
 
@@ -258,22 +255,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
             ),
           )
         : const SizedBox.shrink();
-
-    if (!_bootConnectivityResolved) {
-      return Scaffold(
-        extendBody: true,
-        resizeToAvoidBottomInset: false,
-        body: GlassScaffoldBackground(
-          child: const Center(
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
-        ),
-      );
-    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
