@@ -109,13 +109,6 @@ final libraryWatchingNotifierProvider = FutureProvider.family<
   );
 });
 
-int _adaptiveGridCount(double width) {
-  if (width >= 1200) return 6;
-  if (width >= 900) return 5;
-  if (width >= 600) return 4;
-  return 2;
-}
-
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
@@ -437,32 +430,26 @@ class _LocalLibrarySection extends StatelessWidget {
         Text('$title (${items.length})',
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final cols = _adaptiveGridCount(constraints.maxWidth);
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: cols,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: _kCardWidth / _kCardHeight,
-              ),
-              itemBuilder: (context, index) {
-                final entry = items[index];
-                final media = AniListMedia(
-                  id: entry.mediaId,
-                  title: AniListTitle(english: entry.title),
-                  cover: AniListCover(large: entry.coverImage),
-                  episodes:
-                      entry.totalEpisodes <= 0 ? null : entry.totalEpisodes,
-                );
-                final progressText = entry.totalEpisodes > 0
-                    ? '${entry.episodesWatched} / ${entry.totalEpisodes}'
-                    : '${entry.episodesWatched}';
-                return _HoverPosterTile(
+        SizedBox(
+          height: _kCardHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final entry = items[index];
+              final media = AniListMedia(
+                id: entry.mediaId,
+                title: AniListTitle(english: entry.title),
+                cover: AniListCover(large: entry.coverImage),
+                episodes: entry.totalEpisodes <= 0 ? null : entry.totalEpisodes,
+              );
+              final progressText = entry.totalEpisodes > 0
+                  ? '${entry.episodesWatched} / ${entry.totalEpisodes}'
+                  : '${entry.episodesWatched}';
+              return SizedBox(
+                width: _kCardWidth,
+                child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(
@@ -497,10 +484,10 @@ class _LocalLibrarySection extends StatelessWidget {
                       );
                     },
                   ),
-                );
-              },
-            );
-          },
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -525,22 +512,17 @@ class _LibrarySection extends StatelessWidget {
         Text('${section.title} (${section.items.length})',
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final cols = _adaptiveGridCount(constraints.maxWidth);
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: section.items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: cols,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: _kCardWidth / _kCardHeight,
-              ),
-              itemBuilder: (context, index) {
-                final e = section.items[index];
-                return _HoverPosterTile(
+        SizedBox(
+          height: _kCardHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: section.items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final e = section.items[index];
+              return SizedBox(
+                width: _kCardWidth,
+                child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(MaterialPageRoute(
@@ -571,10 +553,10 @@ class _LibrarySection extends StatelessWidget {
                       );
                     },
                   ),
-                );
-              },
-            );
-          },
+                ),
+              );
+            },
+          ),
         ),
       ],
     );

@@ -19,13 +19,6 @@ import '../details/details_screen.dart';
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
 
-int _adaptiveGridCount(double width) {
-  if (width >= 1200) return 6;
-  if (width >= 900) return 5;
-  if (width >= 600) return 4;
-  return 2;
-}
-
 class DiscoveryScreen extends ConsumerStatefulWidget {
   const DiscoveryScreen({super.key});
 
@@ -318,7 +311,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           final sectionSlivers = <Widget>[];
           for (final section in sections) {
             if (section.items.isEmpty) continue;
-            final cols = _adaptiveGridCount(MediaQuery.sizeOf(context).width - 28);
             sectionSlivers.addAll([
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
@@ -341,29 +333,31 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                sliver: SliverGrid(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final item = section.items[index];
-                      return _HoverPosterTile(
-                        onTap: () {
-                          hapticTap();
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => DetailsScreen(mediaId: item.id),
-                            ),
-                          );
-                        },
-                        child: _AnimePosterCard(media: item),
-                      );
-                    },
-                    childCount: section.items.length,
-                  ),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: _kCardWidth / _kCardHeight,
+                sliver: SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: _kCardHeight,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: section.items.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      itemBuilder: (context, index) {
+                        final item = section.items[index];
+                        return SizedBox(
+                          width: _kCardWidth,
+                          child: _HoverPosterTile(
+                            onTap: () {
+                              hapticTap();
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => DetailsScreen(mediaId: item.id),
+                                ),
+                              );
+                            },
+                            child: _AnimePosterCard(media: item),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -593,22 +587,17 @@ class _HorizontalSection extends StatelessWidget {
         Text(title,
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final cols = _adaptiveGridCount(constraints.maxWidth);
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: cols,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: _kCardWidth / _kCardHeight,
-              ),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _HoverPosterTile(
+        SizedBox(
+          height: _kCardHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return SizedBox(
+                width: _kCardWidth,
+                child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(
@@ -618,10 +607,10 @@ class _HorizontalSection extends StatelessWidget {
                     );
                   },
                   child: _AnimePosterCard(media: item),
-                );
-              },
-            );
-          },
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
