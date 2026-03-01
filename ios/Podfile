@@ -27,7 +27,6 @@ flutter_ios_podfile_setup
 
 target 'Runner' do
 
-  pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 

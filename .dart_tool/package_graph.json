@@ -12,7 +12,6 @@
         "connectivity_plus",
         "cupertino_icons",
         "dio",
-        "ffmpeg_kit_flutter_new",
         "flutter",
         "flutter_cache_manager",
         "flutter_riverpod",
@@ -60,14 +59,6 @@
         "stream_channel",
         "test_api",
         "vector_math"
-      ]
-    },
-    {
-      "name": "ffmpeg_kit_flutter_new",
-      "version": "4.1.0",
-      "dependencies": [
-        "ffmpeg_kit_flutter_platform_interface",
-        "flutter"
       ]
     },
     {
@@ -404,14 +395,6 @@
         "stream_channel",
         "string_scanner",
         "term_glyph"
-      ]
-    },
-    {
-      "name": "ffmpeg_kit_flutter_platform_interface",
-      "version": "0.2.1",
-      "dependencies": [
-        "flutter",
-        "plugin_platform_interface"
       ]
     },
     {
@@ -1008,13 +991,6 @@
       ]
     },
     {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
-      "dependencies": [
-        "meta"
-      ]
-    },
-    {
       "name": "screen_retriever_windows",
       "version": "0.2.0",
       "dependencies": [
@@ -1045,6 +1021,13 @@
       "dependencies": [
         "flutter",
         "screen_retriever_platform_interface"
+      ]
+    },
+    {
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
+      "dependencies": [
+        "meta"
       ]
     },
     {

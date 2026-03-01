@@ -495,11 +495,11 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
                     style: const TextStyle(fontSize: 11, color: Colors.redAccent),
                   ),
                 ),
-              if (d.status == 'finalizing')
+              if (d.status == 'merging')
                 const Padding(
                   padding: EdgeInsets.only(top: 4),
                   child: Text(
-                    'Finalizing...',
+                    'Merging...',
                     style: TextStyle(
                       fontSize: 11,
                       color: Color(0xFFA1A8BC),

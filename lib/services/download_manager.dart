@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
@@ -240,20 +238,35 @@ class DownloadController extends StateNotifier<DownloadState> {
   static const MethodChannel _mediaScanChannel =
       MethodChannel('kyomiru/media_scan');
 
-  String _escapeArg(String value) => '"${value.replaceAll('"', r'\"')}"';
+  Future<void> mergeTSFiles(List<File> segments, String outputPath) async {
+    if (segments.isEmpty) {
+      throw StateError('No segments to merge');
+    }
+    final sorted = [...segments]..sort(_compareSegmentFiles);
+    final output = File(outputPath);
+    if (await output.exists()) {
+      await output.delete();
+    }
+    final sink = output.openWrite(mode: FileMode.append);
+    try {
+      for (final segment in sorted) {
+        if (!await segment.exists()) continue;
+        await sink.addStream(segment.openRead());
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+  }
 
-  Future<bool> _convertHlsToMp4({
-    required String inputManifestPath,
-    required String outputMp4Path,
-  }) async {
-    final completer = Completer<bool>();
-    final cmd =
-        '-i ${_escapeArg(inputManifestPath)} -c copy ${_escapeArg(outputMp4Path)}';
-    await FFmpegKit.executeAsync(cmd, (session) async {
-      final code = await session.getReturnCode();
-      completer.complete(ReturnCode.isSuccess(code));
-    });
-    return completer.future;
+  int _compareSegmentFiles(File a, File b) {
+    int extractOrdinal(File f) {
+      final name = p.basenameWithoutExtension(f.path);
+      final match = RegExp(r'(\d+)').firstMatch(name);
+      return int.tryParse(match?.group(1) ?? '') ?? 0;
+    }
+
+    return extractOrdinal(a).compareTo(extractOrdinal(b));
   }
 
   void _load() {
@@ -308,9 +321,14 @@ class DownloadController extends StateNotifier<DownloadState> {
       if (resolved != null) {
         final f = File(resolved);
         if (await f.exists()) {
+          await f.delete();
           final parent = f.parent;
-          if (await parent.exists()) {
-            await parent.delete(recursive: true);
+          if (await parent.exists() &&
+              p.basename(parent.path).toLowerCase().startsWith('episode ')) {
+            final children = await parent.list().toList();
+            if (children.isEmpty) {
+              await parent.delete(recursive: true);
+            }
           }
         }
       }
@@ -461,8 +479,8 @@ class DownloadController extends StateNotifier<DownloadState> {
         'Episode $episode.m3u8',
       );
       final manifestPath = p.join(epDir.path, 'Episode $episode.m3u8');
-      final mp4RelativePath = p.join(safeTitle, 'Episode $episode.mp4');
-      final mp4Path = p.join(animeDir.path, 'Episode $episode.mp4');
+      final mergedTsRelativePath = p.join(safeTitle, 'Episode $episode.ts');
+      final mergedTsPath = p.join(animeDir.path, 'Episode $episode.ts');
 
     final token = CancelToken();
     _cancelTokens[key] = token;
@@ -510,6 +528,7 @@ class DownloadController extends StateNotifier<DownloadState> {
       var completed = 0;
       final rewritten = <String>[];
       final keyMap = <String, String>{};
+      final segmentFiles = <File>[];
       var downloadedBytes = 0;
       var knownTotalBytes = 0;
 
@@ -627,6 +646,7 @@ class DownloadController extends StateNotifier<DownloadState> {
         downloadedBytes += fileBytes;
         knownTotalBytes += currentTotal > 0 ? currentTotal : fileBytes;
         rewritten.add(name);
+        segmentFiles.add(File(segPath));
         segIndex++;
         completed++;
 
@@ -647,11 +667,11 @@ class DownloadController extends StateNotifier<DownloadState> {
 
       await File(manifestPath).writeAsString(rewritten.join('\n'));
 
-      final finalizingItem = state.items[key];
-      if (finalizingItem != null) {
+      final mergingItem = state.items[key];
+      if (mergingItem != null) {
         await _emitDownloadUpdate(
-          finalizingItem.copyWith(
-            status: 'finalizing',
+          mergingItem.copyWith(
+            status: 'merging',
             progress: 1,
             speedBitsPerSecond: 0,
             clearError: true,
@@ -660,22 +680,18 @@ class DownloadController extends StateNotifier<DownloadState> {
         );
       }
 
-      var finalizedToMp4 = false;
       try {
-        finalizedToMp4 = await _convertHlsToMp4(
-          inputManifestPath: manifestPath,
-          outputMp4Path: mp4Path,
-        );
+        await mergeTSFiles(segmentFiles, mergedTsPath);
       } catch (e, st) {
         AppLogger.w(
           'Download',
-          'FFmpeg finalize failed for $key',
+          'Native merge failed for $key',
           error: e,
           stackTrace: st,
         );
       }
 
-      if (finalizedToMp4 && await File(mp4Path).exists()) {
+      if (await File(mergedTsPath).exists()) {
         try {
           if (await epDir.exists()) {
             await epDir.delete(recursive: true);
@@ -687,11 +703,11 @@ class DownloadController extends StateNotifier<DownloadState> {
             progress: 1,
             resumable: false,
             speedBitsPerSecond: 0,
-            localFilePath: mp4RelativePath,
+            localFilePath: mergedTsRelativePath,
             clearError: true,
           ),
         );
-        await _scanOnAndroid(mp4Path);
+        await _scanOnAndroid(mergedTsPath);
       } else {
         await _saveItem(
           state.items[key]!.copyWith(
@@ -700,7 +716,7 @@ class DownloadController extends StateNotifier<DownloadState> {
             resumable: false,
             speedBitsPerSecond: 0,
             localFilePath: manifestRelativePath,
-            error: 'Finalizing failed; using HLS file.',
+            error: 'Merging failed; using HLS segment playlist.',
           ),
         );
         await _scanOnAndroid(manifestPath);
