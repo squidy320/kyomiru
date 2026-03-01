@@ -95,6 +95,7 @@ class AppTabs extends ConsumerStatefulWidget {
 }
 
 class _AppTabsState extends ConsumerState<AppTabs> {
+  static const int _searchTabIndex = 1;
   int _index = 0;
   bool _railExtended = false;
   int _lastServerUnread = 0;
@@ -151,7 +152,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     }
   }
 
-  void _onTabTap(int value) {
+  void _onItemTapped(int value) {
     hapticTap();
     setState(() {
       _initializedTabs.add(value);
@@ -165,12 +166,10 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   int _tabIndexFromRail(int railIndex) {
     switch (railIndex) {
       case 0:
-        return 1; // Search -> Discovery surface
-      case 1:
         return 1; // Discovery
-      case 2:
+      case 1:
         return 0; // Library
-      case 3:
+      case 2:
         return 3; // Downloads
       default:
         return 1;
@@ -180,13 +179,13 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   int _railIndexFromTab(int tabIndex) {
     switch (tabIndex) {
       case 0:
-        return 2;
+        return 1;
       case 3:
-        return 3;
+        return 2;
       case 1:
-        return 1;
+        return 0;
       default:
-        return 1;
+        return 0;
     }
   }
 
@@ -214,7 +213,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     final navContent = _PillBottomBar(
       index: _index,
       unread: displayUnread,
-      onTap: _onTabTap,
+      onTap: _onItemTapped,
     );
     final offlineBadge = _offlineMode
         ? Positioned(
@@ -335,37 +334,57 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         final rail = NavigationRail(
           extended: _railExtended,
           selectedIndex: _railIndexFromTab(_index),
-          onDestinationSelected: (value) => _onTabTap(_tabIndexFromRail(value)),
+          onDestinationSelected: (value) => _onItemTapped(_tabIndexFromRail(value)),
           backgroundColor: Colors.transparent,
+          elevation: 0,
           indicatorColor: Colors.white.withValues(alpha: 0.16),
           unselectedIconTheme: const IconThemeData(color: Colors.white54),
           selectedIconTheme: const IconThemeData(color: Colors.white),
           unselectedLabelTextStyle: const TextStyle(color: Colors.white70),
           selectedLabelTextStyle:
               const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          leading: IconButton(
-            tooltip: _railExtended ? 'Collapse' : 'Menu',
-            onPressed: () => setState(() => _railExtended = !_railExtended),
-            icon: Icon(
-              _railExtended ? Icons.menu_open_rounded : Icons.menu_rounded,
-              color: Colors.white,
-            ),
+          leading: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Search',
+                onPressed: () => _onItemTapped(_searchTabIndex),
+                icon: _RailGlowIcon(
+                  icon: Icons.search_rounded,
+                  selected: _index == _searchTabIndex,
+                ),
+              ),
+              const SizedBox(height: 6),
+              IconButton(
+                tooltip: _railExtended ? 'Collapse' : 'Menu',
+                onPressed: () => setState(() => _railExtended = !_railExtended),
+                icon: Icon(
+                  _railExtended ? Icons.menu_open_rounded : Icons.menu_rounded,
+                  color: Colors.white,
+                ),
+              ),
+            ],
           ),
           destinations: [
             NavigationRailDestination(
-              icon: _RailGlowIcon(icon: Icons.search_rounded),
-              label: Text('Search'),
-            ),
-            NavigationRailDestination(
-              icon: _RailGlowIcon(icon: CupertinoIcons.compass),
+              icon: _RailGlowIcon(
+                icon: CupertinoIcons.compass,
+                selected: _index == 1,
+              ),
               label: Text('Discovery'),
             ),
             NavigationRailDestination(
-              icon: _RailGlowIcon(icon: CupertinoIcons.book),
+              icon: _RailGlowIcon(
+                icon: CupertinoIcons.book,
+                selected: _index == 0,
+              ),
               label: Text('Library'),
             ),
             NavigationRailDestination(
-              icon: _RailGlowIcon(icon: CupertinoIcons.arrow_down_circle),
+              icon: _RailGlowIcon(
+                icon: CupertinoIcons.arrow_down_circle,
+                selected: _index == 3,
+              ),
               label: Text('Downloads'),
             ),
           ],
@@ -383,8 +402,12 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                       12, MediaQuery.of(context).padding.top + 8, 8, 12),
                   child: widget.liquidGlassEnabled
                       ? LiquidGlass.withOwnLayer(
-                          settings: kyomiruLiquidGlassSettings(
-                            isOledBlack: settings.isOledBlack,
+                          settings: LiquidGlassSettings(
+                            blur: 35,
+                            thickness: 15,
+                            refractiveIndex: 1.02,
+                            saturation: 1.2,
+                            glassColor: Colors.black.withValues(alpha: 0.10),
                           ),
                           shape: const LiquidRoundedSuperellipse(
                               borderRadius: 24),
@@ -478,9 +501,10 @@ class _PillBottomBar extends StatelessWidget {
 }
 
 class _RailGlowIcon extends StatefulWidget {
-  const _RailGlowIcon({required this.icon});
+  const _RailGlowIcon({required this.icon, this.selected = false});
 
   final IconData icon;
+  final bool selected;
 
   @override
   State<_RailGlowIcon> createState() => _RailGlowIconState();
@@ -496,19 +520,27 @@ class _RailGlowIconState extends State<_RailGlowIcon> {
       onExit: (_) => setState(() => _hover = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
+          color: widget.selected
+              ? Colors.white.withValues(alpha: 0.14)
+              : Colors.transparent,
           shape: BoxShape.circle,
-          boxShadow: _hover
+          boxShadow: _hover || widget.selected
               ? [
                   BoxShadow(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    blurRadius: 14,
+                    color: Colors.white.withValues(
+                      alpha: widget.selected ? 0.24 : 0.16,
+                    ),
+                    blurRadius: widget.selected ? 18 : 14,
                   ),
                 ]
               : const [],
         ),
-        child: Icon(widget.icon),
+        child: Icon(
+          widget.icon,
+          color: widget.selected ? Colors.white : null,
+        ),
       ),
     );
   }
