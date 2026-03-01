@@ -290,6 +290,13 @@ class AniListEpisodeAvailability {
     final next = nextAiringEpisode ?? 0;
     return ep > next ? ep : next;
   }
+
+  int get latestReleasedEpisode {
+    if (nextAiringEpisode != null && nextAiringEpisode! > 0) {
+      return (nextAiringEpisode! - 1).clamp(0, 99999);
+    }
+    return (episodes ?? 0).clamp(0, 99999);
+  }
 }
 
 class SoraExtensionManifest {

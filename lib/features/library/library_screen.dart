@@ -58,12 +58,53 @@ final continueWatchingNotifierProvider = FutureProvider.family<
       status: '',
     );
   }
-  final available = info.availableEpisodes;
+  final latestReleased = info.latestReleasedEpisode;
   final unseen =
-      info.status == 'RELEASING' ? (available - query.lastCompleted).clamp(0, 9999) : 0;
+      info.status == 'RELEASING' ? (latestReleased - query.lastCompleted).clamp(0, 9999) : 0;
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
-    totalAvailable: available,
+    totalAvailable: info.availableEpisodes,
+    status: info.status,
+  );
+});
+
+final continueWatchingArtworkFallbackProvider =
+    FutureProvider.family<String?, int>((ref, mediaId) async {
+  try {
+    final media = await ref.watch(anilistClientProvider).mediaDetails(mediaId);
+    return media.cover.best ?? media.bannerImage;
+  } catch (_) {
+    return null;
+  }
+});
+
+final libraryWatchingNotifierProvider = FutureProvider.family<
+    _ContinueWatchingNotifierMeta,
+    ({int mediaId, int progress})>((ref, query) async {
+  final auth = ref.watch(authControllerProvider);
+  final token = auth.token;
+  if (token == null || token.isEmpty) {
+    return const _ContinueWatchingNotifierMeta(
+      unseen: 0,
+      totalAvailable: 0,
+      status: '',
+    );
+  }
+  final info =
+      await ref.watch(anilistClientProvider).episodeAvailability(token, query.mediaId);
+  if (info == null) {
+    return const _ContinueWatchingNotifierMeta(
+      unseen: 0,
+      totalAvailable: 0,
+      status: '',
+    );
+  }
+  final latestReleased = info.latestReleasedEpisode;
+  final unseen =
+      info.status == 'RELEASING' ? (latestReleased - query.progress).clamp(0, 9999) : 0;
+  return _ContinueWatchingNotifierMeta(
+    unseen: unseen,
+    totalAvailable: info.availableEpisodes,
     status: info.status,
   );
 });
@@ -389,6 +430,7 @@ class _LocalLibrarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isWatchingSection = title.toLowerCase() == 'watching';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -429,9 +471,31 @@ class _LocalLibrarySection extends StatelessWidget {
                       ),
                     );
                   },
-                  child: _AnimePosterCard(
-                    media: media,
-                    progressText: progressText,
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      int? unseenCount;
+                      if (isWatchingSection) {
+                        final notifier = ref.watch(
+                          libraryWatchingNotifierProvider(
+                            (
+                              mediaId: entry.mediaId,
+                              progress: entry.episodesWatched,
+                            ),
+                          ),
+                        );
+                        final meta = notifier.valueOrNull;
+                        if (meta != null &&
+                            meta.status == 'RELEASING' &&
+                            meta.unseen > 0) {
+                          unseenCount = meta.unseen;
+                        }
+                      }
+                      return _AnimePosterCard(
+                        media: media,
+                        progressText: progressText,
+                        unseenCount: unseenCount,
+                      );
+                    },
                   ),
                 );
               },
@@ -482,11 +546,30 @@ class _LibrarySection extends StatelessWidget {
                     Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => DetailsScreen(mediaId: e.media.id)));
                   },
-                  child: _AnimePosterCard(
-                    media: e.media,
-                    progressText: _showProgress
-                        ? '${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'
-                        : null,
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      int? unseenCount;
+                      if (_showProgress) {
+                        final notifier = ref.watch(
+                          libraryWatchingNotifierProvider(
+                            (mediaId: e.media.id, progress: e.progress),
+                          ),
+                        );
+                        final meta = notifier.valueOrNull;
+                        if (meta != null &&
+                            meta.status == 'RELEASING' &&
+                            meta.unseen > 0) {
+                          unseenCount = meta.unseen;
+                        }
+                      }
+                      return _AnimePosterCard(
+                        media: e.media,
+                        progressText: _showProgress
+                            ? '${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'
+                            : null,
+                        unseenCount: unseenCount,
+                      );
+                    },
                   ),
                 );
               },
@@ -499,10 +582,15 @@ class _LibrarySection extends StatelessWidget {
 }
 
 class _AnimePosterCard extends StatelessWidget {
-  const _AnimePosterCard({required this.media, this.progressText});
+  const _AnimePosterCard({
+    required this.media,
+    this.progressText,
+    this.unseenCount,
+  });
 
   final AniListMedia media;
   final String? progressText;
+  final int? unseenCount;
 
   @override
   Widget build(BuildContext context) {
@@ -528,22 +616,48 @@ class _AnimePosterCard extends StatelessWidget {
           Positioned(
             top: 8,
             right: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFA1E1E1E),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
-                  const SizedBox(width: 3),
-                  Text(media.averageScore?.toString() ?? 'NR',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFA1E1E1E),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                      const SizedBox(width: 3),
+                      Text(media.averageScore?.toString() ?? 'NR',
+                          style: const TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                if ((unseenCount ?? 0) > 0) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Text(
+                      '+${unseenCount!}',
                       style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w700)),
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
           Positioned(
@@ -799,6 +913,16 @@ class _ContinueWatchingCard extends ConsumerWidget {
       ),
     );
     final localArtwork = localArtworkAsync.valueOrNull;
+    final networkFallback = ref
+        .watch(continueWatchingArtworkFallbackProvider(entry.mediaId))
+        .valueOrNull;
+    final resolvedCoverUrl = (() {
+      final stored = (entry.coverImageUrl ?? '').trim();
+      if (stored.isNotEmpty) return stored;
+      final fetched = (networkFallback ?? '').trim();
+      if (fetched.isNotEmpty) return fetched;
+      return null;
+    })();
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -851,11 +975,9 @@ class _ContinueWatchingCard extends ConsumerWidget {
                                   localArtwork,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) {
-                                    final fallback =
-                                        (entry.coverImageUrl ?? '').trim();
-                                    if (fallback.isNotEmpty) {
+                                    if (resolvedCoverUrl != null) {
                                       return KyomiruImageCache.image(
-                                        fallback,
+                                        resolvedCoverUrl,
                                         fit: BoxFit.cover,
                                         error: const ColoredBox(
                                             color: Color(0x22111111)),
@@ -865,9 +987,9 @@ class _ContinueWatchingCard extends ConsumerWidget {
                                         color: Color(0x22111111));
                                   },
                                 )
-                              else if ((entry.coverImageUrl ?? '').trim().isNotEmpty)
+                              else if (resolvedCoverUrl != null)
                                 KyomiruImageCache.image(
-                                  entry.coverImageUrl!,
+                                  resolvedCoverUrl,
                                   fit: BoxFit.cover,
                                   error: const ColoredBox(color: Color(0x22111111)),
                                 )

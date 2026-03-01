@@ -97,7 +97,6 @@ class AppTabs extends ConsumerStatefulWidget {
 
 class _AppTabsState extends ConsumerState<AppTabs> {
   int _index = 0;
-  bool _railExtended = false;
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
   bool _offlineMode = false;
@@ -190,36 +189,6 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         _alertsSeenForCurrentUnread = true;
       }
     });
-  }
-
-  int _tabIndexFromRail(int railIndex) {
-    switch (railIndex) {
-      case 0:
-        return 1; // Discovery
-      case 1:
-        return 0; // Library
-      case 2:
-        return 3; // Downloads
-      case 3:
-        return 4; // Settings
-      default:
-        return 1;
-    }
-  }
-
-  int _railIndexFromTab(int tabIndex) {
-    switch (tabIndex) {
-      case 0:
-        return 1;
-      case 3:
-        return 2;
-      case 4:
-        return 3;
-      case 1:
-        return 0;
-      default:
-        return 0;
-    }
   }
 
   @override
@@ -365,125 +334,38 @@ class _AppTabsState extends ConsumerState<AppTabs> {
           );
         }
 
-        final rail = NavigationRail(
-          extended: _railExtended,
-          minExtendedWidth: 0,
-          useIndicator: false,
-          selectedIndex: _railIndexFromTab(_index),
-          onDestinationSelected: (value) => _onItemTapped(_tabIndexFromRail(value)),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          unselectedIconTheme: const IconThemeData(color: Colors.white54),
-          selectedIconTheme: const IconThemeData(color: Colors.white),
-          unselectedLabelTextStyle: const TextStyle(color: Colors.white70),
-          selectedLabelTextStyle:
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          leading: IconButton(
-            tooltip: _railExtended ? 'Collapse' : 'Menu',
-            onPressed: () => setState(() => _railExtended = !_railExtended),
-            icon: Icon(
-              _railExtended ? Icons.menu_open_rounded : Icons.menu_rounded,
-              color: Colors.white,
-            ),
-          ),
-          destinations: [
-            NavigationRailDestination(
-              icon: _RailGlowIcon(
-                icon: CupertinoIcons.compass,
-                selected: _index == 1,
-              ),
-              label: Text('Discovery'),
-            ),
-            NavigationRailDestination(
-              icon: _RailGlowIcon(
-                icon: CupertinoIcons.book,
-                selected: _index == 0,
-              ),
-              label: Text('Library'),
-            ),
-            NavigationRailDestination(
-              icon: _RailGlowIcon(
-                icon: CupertinoIcons.arrow_down_circle,
-                selected: _index == 3,
-              ),
-              label: Text('Downloads'),
-            ),
-            NavigationRailDestination(
-              icon: _RailGlowIcon(
-                icon: CupertinoIcons.gear,
-                selected: _index == 4,
-              ),
-              label: Text('Settings'),
-            ),
-          ],
-        );
-
         return Scaffold(
           extendBody: true,
           extendBodyBehindAppBar: true,
           resizeToAvoidBottomInset: false,
           body: GlassScaffoldBackground(
-            child: Row(
+            child: Stack(
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: widget.liquidGlassEnabled
-                      ? LiquidGlass.withOwnLayer(
-                          settings: LiquidGlassSettings(
-                            blur: 35,
-                            thickness: 15,
-                            refractiveIndex: 1.02,
-                            saturation: 1.2,
-                            glassColor: Colors.black.withValues(alpha: 0.10),
-                          ),
-                          shape: const LiquidRoundedSuperellipse(
-                              borderRadius: 30),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(30),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.10),
-                              ),
-                            ),
-                            child: Theme(
-                              data: Theme.of(context).copyWith(
-                                dividerColor: Colors.transparent,
-                              ),
-                              child: RepaintBoundary(child: rail),
-                            ),
-                          ),
-                        )
-                      : Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFA1E1E1E),
-                            borderRadius: BorderRadius.circular(30),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.10),
-                            ),
-                          ),
-                          child: Theme(
-                            data: Theme.of(context).copyWith(
-                              dividerColor: Colors.transparent,
-                            ),
-                            child: rail,
-                          ),
-                        ),
-                ),
-                Expanded(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      IndexedStack(
-                        index: _index,
-                        children: List<Widget>.generate(_pages.length, (i) {
-                          if (_initializedTabs.contains(i)) return _pages[i];
-                          return const SizedBox.shrink();
-                        }),
-                      ),
-                      offlineBadge,
-                    ],
+                Positioned.fill(
+                  child: IndexedStack(
+                    index: _index,
+                    children: List<Widget>.generate(_pages.length, (i) {
+                      if (_initializedTabs.contains(i)) return _pages[i];
+                      return const SizedBox.shrink();
+                    }),
                   ),
                 ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: _TopPillNav(
+                        currentIndex: _index,
+                        onTap: _onItemTapped,
+                      ),
+                    ),
+                  ),
+                ),
+                offlineBadge,
               ],
             ),
           ),
@@ -545,46 +427,105 @@ class _PillBottomBar extends StatelessWidget {
   }
 }
 
-class _RailGlowIcon extends StatefulWidget {
-  const _RailGlowIcon({required this.icon, this.selected = false});
+class _TopPillNav extends StatelessWidget {
+  const _TopPillNav({
+    required this.currentIndex,
+    required this.onTap,
+  });
 
-  final IconData icon;
-  final bool selected;
-
-  @override
-  State<_RailGlowIcon> createState() => _RailGlowIconState();
-}
-
-class _RailGlowIconState extends State<_RailGlowIcon> {
-  bool _hover = false;
+  final int currentIndex;
+  final ValueChanged<int> onTap;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: widget.selected
-              ? Colors.white.withValues(alpha: 0.14)
-              : Colors.transparent,
-          shape: BoxShape.circle,
-          boxShadow: _hover || widget.selected
-              ? [
-                  BoxShadow(
-                    color: Colors.white.withValues(
-                      alpha: widget.selected ? 0.24 : 0.16,
-                    ),
-                    blurRadius: widget.selected ? 18 : 14,
+    final items = <(String label, int tab)>[
+      ('Home', 1),
+      ('Schedule', 2),
+      ('Downloads', 3),
+      ('Library', 0),
+    ];
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.46),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: _TopPillNavButton(
+                    label: item.$1,
+                    active: currentIndex == item.$2,
+                    onTap: () => onTap(item.$2),
                   ),
-                ]
-              : const [],
+                ),
+              const SizedBox(width: 2),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () => onTap(1),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Icon(
+                      CupertinoIcons.search,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        child: Icon(
-          widget.icon,
-          color: widget.selected ? Colors.white : null,
+      ),
+    );
+  }
+}
+
+class _TopPillNavButton extends StatelessWidget {
+  const _TopPillNavButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: active ? Colors.white.withValues(alpha: 0.16) : Colors.transparent,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.white : Colors.white70,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
         ),
       ),
     );
