@@ -149,6 +149,7 @@ Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppLogger.initializeSessionFileLogging();
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
     const options = WindowOptions(

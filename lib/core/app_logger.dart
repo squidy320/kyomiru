@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Lightweight app logger with levels and tags.
 class AppLogger {
@@ -8,6 +12,9 @@ class AppLogger {
   static const int _maxEntries = 1000;
   static final ValueNotifier<List<String>> entries =
       ValueNotifier<List<String>>(<String>[]);
+  static IOSink? _sessionSink;
+  static Future<void> _fileQueue = Future<void>.value();
+  static String? _sessionLogPath;
 
   static void d(String tag, String message,
       {Object? error, StackTrace? stackTrace}) {
@@ -30,6 +37,7 @@ class AppLogger {
   }
 
   static List<String> get snapshot => List<String>.from(entries.value);
+  static String? get sessionLogPath => _sessionLogPath;
 
   static void clear() {
     entries.value = <String>[];
@@ -44,6 +52,18 @@ class AppLogger {
       next.removeRange(0, removeCount);
     }
     entries.value = next;
+    _appendToFile(line);
+  }
+
+  static void _appendToFile(String line) {
+    final sink = _sessionSink;
+    if (sink == null) return;
+    _fileQueue = _fileQueue.then((_) async {
+      try {
+        sink.writeln(line);
+        await sink.flush();
+      } catch (_) {}
+    });
   }
 
   static void _log(
@@ -71,6 +91,42 @@ class AppLogger {
         _append('[$t][$level][$tag] $ln');
       }
     }
+  }
+
+  static Future<void> initializeSessionFileLogging() async {
+    if (kIsWeb) return;
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final logsDir = Directory('${docsDir.path}/debug_logs');
+      if (!await logsDir.exists()) {
+        await logsDir.create(recursive: true);
+      }
+
+      final file = File('${logsDir.path}/last_run.log');
+      if (await file.exists()) {
+        await file.delete();
+      }
+      await file.create(recursive: true);
+
+      _sessionSink?.close();
+      _sessionSink = file.openWrite(mode: FileMode.writeOnlyAppend);
+      _sessionLogPath = file.path;
+      i('AppLogger', 'Session file logging enabled', error: file.path);
+    } catch (e, st) {
+      debugPrint('AppLogger file logging init failed: $e');
+      debugPrint(st.toString());
+    }
+  }
+
+  static Future<void> disposeSessionFileLogging() async {
+    final sink = _sessionSink;
+    _sessionSink = null;
+    if (sink == null) return;
+    try {
+      await _fileQueue;
+      await sink.flush();
+      await sink.close();
+    } catch (_) {}
   }
 
   /// Hook global handlers early in app startup.
