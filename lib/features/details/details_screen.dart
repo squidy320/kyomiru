@@ -56,12 +56,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   String? _sourceLoadError;
   SoraEpisode? _lastFailedEpisode;
   late Future<AniListMedia> _mediaDetailsFuture;
+  int _visibleEpisodeCount = 24;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
     setState(() {
       _manualMatch = manual ?? _manualMatch;
+      _visibleEpisodeCount = 24;
       if (_manualMatch != null) {
         _persistManualMatch(media.id, _manualMatch!);
       }
@@ -86,6 +88,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   void _retryMediaDetails() {
     setState(() {
       _mediaDetailsFuture = _loadMediaDetails();
+      _visibleEpisodeCount = 24;
     });
   }
 
@@ -973,6 +976,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         }
 
                         final episodes = data.episodes;
+                        final shownCount = episodes.length < _visibleEpisodeCount
+                            ? episodes.length
+                            : _visibleEpisodeCount;
+                        final visibleEpisodes = episodes.take(shownCount).toList();
+                        final hasMoreEpisodes = shownCount < episodes.length;
                         _prefetchPlaybackData(media, episodes);
                         return Column(
                           children: [
@@ -1136,7 +1144,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                   ),
                                 ),
                               ),
-                            ...episodes.map((ep) {
+                            ...visibleEpisodes.map((ep) {
                               final p = progressStore.read(media.id, ep.number);
                               final pct = p?.percent ?? 0;
                               final thumb =
@@ -1282,6 +1290,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 ),
                               );
                             }),
+                            if (hasMoreEpisodes)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Center(
+                                  child: FilledButton.tonal(
+                                    onPressed: () {
+                                      setState(() {
+                                        _visibleEpisodeCount += 24;
+                                      });
+                                    },
+                                    child: Text(
+                                      'Load More (${episodes.length - shownCount} left)',
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         );
                       },
