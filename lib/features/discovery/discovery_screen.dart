@@ -177,92 +177,86 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final hasHero = !showingSearch && trending.isNotEmpty;
         final topInset = MediaQuery.viewPaddingOf(context).top;
         final topSlivers = <Widget>[];
-        if (hasHero) {
-          topSlivers.add(
-            SliverToBoxAdapter(
-              child: _DiscoveryHeroCarousel(
-                items: trending,
-                controller: _heroController,
-                currentIndex: _heroIndex,
-                onPageChanged: (index) {
-                  setState(() => _heroIndex = index);
-                  unawaited(_updateBackgroundForTrending(trending, index));
-                },
-              ),
-            ),
-          );
-        }
         topSlivers.add(
-          SliverPersistentHeader(
-            floating: true,
-            pinned: true,
-            delegate: _FixedExtentHeaderDelegate(
-              extent: topInset + 58,
-              child: Container(
-                color: Colors.transparent,
-                padding: EdgeInsets.fromLTRB(14, topInset + 2, 14, 4),
-                child: LiquidGlass.withOwnLayer(
-                  settings: kyomiruLiquidGlassSettings(
-                    isOledBlack: settings.isOledBlack,
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(14, topInset + 8, 14, 0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Discovery',
+                      style: Theme.of(context).textTheme.displaySmall),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Top rated, new releases, and hot anime',
+                    style: TextStyle(color: Color(0xFFA1A8BC)),
                   ),
-                  shape: const LiquidRoundedSuperellipse(borderRadius: 14),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.10),
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: TextField(
-                        controller: _search,
-                        onChanged: _onSearchChanged,
-                        decoration: InputDecoration(
-                          hintText: 'Search anime...',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    hapticTap();
-                                    _search.clear();
-                                    setState(() => _searchResults = const []);
-                                  },
-                                  icon: const Icon(Icons.close),
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                ],
               ),
             ),
           ),
         );
         topSlivers.add(
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(14, hasHero ? 0 : 6, 14, 6),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
             sliver: SliverToBoxAdapter(
-              child: Transform.translate(
-                offset: Offset(0, hasHero ? -16 : 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Discovery',
-                        style: Theme.of(context).textTheme.displaySmall),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Top Rated',
-                      style: TextStyle(color: Color(0xFFA1A8BC)),
+              child: LiquidGlass.withOwnLayer(
+                settings: kyomiruLiquidGlassSettings(
+                  isOledBlack: settings.isOledBlack,
+                ),
+                shape: const LiquidRoundedSuperellipse(borderRadius: 14),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.10),
                     ),
-                  ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: TextField(
+                      controller: _search,
+                      onChanged: _onSearchChanged,
+                      decoration: InputDecoration(
+                        hintText: 'Search anime...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _search.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  hapticTap();
+                                  _search.clear();
+                                  setState(() => _searchResults = const []);
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
         );
+        if (hasHero) {
+          topSlivers.add(
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
+              sliver: SliverToBoxAdapter(
+                child: _DiscoveryHeroCarousel(
+                  items: trending,
+                  controller: _heroController,
+                  currentIndex: _heroIndex,
+                  onPageChanged: (index) {
+                    setState(() => _heroIndex = index);
+                    unawaited(_updateBackgroundForTrending(trending, index));
+                  },
+                ),
+              ),
+            ),
+          );
+        }
 
         if (showingSearch) {
           if (_searching) {
@@ -320,7 +314,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             if (section.items.isEmpty) continue;
             sectionSlivers.addAll([
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
                 sliver: SliverPersistentHeader(
                   pinned: false,
                   delegate: _FixedExtentHeaderDelegate(
@@ -465,11 +459,9 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final isPhone = size.width < 600;
-    final bannerHeight = isPhone
-        ? (size.height * 0.62).clamp(560.0, 780.0)
-        : (size.height * 0.46).clamp(420.0, 560.0);
+    final bannerHeight = isPhone ? 285.0 : 340.0;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -498,7 +490,10 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                       fit: StackFit.expand,
                       children: [
                         if (image != null)
-                          KyomiruImageCache.image(image, fit: BoxFit.cover)
+                          KyomiruImageCache.image(
+                            image,
+                            fit: BoxFit.cover,
+                          )
                         else
                           const ColoredBox(color: Color(0x22111111)),
                         const Positioned.fill(
@@ -509,11 +504,11 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                                 end: Alignment.bottomCenter,
                                 colors: [
                                   Colors.transparent,
-                                  Color(0x12000000),
-                                  Color(0x5C000000),
-                                  Color(0xCC000000),
+                                  Color(0x22090B13),
+                                  Color(0x8A090B13),
+                                  _kDiscoveryBaseColor,
                                 ],
-                                stops: [0.30, 0.55, 0.76, 1.0],
+                                stops: [0.42, 0.68, 0.86, 1.0],
                               ),
                             ),
                           ),
@@ -529,8 +524,8 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                                 media.title.best,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 46,
+                                style: TextStyle(
+                                  fontSize: isPhone ? 24 : 34,
                                   height: 1.05,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -544,7 +539,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 13,
                                   color: Colors.white70,
                                   height: 1.25,
                                 ),
