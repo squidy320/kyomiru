@@ -197,10 +197,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             floating: true,
             pinned: true,
             delegate: _FixedExtentHeaderDelegate(
-              extent: topInset + 74,
+              extent: topInset + 58,
               child: Container(
                 color: Colors.transparent,
-                padding: EdgeInsets.fromLTRB(14, topInset + 8, 14, 8),
+                padding: EdgeInsets.fromLTRB(14, topInset + 2, 14, 4),
                 child: LiquidGlass.withOwnLayer(
                   settings: kyomiruLiquidGlassSettings(
                     isOledBlack: settings.isOledBlack,
@@ -243,10 +243,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         );
         topSlivers.add(
           SliverPadding(
-            padding: EdgeInsets.fromLTRB(14, hasHero ? 0 : 10, 14, 10),
+            padding: EdgeInsets.fromLTRB(14, hasHero ? 0 : 6, 14, 6),
             sliver: SliverToBoxAdapter(
               child: Transform.translate(
-                offset: Offset(0, hasHero ? -54 : 0),
+                offset: Offset(0, hasHero ? -16 : 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -463,10 +463,13 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bannerHeight =
-        (MediaQuery.sizeOf(context).height * 0.46).clamp(420.0, 560.0);
+    final size = MediaQuery.sizeOf(context);
+    final isPhone = size.width < 600;
+    final bannerHeight = isPhone
+        ? (size.height * 0.62).clamp(560.0, 780.0)
+        : (size.height * 0.46).clamp(420.0, 560.0);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
