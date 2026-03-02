@@ -20,9 +20,9 @@ class SoraRuntime {
       : _dio = dio ??
             Dio(
               BaseOptions(
-                connectTimeout: const Duration(seconds: 10),
-                sendTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 10),
+                connectTimeout: const Duration(seconds: 20),
+                sendTimeout: const Duration(seconds: 15),
+                receiveTimeout: const Duration(seconds: 20),
               ),
             ) {
     _dio.interceptors.add(InterceptorsWrapper(
@@ -46,6 +46,7 @@ class SoraRuntime {
   final Set<String> _refreshing = <String>{};
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
   final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
+  final Map<String, Future<List<SoraSource>>> _inflightSourceLoads = {};
 
   static const _baseUrl = 'https://animepahe.si';
   static const _jormExtractUrl =
@@ -84,6 +85,7 @@ class SoraRuntime {
     _activeTokens.clear();
     _episodesCache.clear();
     _sourcesCache.clear();
+    _inflightSourceLoads.clear();
     _refreshing.clear();
     _initFuture = null;
   }
@@ -93,14 +95,27 @@ class SoraRuntime {
     reset();
   }
 
-  Future<T> _withRetry<T>(Future<T> Function() task, {int attempts = 3}) async {
+  Future<T> _withRetry<T>(Future<T> Function() task, {int attempts = 2}) async {
     Object? lastError;
     for (var i = 0; i < attempts; i++) {
       try {
         return await task();
       } catch (e) {
+        if (e is DioException) {
+          if (e.type == DioExceptionType.cancel) rethrow;
+          final status = e.response?.statusCode ?? 0;
+          final shouldRetryStatus = status == 429 || status >= 500;
+          final shouldRetryType = e.type == DioExceptionType.connectionTimeout ||
+              e.type == DioExceptionType.receiveTimeout ||
+              e.type == DioExceptionType.connectionError;
+          if (!shouldRetryStatus && !shouldRetryType) {
+            rethrow;
+          }
+        }
         lastError = e;
-        await Future<void>.delayed(Duration(milliseconds: 250 * (i + 1)));
+        if (i < attempts - 1) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * (i + 1)));
+        }
       }
     }
     throw lastError ?? Exception('Request failed');
@@ -228,9 +243,9 @@ class SoraRuntime {
               if (_cookieHeader != null) 'Cookie': _cookieHeader!,
               if (headers != null) ...headers,
             },
-            sendTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 10),
-            connectTimeout: const Duration(seconds: 10),
+            sendTimeout: const Duration(seconds: 15),
+            receiveTimeout: const Duration(seconds: 20),
+            connectTimeout: const Duration(seconds: 20),
             validateStatus: (code) => (code ?? 500) < 500,
           ),
           cancelToken: token,
@@ -316,7 +331,7 @@ class SoraRuntime {
     final cached = _episodesCache[session];
     if (cached != null) {
       if (cached.isFresh) return cached.value;
-      _refreshInBackground('episodes:' + session, () async {
+      _refreshInBackground('episodes:$session', () async {
         _episodesCache.remove(session);
         await getEpisodes(match);
       });
@@ -406,7 +421,7 @@ class SoraRuntime {
     final cached = _sourcesCache[cacheKey];
     if (cached != null) {
       if (cached.isFresh) return cached.value;
-      _refreshInBackground('sources:' + cacheKey, () async {
+      _refreshInBackground('sources:$cacheKey', () async {
         _sourcesCache.remove(cacheKey);
         await getSourcesForEpisode(
           playUrl,
@@ -417,6 +432,33 @@ class SoraRuntime {
       return cached.value;
     }
 
+    final inflight = _inflightSourceLoads[cacheKey];
+    if (inflight != null) {
+      return inflight;
+    }
+
+    final loadFuture = _loadSourcesForEpisode(
+      cacheKey: cacheKey,
+      session: session,
+      episodeSession: episodeSession,
+      anilistId: anilistId,
+      episodeNumber: episodeNumber,
+    );
+    _inflightSourceLoads[cacheKey] = loadFuture;
+    try {
+      return await loadFuture;
+    } finally {
+      _inflightSourceLoads.remove(cacheKey);
+    }
+  }
+
+  Future<List<SoraSource>> _loadSourcesForEpisode({
+    required String cacheKey,
+    required String session,
+    required String episodeSession,
+    int? anilistId,
+    int? episodeNumber,
+  }) async {
     try {
       final fromJorm = await _extractViaJorm(session, episodeSession,
           anilistId: anilistId, episodeNumber: episodeNumber);
@@ -505,9 +547,9 @@ class SoraRuntime {
               'User-Agent': _ua,
               if (_cookieHeader != null) 'Cookie': _cookieHeader!,
             },
-            sendTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 10),
-            connectTimeout: const Duration(seconds: 10),
+            sendTimeout: const Duration(seconds: 15),
+            receiveTimeout: const Duration(seconds: 20),
+            connectTimeout: const Duration(seconds: 20),
             validateStatus: (code) => (code ?? 500) < 500,
           ),
           cancelToken: token,
@@ -681,6 +723,7 @@ class SoraRuntime {
     for (final c in candidates) {
       if (seen.contains(c.kwik)) continue;
       seen.add(c.kwik);
+      if (seen.length > 10) break;
       String? hls;
       if (c.kwik.contains('.m3u8')) {
         hls = _sanitizeStreamUrl(c.kwik);

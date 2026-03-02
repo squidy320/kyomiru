@@ -107,13 +107,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           malId: media.idMal,
         ));
       }
-      unawaited(_sora
-          .getSourcesForEpisode(
-            ep.playUrl,
-            anilistId: media.id,
-            episodeNumber: ep.number,
-          )
-          .catchError((_, __) => const <SoraSource>[]));
     }
   }
 
