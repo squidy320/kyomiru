@@ -55,6 +55,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   bool _sourceRequestInFlight = false;
   String? _sourceLoadError;
   SoraEpisode? _lastFailedEpisode;
+  late Future<AniListMedia> _mediaDetailsFuture;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
@@ -71,7 +72,21 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   @override
   void initState() {
     super.initState();
+    _mediaDetailsFuture = _loadMediaDetails();
     ref.invalidate(episodeProvider);
+  }
+
+  Future<AniListMedia> _loadMediaDetails() async {
+    final client = ref.read(anilistClientProvider);
+    return client
+        .mediaDetails(widget.mediaId)
+        .timeout(const Duration(seconds: 20));
+  }
+
+  void _retryMediaDetails() {
+    setState(() {
+      _mediaDetailsFuture = _loadMediaDetails();
+    });
   }
 
   SoraAnimeMatch? _readSavedMatch(int mediaId) {
@@ -799,13 +814,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final client = ref.watch(anilistClientProvider);
     final progressStore = ref.watch(progressStoreProvider);
     final auth = ref.watch(authControllerProvider);
     final uiSettings = ref.watch(appSettingsProvider);
 
     return FutureBuilder<AniListMedia>(
-      future: client.mediaDetails(widget.mediaId),
+      future: _mediaDetailsFuture,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: _DetailsLoadingSkeleton());
@@ -819,7 +833,25 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               ),
             ),
-            body: Center(child: Text('Failed to load details: ${snap.error}')),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Failed to load details: ${snap.error}',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: _retryMediaDetails,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           );
         }
 

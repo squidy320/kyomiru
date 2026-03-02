@@ -47,6 +47,8 @@ class SoraRuntime {
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
   final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
   final Map<String, Future<List<SoraSource>>> _inflightSourceLoads = {};
+  DateTime? _sourceCircuitOpenUntil;
+  int _consecutiveSourceTimeouts = 0;
 
   static const _baseUrl = 'https://animepahe.si';
   static const _jormExtractUrl =
@@ -86,6 +88,8 @@ class SoraRuntime {
     _episodesCache.clear();
     _sourcesCache.clear();
     _inflightSourceLoads.clear();
+    _sourceCircuitOpenUntil = null;
+    _consecutiveSourceTimeouts = 0;
     _refreshing.clear();
     _initFuture = null;
   }
@@ -227,9 +231,16 @@ class SoraRuntime {
     }
   }
 
-  Future<dynamic> _fetchJsonOrHtml(String url,
-      {Map<String, String>? headers}) async {
+  Future<dynamic> _fetchJsonOrHtml(
+    String url, {
+    Map<String, String>? headers,
+    int retryAttempts = 2,
+  }) async {
     if (_disposed) throw Exception('SoraRuntime disposed');
+    final circuit = _sourceCircuitOpenUntil;
+    if (circuit != null && DateTime.now().isBefore(circuit)) {
+      throw Exception('Provider temporarily unavailable (cooldown active)');
+    }
     final token = _newToken();
     late final Response<dynamic> response;
     try {
@@ -250,7 +261,22 @@ class SoraRuntime {
           ),
           cancelToken: token,
         ),
+        attempts: retryAttempts,
       );
+      _consecutiveSourceTimeouts = 0;
+      _sourceCircuitOpenUntil = null;
+    } on DioException catch (e) {
+      final timedOut = e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError;
+      if (timedOut) {
+        _consecutiveSourceTimeouts += 1;
+        if (_consecutiveSourceTimeouts >= 8) {
+          _sourceCircuitOpenUntil =
+              DateTime.now().add(const Duration(seconds: 20));
+        }
+      }
+      rethrow;
     } finally {
       _releaseToken(token);
     }
@@ -525,6 +551,10 @@ class SoraRuntime {
     int? episodeNumber,
   }) async {
     if (_disposed) return const [];
+    final circuit = _sourceCircuitOpenUntil;
+    if (circuit != null && DateTime.now().isBefore(circuit)) {
+      return const [];
+    }
     final token = _newToken();
     try {
       final response = await _withRetry(
@@ -626,7 +656,7 @@ class SoraRuntime {
     final episodeUrl = '$_baseUrl/play/$session/$episodeSession';
     dynamic html;
     try {
-      html = await _fetchJsonOrHtml(episodeUrl);
+      html = await _fetchJsonOrHtml(episodeUrl, retryAttempts: 1);
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel || _disposed) {
         return const [];
@@ -723,7 +753,7 @@ class SoraRuntime {
     for (final c in candidates) {
       if (seen.contains(c.kwik)) continue;
       seen.add(c.kwik);
-      if (seen.length > 10) break;
+      if (seen.length > 3) break;
       String? hls;
       if (c.kwik.contains('.m3u8')) {
         hls = _sanitizeStreamUrl(c.kwik);
@@ -755,7 +785,7 @@ class SoraRuntime {
 
   Future<String?> _extractKwikHls(String kwikUrl) async {
     try {
-      final html = await _fetchJsonOrHtml(kwikUrl, headers: {
+      final html = await _fetchJsonOrHtml(kwikUrl, retryAttempts: 1, headers: {
         'Referer': 'https://kwik.cx/',
       });
       if (html is! String) return null;
