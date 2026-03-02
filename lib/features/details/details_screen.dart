@@ -60,6 +60,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   bool _detailsBuildLogged = false;
   bool _detailsFirstFrameLogged = false;
   String? _bgPaletteLoadingKey;
+  AniListMedia? _previewMedia;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
@@ -80,6 +81,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   void initState() {
     super.initState();
     AppLogger.i('Details', 'initState mediaId=${widget.mediaId}');
+    _previewMedia = _readCachedMediaPreview(widget.mediaId);
     _mediaDetailsFuture = _loadMediaDetails();
     ref.invalidate(episodeProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -112,6 +114,20 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     }
   }
 
+  AniListMedia? _readCachedMediaPreview(int mediaId) {
+    try {
+      if (!Hive.isBoxOpen('anilist_media_cache')) return null;
+      final box = Hive.box('anilist_media_cache');
+      final raw = box.get(mediaId.toString());
+      if (raw is! Map) return null;
+      final data = raw['data'];
+      if (data is! Map) return null;
+      return AniListMedia.fromJson(Map<String, dynamic>.from(data));
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _retryMediaDetails() {
     setState(() {
       _mediaDetailsFuture = _loadMediaDetails();
@@ -124,9 +140,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   void _ensureEpisodeFuture(EpisodeQuery query) {
     if (_episodeFuture != null && _episodeFutureQuery == query) return;
     _episodeFutureQuery = query;
-    _episodeFuture = ref
-        .read(episodeProvider(query).future)
-        .timeout(const Duration(seconds: 25));
+    _episodeFuture = ref.read(episodeProvider(query).future);
   }
 
   void _retryEpisodes(EpisodeQuery query) {
@@ -141,7 +155,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   Future<EpisodeLoadResult> _episodeFutureFor(EpisodeQuery query) {
     _ensureEpisodeFuture(query);
-    return _episodeFuture!;
+    return _episodeFuture!
+        .timeout(const Duration(seconds: 10), onTimeout: () {
+      throw TimeoutException('server busy');
+    });
   }
 
   SoraAnimeMatch? _readSavedMatch(int mediaId) {
@@ -888,7 +905,127 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       future: _mediaDetailsFuture,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: _DetailsLoadingSkeleton());
+          final preview = _previewMedia;
+          if (preview == null) {
+            return const Scaffold(body: _DetailsLoadingSkeleton());
+          }
+          final episodeQuery = EpisodeQuery(
+            mediaId: preview.id,
+            title: preview.title.best,
+            manualMatch: _manualMatch,
+          );
+          return Scaffold(
+            body: Container(
+              color: Colors.black,
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                  SliverAppBar(
+                    expandedHeight: 360,
+                    pinned: true,
+                    stretch: true,
+                    backgroundColor: Colors.black,
+                    leading: IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon:
+                          const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                    ),
+                    flexibleSpace: FlexibleSpaceBar(
+                      collapseMode: CollapseMode.parallax,
+                      background: _BadlandsHero(
+                        media: preview,
+                        inAnyList: false,
+                        onPlay: () => _playSmartEpisode(
+                          preview,
+                          episodeQuery,
+                          progressStore,
+                        ),
+                        onBookmark: () => _openTrackingSheet(preview, auth.token),
+                        onShare: preview.siteUrl == null
+                            ? null
+                            : () => Share.share(
+                                  preview.siteUrl!,
+                                  subject: preview.title.best,
+                                ),
+                      ),
+                    ),
+                  ),
+                ],
+                body: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF161822),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Loading details and episodes...',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.tonal(
+                            onPressed: _retryMediaDetails,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FutureBuilder<EpisodeLoadResult>(
+                      future: _episodeFutureFor(episodeQuery),
+                      builder: (context, paheSnap) {
+                        if (paheSnap.connectionState == ConnectionState.waiting) {
+                          return const _EpisodeListLoadingSkeleton();
+                        }
+                        if (paheSnap.hasError) {
+                          final serverBusy = paheSnap.error is TimeoutException;
+                          return GlassCard(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.error_outline_rounded,
+                                    color: Colors.orangeAccent),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    serverBusy
+                                        ? 'Server Busy. Try again.'
+                                        : 'Episode loading failed. Try again.',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton.tonal(
+                                  onPressed: () => _retryEpisodes(episodeQuery),
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
         }
         if (snap.hasError || snap.data == null) {
           return Scaffold(
@@ -994,15 +1131,18 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         }
 
                         if (paheSnap.hasError) {
+                          final serverBusy = paheSnap.error is TimeoutException;
                           return GlassCard(
                             child: Row(
                               children: [
                                 const Icon(Icons.error_outline_rounded,
                                     color: Colors.orangeAccent),
                                 const SizedBox(width: 10),
-                                const Expanded(
+                                Expanded(
                                   child: Text(
-                                    'Episode loading timed out. Please retry.',
+                                    serverBusy
+                                        ? 'Server Busy. Try again.'
+                                        : 'Episode loading failed. Please retry.',
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
