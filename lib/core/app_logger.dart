@@ -96,8 +96,8 @@ class AppLogger {
   static Future<void> initializeSessionFileLogging() async {
     if (kIsWeb) return;
     try {
-      final docsDir = await getApplicationDocumentsDirectory();
-      final logsDir = Directory('${docsDir.path}/debug_logs');
+      final supportDir = await getApplicationSupportDirectory();
+      final logsDir = Directory('${supportDir.path}/debug_logs');
       if (!await logsDir.exists()) {
         await logsDir.create(recursive: true);
       }

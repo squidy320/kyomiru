@@ -147,6 +147,25 @@ Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
   }
 }
 
+Future<void> _resetHiveBoxSafe(String name) async {
+  try {
+    if (Hive.isBoxOpen(name)) {
+      await Hive.box(name).close();
+    }
+  } catch (_) {}
+  try {
+    await Hive.deleteBoxFromDisk(name);
+    AppLogger.i('Boot', 'Reset Hive box "$name" before boot open');
+  } catch (e, st) {
+    AppLogger.w(
+      'Boot',
+      'Failed to reset Hive box "$name"',
+      error: e,
+      stackTrace: st,
+    );
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogger.initializeSessionFileLogging();
@@ -180,6 +199,9 @@ Future<void> main() async {
   await _openHiveBoxSafe('local_library');
   await _openHiveBoxSafe('watch_history');
   await _openHiveBoxSafe('anilist_media_cache', critical: false);
+  // Optional query cache: proactively reset each launch to avoid stale unknown
+  // typeIds from previous schema builds crashing boot.
+  await _resetHiveBoxSafe('anilist_query_cache');
   await _openHiveBoxSafe('anilist_query_cache', critical: false);
   final liquidGlassEnabled = await _runShaderWarmup();
   runApp(
