@@ -473,7 +473,11 @@ class AniListClient {
     return _serialize(() async {
       final isAnonymous = token == null || token.isEmpty;
       if (isAnonymous && DateTime.now().isBefore(_anonymousCooldownUntil)) {
-        throw Exception('AniList GraphQL cooldown active');
+        AppLogger.w(
+          'AniList',
+          'GraphQL cooldown active op=$operation; returning empty payload',
+        );
+        return <String, dynamic>{};
       }
       var attempts = 0;
       while (true) {
@@ -530,6 +534,11 @@ class AniListClient {
               _anonymousCooldownUntil = DateTime.now().add(
                 const Duration(seconds: 45),
               );
+              AppLogger.w(
+                'AniList',
+                'GraphQL 429 op=$operation in anonymous mode; returning empty payload',
+              );
+              return <String, dynamic>{};
             }
             AppLogger.e('AniList', 'GraphQL HTTP $status op=$operation',
                 error: {
