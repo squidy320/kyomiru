@@ -101,14 +101,24 @@ class AppLogger {
     if (kIsWeb) return;
     try {
       final supportDir = await getApplicationSupportDirectory();
-      final logsDir = Directory('${supportDir.path}/debug_logs');
+      var basePath = supportDir.path.trim();
+      // Defensive fix for iOS path_provider anomalies where the returned path
+      // may be missing a leading slash and become relative.
+      if (!basePath.startsWith('/')) {
+        basePath = '/$basePath';
+      }
+      final logsDir = Directory('$basePath/debug_logs');
       if (!await logsDir.exists()) {
         await logsDir.create(recursive: true);
       }
 
       final file = File('${logsDir.path}/last_run.log');
+      final previous = File('${logsDir.path}/previous_run.log');
       if (await file.exists()) {
-        await file.delete();
+        if (await previous.exists()) {
+          await previous.delete();
+        }
+        await file.rename(previous.path);
       }
       await file.create(recursive: true);
 
