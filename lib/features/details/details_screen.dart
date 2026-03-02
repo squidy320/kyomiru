@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +28,13 @@ import '../../state/source_lock_state.dart';
 import '../../state/tracking_state.dart';
 import '../player/player_screen.dart';
 
+class _SourceLoadFailure implements Exception {
+  const _SourceLoadFailure(this.message, {this.providerDown = false});
+
+  final String message;
+  final bool providerDown;
+}
+
 class DetailsScreen extends ConsumerStatefulWidget {
   const DetailsScreen({super.key, required this.mediaId});
 
@@ -43,6 +52,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Color _detailBgSeed = const Color(0xFF090B13);
   final Map<String, Color> _detailPaletteCache = <String, Color>{};
   int _bulkTotal = 0;
+  bool _sourceRequestInFlight = false;
+  String? _sourceLoadError;
+  SoraEpisode? _lastFailedEpisode;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
@@ -239,22 +251,52 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
 
     try {
-      Future<List<SoraSource>> attempt() async {
-        final result = await ref
-            .read(provider.future)
-            .timeout(const Duration(seconds: 12));
-        if (result.isEmpty) {
-          throw Exception('No stream sources available.');
+      Object? lastError;
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          final result = await ref
+              .read(provider.future)
+              .timeout(const Duration(seconds: 45));
+          if (result.isEmpty) {
+            throw const _SourceLoadFailure(
+              'Stream not found or timeout.',
+              providerDown: true,
+            );
+          }
+          return result;
+        } catch (e) {
+          lastError = e;
+          if (attempt < 3) {
+            ref.invalidate(provider);
+            await Future<void>.delayed(
+              Duration(milliseconds: 500 * attempt),
+            );
+          }
         }
-        return result;
       }
 
-      try {
-        return await attempt();
-      } catch (_) {
-        ref.invalidate(provider);
-        return await attempt();
+      if (lastError is DioException) {
+        final status = lastError.response?.statusCode ?? 0;
+        final timedOut = lastError.type == DioExceptionType.connectionTimeout ||
+            lastError.type == DioExceptionType.receiveTimeout;
+        final providerDown = timedOut || status == 429 || status >= 500;
+        throw _SourceLoadFailure(
+          providerDown
+              ? 'Provider is unavailable right now. Try another source/episode.'
+              : 'Stream not found or timeout.',
+          providerDown: providerDown,
+        );
       }
+      if (lastError is SocketException) {
+        throw const _SourceLoadFailure(
+          'Network is offline or unstable. Check your connection and retry.',
+          providerDown: true,
+        );
+      }
+      if (lastError is _SourceLoadFailure) {
+        throw lastError;
+      }
+      throw const _SourceLoadFailure('Stream not found or timeout.');
     } finally {
       sub.close();
       if (dialogOpen && mounted) {
@@ -596,73 +638,112 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     AniListMedia media,
     SoraEpisode ep,
   ) async {
-    final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
-    final local = await ref
-        .read(downloadControllerProvider.notifier)
-        .getLocalEpisodeByMedia(media.id, ep.number);
-    if (local != null) {
-      if (!context.mounted) return;
+    if (_sourceRequestInFlight) return;
+    setState(() {
+      _sourceRequestInFlight = true;
+      _sourceLoadError = null;
+      _lastFailedEpisode = null;
+    });
+    try {
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      final local = await ref
+          .read(downloadControllerProvider.notifier)
+          .getLocalEpisodeByMedia(media.id, ep.number);
+      if (local != null) {
+        if (!context.mounted) return;
+        navigator.push(
+          MaterialPageRoute(
+            builder: (_) => PlayerScreen(
+              mediaId: media.id,
+              episodeNumber: ep.number,
+              episodeTitle: _episodePlaybackTitle(media, ep.number),
+              sourceUrl: local.path,
+              isLocal: true,
+              backgroundImageUrl: media.cover.best ?? media.bannerImage,
+              mediaTitle: media.title.best,
+              malId: media.idMal,
+            ),
+          ),
+        );
+        return;
+      }
+
+      List<SoraSource> sources;
+      try {
+        sources = await _loadSourcesWithOverlay(media, ep);
+      } on _SourceLoadFailure catch (e) {
+        if (!context.mounted) return;
+        setState(() {
+          _sourceLoadError = e.message;
+          _lastFailedEpisode = ep;
+        });
+        messenger.showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+        return;
+      } catch (_) {
+        if (!context.mounted) return;
+        setState(() {
+          _sourceLoadError = 'Error: Stream not found or Timeout';
+          _lastFailedEpisode = ep;
+        });
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Stream source timed out. Please try again.'),
+          ),
+        );
+        return;
+      }
+      if (sources.isEmpty) {
+        if (!context.mounted) return;
+        setState(() {
+          _sourceLoadError = 'Error: Stream not found or Timeout';
+          _lastFailedEpisode = ep;
+        });
+        messenger.showSnackBar(
+          const SnackBar(content: Text('No sources found for episode.')),
+        );
+        return;
+      }
+      final settings = ref.read(appSettingsProvider);
+      final selected = settings.chooseStreamEveryTime
+          ? await _showSourcePicker(sources)
+          : _pickSourceByPreference(sources, settings);
+      if (selected == null || !context.mounted) return;
+      _lockSessionSource(selected);
+      final fallback = sources
+          .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
+          .toList();
       navigator.push(
         MaterialPageRoute(
           builder: (_) => PlayerScreen(
             mediaId: media.id,
             episodeNumber: ep.number,
             episodeTitle: _episodePlaybackTitle(media, ep.number),
-            sourceUrl: local.path,
-            isLocal: true,
+            sourceUrl: selected.url,
+            headers: selected.headers,
             backgroundImageUrl: media.cover.best ?? media.bannerImage,
             mediaTitle: media.title.best,
             malId: media.idMal,
+            fallbackSources: fallback,
           ),
         ),
       );
-      return;
+    } finally {
+      if (mounted) {
+        setState(() => _sourceRequestInFlight = false);
+      } else {
+        _sourceRequestInFlight = false;
+      }
     }
+  }
 
-    List<SoraSource> sources;
-    try {
-      sources = await _loadSourcesWithOverlay(media, ep);
-    } catch (_) {
-      if (!context.mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Stream source timed out. Please try again.'),
-        ),
-      );
-      return;
-    }
-    if (sources.isEmpty) {
-      if (!context.mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('No sources found for episode.')),
-      );
-      return;
-    }
-    final settings = ref.read(appSettingsProvider);
-    final selected = settings.chooseStreamEveryTime
-        ? await _showSourcePicker(sources)
-        : _pickSourceByPreference(sources, settings);
-    if (selected == null || !context.mounted) return;
-    _lockSessionSource(selected);
-    final fallback = sources
-        .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
-        .toList();
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          mediaId: media.id,
-          episodeNumber: ep.number,
-          episodeTitle: _episodePlaybackTitle(media, ep.number),
-          sourceUrl: selected.url,
-          headers: selected.headers,
-          backgroundImageUrl: media.cover.best ?? media.bannerImage,
-          mediaTitle: media.title.best,
-          malId: media.idMal,
-          fallbackSources: fallback,
-        ),
-      ),
-    );
+  Future<void> _retryLastFailedSource(AniListMedia media) async {
+    final ep = _lastFailedEpisode;
+    if (ep == null || _sourceRequestInFlight) return;
+    setState(() => _sourceLoadError = null);
+    await _playEpisode(media, ep);
   }
 
   Future<void> _playSmartEpisode(
@@ -996,6 +1077,33 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                               ],
                             ),
                             const SizedBox(height: 10),
+                            if (_sourceLoadError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: GlassCard(
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.error_outline_rounded,
+                                          color: Colors.orangeAccent),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'Error: $_sourceLoadError',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      FilledButton.tonal(
+                                        onPressed: _lastFailedEpisode == null
+                                            ? null
+                                            : () => _retryLastFailedSource(media),
+                                        child: const Text('Retry'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ...episodes.map((ep) {
                               final p = progressStore.read(media.id, ep.number);
                               final pct = p?.percent ?? 0;
@@ -1016,7 +1124,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       borderRadius: 14),
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
-                                    onTap: () => _playEpisode(media, ep),
+                                    onTap: _sourceRequestInFlight
+                                        ? null
+                                        : () => _playEpisode(media, ep),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 10,

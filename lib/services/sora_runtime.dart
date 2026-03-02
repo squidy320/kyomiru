@@ -20,9 +20,9 @@ class SoraRuntime {
       : _dio = dio ??
             Dio(
               BaseOptions(
-                connectTimeout: const Duration(seconds: 20),
+                connectTimeout: const Duration(seconds: 45),
                 sendTimeout: const Duration(seconds: 15),
-                receiveTimeout: const Duration(seconds: 20),
+                receiveTimeout: const Duration(seconds: 45),
               ),
             ) {
     _dio.interceptors.add(InterceptorsWrapper(
@@ -243,9 +243,9 @@ class SoraRuntime {
               if (_cookieHeader != null) 'Cookie': _cookieHeader!,
               if (headers != null) ...headers,
             },
-            sendTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 20),
-            connectTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 45),
+            connectTimeout: const Duration(seconds: 45),
             validateStatus: (code) => (code ?? 500) < 500,
           ),
           cancelToken: token,
@@ -547,9 +547,9 @@ class SoraRuntime {
               'User-Agent': _ua,
               if (_cookieHeader != null) 'Cookie': _cookieHeader!,
             },
-            sendTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 20),
-            connectTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 45),
+            connectTimeout: const Duration(seconds: 45),
             validateStatus: (code) => (code ?? 500) < 500,
           ),
           cancelToken: token,
