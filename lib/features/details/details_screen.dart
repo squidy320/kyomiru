@@ -5,7 +5,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
@@ -13,7 +12,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
-import '../../core/liquid_glass_preset.dart';
+import '../../core/app_logger.dart';
 import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
@@ -57,6 +56,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   SoraEpisode? _lastFailedEpisode;
   late Future<AniListMedia> _mediaDetailsFuture;
   int _visibleEpisodeCount = 24;
+  bool _detailsBuildLogged = false;
+  bool _detailsFirstFrameLogged = false;
+  String? _bgPaletteLoadingKey;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
@@ -74,15 +76,37 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   @override
   void initState() {
     super.initState();
+    AppLogger.i('Details', 'initState mediaId=${widget.mediaId}');
     _mediaDetailsFuture = _loadMediaDetails();
     ref.invalidate(episodeProvider);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_detailsFirstFrameLogged) return;
+      _detailsFirstFrameLogged = true;
+      AppLogger.i('Details', 'first frame rendered mediaId=${widget.mediaId}');
+    });
   }
 
   Future<AniListMedia> _loadMediaDetails() async {
+    final sw = Stopwatch()..start();
     final client = ref.read(anilistClientProvider);
-    return client
-        .mediaDetails(widget.mediaId)
-        .timeout(const Duration(seconds: 20));
+    try {
+      final media = await client
+          .mediaDetails(widget.mediaId)
+          .timeout(const Duration(seconds: 20));
+      AppLogger.i(
+        'Details',
+        'mediaDetails loaded mediaId=${widget.mediaId} in ${sw.elapsedMilliseconds}ms',
+      );
+      return media;
+    } catch (e, st) {
+      AppLogger.e(
+        'Details',
+        'mediaDetails failed mediaId=${widget.mediaId}',
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
   }
 
   void _retryMediaDetails() {
@@ -793,12 +817,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Future<void> _updateDetailBackground(AniListMedia media) async {
     final image = media.bannerImage ?? media.cover.best;
     if (image == null || image.isEmpty) return;
+    if (_bgPaletteLoadingKey == image) return;
     final cached = _detailPaletteCache[image];
     if (cached != null) {
       if (!mounted) return;
       setState(() => _detailBgSeed = cached);
       return;
     }
+    _bgPaletteLoadingKey = image;
     try {
       final palette = await PaletteGenerator.fromImageProvider(
         KyomiruImageCache.provider(image),
@@ -812,11 +838,20 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       _detailPaletteCache[image] = picked;
       if (!mounted) return;
       setState(() => _detailBgSeed = picked);
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      if (_bgPaletteLoadingKey == image) {
+        _bgPaletteLoadingKey = null;
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_detailsBuildLogged) {
+      _detailsBuildLogged = true;
+      AppLogger.i('Details', 'build start mediaId=${widget.mediaId}');
+    }
     final progressStore = ref.watch(progressStoreProvider);
     final auth = ref.watch(authControllerProvider);
     final uiSettings = ref.watch(appSettingsProvider);
@@ -1156,12 +1191,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
-                                child: LiquidGlass.withOwnLayer(
-                                  settings: kyomiruLiquidGlassSettings(
-                                    isOledBlack: uiSettings.isOledBlack,
-                                  ),
-                                  shape: const LiquidRoundedSuperellipse(
-                                      borderRadius: 14),
+                                child: RepaintBoundary(
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
                                     onTap: _sourceRequestInFlight
@@ -1175,13 +1205,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       decoration: BoxDecoration(
                                         color: uiSettings.isOledBlack
                                             ? Colors.black
-                                                .withValues(alpha: 0.18)
-                                            : Colors.white
-                                                .withValues(alpha: 0.03),
+                                            : const Color(0xFF161822),
                                         borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
                                           color: Colors.white
-                                              .withValues(alpha: 0.10),
+                                              .withValues(alpha: 0.08),
                                         ),
                                       ),
                                       child: Row(
