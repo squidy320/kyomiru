@@ -246,7 +246,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
 
     try {
-      return await ref.read(provider.future);
+      Future<List<SoraSource>> attempt() async {
+        final result = await ref
+            .read(provider.future)
+            .timeout(const Duration(seconds: 12));
+        if (result.isEmpty) {
+          throw Exception('No stream sources available.');
+        }
+        return result;
+      }
+
+      try {
+        return await attempt();
+      } catch (_) {
+        ref.invalidate(provider);
+        return await attempt();
+      }
     } finally {
       sub.close();
       if (dialogOpen && mounted) {
@@ -355,8 +370,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         .toList();
     if (selectedEpisodes.isEmpty) return;
 
-    final probeSources =
-        await _loadSourcesWithOverlay(media, selectedEpisodes.first);
+    List<SoraSource> probeSources;
+    try {
+      probeSources = await _loadSourcesWithOverlay(media, selectedEpisodes.first);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to load stream sources right now.')),
+      );
+      return;
+    }
     if (!mounted || probeSources.isEmpty) return;
     final chosen = await _showSourcePicker(probeSources);
     if (!mounted || chosen == null) return;
@@ -375,7 +398,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             .read(downloadControllerProvider.notifier)
             .localManifestPath(media.id, ep.number);
         if (local == null) {
-          final sources = await _loadSourcesWithOverlay(media, ep);
+          List<SoraSource> sources;
+          try {
+            sources = await _loadSourcesWithOverlay(media, ep);
+          } catch (_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Source load failed for episode ${ep.number}.')),
+            );
+            continue;
+          }
           if (sources.isNotEmpty) {
             final sameProvider = sources
                 .where(
@@ -595,7 +627,18 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       return;
     }
 
-    final sources = await _loadSourcesWithOverlay(media, ep);
+    List<SoraSource> sources;
+    try {
+      sources = await _loadSourcesWithOverlay(media, ep);
+    } catch (_) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Stream source timed out. Please try again.'),
+        ),
+      );
+      return;
+    }
     if (sources.isEmpty) {
       if (!context.mounted) return;
       messenger.showSnackBar(
