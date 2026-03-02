@@ -58,6 +58,11 @@ void _registerHiveAdapters() {
   if (!Hive.isAdapterRegistered(78)) {
     Hive.registerAdapter(LegacyType78Adapter());
   }
+  AppLogger.i(
+    'Boot',
+    'Hive adapters registered: type77=${Hive.isAdapterRegistered(77)} '
+        'type78=${Hive.isAdapterRegistered(78)}',
+  );
 }
 
 class KyomiruShaderWarmUp extends ShaderWarmUp {
@@ -96,8 +101,13 @@ Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
     }
   }
 
+  bool isUnknownTypeIdError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('unknown typeid');
+  }
+
   try {
-    await Hive.openBox(name).timeout(const Duration(seconds: 8));
+    await Hive.openBox(name);
     return;
   } catch (e, st) {
     AppLogger.w(
@@ -121,7 +131,7 @@ Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
   }
 
   try {
-    await Hive.openBox(name).timeout(const Duration(seconds: 8));
+    await Hive.openBox(name);
   } catch (e, st) {
     AppLogger.e(
       'Boot',
@@ -129,6 +139,10 @@ Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
       error: e,
       stackTrace: st,
     );
+    if (isUnknownTypeIdError(e) && !critical) {
+      // Keep app booting if optional cache boxes are corrupted or use stale adapters.
+      return;
+    }
     if (critical) rethrow;
   }
 }
