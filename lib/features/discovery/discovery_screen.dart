@@ -183,6 +183,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               child: _DiscoveryHeroCarousel(
                 items: trending,
                 controller: _heroController,
+                currentIndex: _heroIndex,
                 onPageChanged: (index) {
                   setState(() => _heroIndex = index);
                   unawaited(_updateBackgroundForTrending(trending, index));
@@ -451,134 +452,164 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
   const _DiscoveryHeroCarousel({
     required this.items,
     required this.controller,
+    required this.currentIndex,
     required this.onPageChanged,
   });
 
   final List<AniListMedia> items;
   final PageController controller;
+  final int currentIndex;
   final ValueChanged<int> onPageChanged;
 
   @override
   Widget build(BuildContext context) {
     final bannerHeight =
-        (MediaQuery.sizeOf(context).height * 0.52).clamp(360.0, 560.0);
-    return SizedBox(
-      height: bannerHeight,
-      child: PageView.builder(
-        controller: controller,
-        itemCount: items.length,
-        onPageChanged: onPageChanged,
-        itemBuilder: (context, index) {
-          final media = items[index];
-          final image = media.bannerImage ?? media.cover.best;
-          return GestureDetector(
-            onTap: () {
-              hapticTap();
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => DetailsScreen(mediaId: media.id)),
-              );
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (image != null)
-                  KyomiruImageCache.image(image, fit: BoxFit.cover)
-                else
-                  const ColoredBox(color: Color(0x22111111)),
-                Positioned.fill(
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Color(0x40090B13),
-                          Color(0x80090B13),
-                          Color(0xD8090B13),
-                          _kDiscoveryBaseColor,
-                        ],
-                        stops: [0.0, 0.42, 0.62, 0.78, 0.90, 1.0],
+        (MediaQuery.sizeOf(context).height * 0.46).clamp(420.0, 560.0);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: bannerHeight,
+            child: PageView.builder(
+              controller: controller,
+              itemCount: items.length,
+              onPageChanged: onPageChanged,
+              itemBuilder: (context, index) {
+                final media = items[index];
+                final image = media.bannerImage ?? media.cover.best;
+                final genresText = media.genres.take(2).join('  ');
+                return GestureDetector(
+                  onTap: () {
+                    hapticTap();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => DetailsScreen(mediaId: media.id),
                       ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 10,
-                  child: Container(
-                    height: 96,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white.withValues(alpha: 0.05),
-                          Colors.black.withValues(alpha: 0.22),
-                        ],
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.10),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    );
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        Row(
-                          children: [
-                            const LiquidGlass(
-                              shape: LiquidRoundedSuperellipse(
-                                borderRadius: 999,
-                              ),
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                child: Text(
-                                  'Trending Now',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                ),
+                        if (image != null)
+                          KyomiruImageCache.image(image, fit: BoxFit.cover)
+                        else
+                          const ColoredBox(color: Color(0x22111111)),
+                        const Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Color(0x12000000),
+                                  Color(0x5C000000),
+                                  Color(0xCC000000),
+                                ],
+                                stops: [0.30, 0.55, 0.76, 1.0],
                               ),
                             ),
-                            const Spacer(),
-                            _ScorePill(score: media.averageScore),
-                          ],
+                          ),
                         ),
-                        const Spacer(),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 2),
-                          child: Text(
-                            media.title.best,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 26,
-                              height: 1.1,
-                              fontWeight: FontWeight.w700,
-                            ),
+                        Positioned(
+                          left: 20,
+                          right: 20,
+                          bottom: 22,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                media.title.best,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 46,
+                                  height: 1.05,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                media.description
+                                        ?.replaceAll(RegExp(r'<[^>]*>'), ' ')
+                                        .trim() ??
+                                    '',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white70,
+                                  height: 1.25,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    color: Colors.amber,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${media.averageScore ?? 0}%',
+                                    style: const TextStyle(
+                                      color: Color(0xFFFFD54F),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                  if (genresText.isNotEmpty) ...[
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Text(
+                                        genresText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              items.length,
+              (i) => AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: i == currentIndex ? 16 : 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: i == currentIndex
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.32),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

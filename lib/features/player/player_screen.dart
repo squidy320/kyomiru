@@ -1414,7 +1414,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleLongPressStart(LongPressStartDetails _) {
-    _registerInteraction();
     setState(() => _isLongPressSpeeding = true);
     unawaited(_setPlaybackSpeed(2.0));
   }
@@ -1422,7 +1421,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _handleLongPressEnd(LongPressEndDetails _) {
     setState(() => _isLongPressSpeeding = false);
     unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
-    _registerInteraction();
   }
 
   Future<void> _togglePlayPause() async {
@@ -1523,7 +1521,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final c = _videoController;
     final mk = _mediaKitPlayer;
     final end = opEnd;
-    if (end == null || (c == null && mk == null)) return;
+    if (!_hasValidIntroRange || end == null || (c == null && mk == null)) {
+      return;
+    }
     HapticFeedback.lightImpact();
     final target = Duration(milliseconds: (end * 1000).round());
     if (c != null) {
@@ -1532,6 +1532,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await mk.seek(target);
     }
     _registerInteraction();
+  }
+
+  bool get _hasValidIntroRange {
+    final start = opStart;
+    final end = opEnd;
+    if (start == null || end == null) {
+      return false;
+    }
+    if (!start.isFinite || !end.isFinite) {
+      return false;
+    }
+    return end > start && end >= 5;
   }
 
   String _fmt(double sec) {
@@ -1803,8 +1815,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                     ),
                                     const SizedBox(width: 16),
                                     Visibility(
-                                      visible:
-                                          _currentSec > 5 && _currentSec < 150,
+                                      visible: _hasValidIntroRange &&
+                                          _currentSec > 5 &&
+                                          _currentSec < 150,
                                       child: Material(
                                         color: Colors.black
                                             .withValues(alpha: 0.40),
