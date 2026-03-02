@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:palette_generator/palette_generator.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -39,6 +40,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   int? _prefetchedForMediaId;
   bool _isBulkDownloading = false;
   int _bulkDone = 0;
+  Color _detailBgSeed = const Color(0xFF090B13);
+  final Map<String, Color> _detailPaletteCache = <String, Color>{};
   int _bulkTotal = 0;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
@@ -652,6 +655,31 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     }
   }
 
+  Future<void> _updateDetailBackground(AniListMedia media) async {
+    final image = media.bannerImage ?? media.cover.best;
+    if (image == null || image.isEmpty) return;
+    final cached = _detailPaletteCache[image];
+    if (cached != null) {
+      if (!mounted) return;
+      setState(() => _detailBgSeed = cached);
+      return;
+    }
+    try {
+      final palette = await PaletteGenerator.fromImageProvider(
+        KyomiruImageCache.provider(image),
+        size: const Size(120, 120),
+        maximumColorCount: 12,
+      );
+      final picked = palette.dominantColor?.color ??
+          palette.vibrantColor?.color ??
+          palette.mutedColor?.color;
+      if (picked == null) return;
+      _detailPaletteCache[image] = picked;
+      if (!mounted) return;
+      setState(() => _detailBgSeed = picked);
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final client = ref.watch(anilistClientProvider);
@@ -679,7 +707,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         }
 
         final media = snap.data!;
+        unawaited(_updateDetailBackground(media));
         _manualMatch ??= _readSavedMatch(media.id);
+        final trackingEntryAsync = ref.watch(mediaListProvider(media.id));
+        final inAnyList = trackingEntryAsync.valueOrNull != null;
         final episodeQuery = EpisodeQuery(
           mediaId: media.id,
           title: media.title.best,
@@ -689,127 +720,94 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             .replaceAll(RegExp(r'<[^>]*>'), ' ')
             .trim();
 
+        final bgBase = uiSettings.enableDynamicColors
+            ? _detailBgSeed.withValues(alpha: 0.30)
+            : Colors.black;
         return Scaffold(
-          body: NestedScrollView(
-            headerSliverBuilder: (context, innerBoxIsScrolled) => [
-              SliverAppBar(
-                expandedHeight: 360,
-                pinned: true,
-                stretch: true,
-                backgroundColor: Colors.black,
-                leading: IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-                ),
-                flexibleSpace: FlexibleSpaceBar(
-                  collapseMode: CollapseMode.parallax,
-                  background: _BadlandsHero(
-                    media: media,
-                    onPlay: () =>
-                        _playSmartEpisode(media, episodeQuery, progressStore),
-                    onBookmark: () => _openTrackingSheet(media, auth.token),
+          body: Container(
+            decoration: BoxDecoration(
+              color: Colors.black,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  bgBase,
+                  const Color(0xFF090B13),
+                ],
+              ),
+            ),
+            child: NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                SliverAppBar(
+                  expandedHeight: 360,
+                  pinned: true,
+                  stretch: true,
+                  backgroundColor: Colors.black,
+                  leading: IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon:
+                        const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                  ),
+                  flexibleSpace: FlexibleSpaceBar(
+                    collapseMode: CollapseMode.parallax,
+                    background: _BadlandsHero(
+                      media: media,
+                      inAnyList: inAnyList,
+                      onPlay: () =>
+                          _playSmartEpisode(media, episodeQuery, progressStore),
+                      onBookmark: () => _openTrackingSheet(media, auth.token),
+                      onShare: media.siteUrl == null
+                          ? null
+                          : () => Share.share(
+                                media.siteUrl!,
+                                subject: media.title.best,
+                              ),
+                    ),
                   ),
                 ),
-              ),
-            ],
-            body: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-              children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _TabPill(
-                        label: 'Watch',
-                        selected: _tab == 0,
-                        onTap: () => setState(() => _tab = 0)),
-                    FilledButton.tonalIcon(
-                      onPressed: () => _openTrackingSheet(media, auth.token),
-                      icon: const Icon(Icons.edit_document),
-                      label: const Text('Manage List'),
-                    ),
-                    _TabPill(
-                        label: 'AniList',
-                        selected: _tab == 1,
-                        onTap: () => setState(() => _tab = 1)),
-                    _TabPill(
-                        label: 'More',
-                        selected: _tab == 2,
-                        onTap: () => setState(() => _tab = 2)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_tab == 0)
-                  FutureBuilder<EpisodeLoadResult>(
-                    future: ref.watch(episodeProvider(episodeQuery).future),
-                    builder: (context, paheSnap) {
-                      if (paheSnap.connectionState == ConnectionState.waiting) {
-                        return const _EpisodeListLoadingSkeleton();
-                      }
+              ],
+              body: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _TabPill(
+                          label: 'Watch',
+                          selected: _tab == 0,
+                          onTap: () => setState(() => _tab = 0)),
+                      _TabPill(
+                          label: 'AniList',
+                          selected: _tab == 1,
+                          onTap: () => setState(() => _tab = 1)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_tab == 0)
+                    FutureBuilder<EpisodeLoadResult>(
+                      future: ref.watch(episodeProvider(episodeQuery).future),
+                      builder: (context, paheSnap) {
+                        if (paheSnap.connectionState ==
+                            ConnectionState.waiting) {
+                          return const _EpisodeListLoadingSkeleton();
+                        }
 
-                      final data = paheSnap.data;
-                      if (data == null ||
-                          data.match == null ||
-                          data.episodes.isEmpty) {
-                        return GlassCard(
-                          child: Row(
-                            children: [
-                              const Expanded(
-                                  child: Text(
-                                      'Could not load AnimePahe episodes for this title.')),
-                              FilledButton.tonal(
-                                onPressed: () => _refreshPahe(media),
-                                child: const Text('Retry'),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton.tonal(
-                                onPressed: () async {
-                                  final manual =
-                                      await _openManualMatchPicker(media);
-                                  if (manual != null) {
-                                    _refreshPahe(media, manual: manual);
-                                  }
-                                },
-                                child: const Text('Manual Match'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-
-                      final episodes = data.episodes;
-                      _prefetchPlaybackData(media, episodes);
-                      return Column(
-                        children: [
-                          GlassCard(
+                        final data = paheSnap.data;
+                        if (data == null ||
+                            data.match == null ||
+                            data.episodes.isEmpty) {
+                          return GlassCard(
                             child: Row(
                               children: [
-                                const Icon(Icons.link),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('AnimePahe',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.w800)),
-                                      Text(
-                                        _manualMatch == null
-                                            ? 'Using automatic matching'
-                                            : 'Using manual matching',
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Color(0xFF9AA0B3)),
-                                      ),
-                                      Text(
-                                        data.match!.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
+                                const Expanded(
+                                    child: Text(
+                                        'Could not load AnimePahe episodes for this title.')),
+                                FilledButton.tonal(
+                                  onPressed: () => _refreshPahe(media),
+                                  child: const Text('Retry'),
                                 ),
+                                const SizedBox(width: 8),
                                 FilledButton.tonal(
                                   onPressed: () async {
                                     final manual =
@@ -818,350 +816,527 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       _refreshPahe(media, manual: manual);
                                     }
                                   },
-                                  child: const Text('Manual'),
-                                ),
-                                IconButton(
-                                  onPressed: () => _refreshPahe(media),
-                                  icon: const Icon(Icons.refresh),
+                                  child: const Text('Manual Match'),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(14, 10, 10, 10),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(16),
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.white.withValues(alpha: 0.04),
-                                        Colors.black.withValues(alpha: 0.20),
+                          );
+                        }
+
+                        final episodes = data.episodes;
+                        _prefetchPlaybackData(media, episodes);
+                        return Column(
+                          children: [
+                            GlassCard(
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.link),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('AnimePahe',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800)),
+                                        Text(
+                                          _manualMatch == null
+                                              ? 'Using automatic matching'
+                                              : 'Using manual matching',
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF9AA0B3)),
+                                        ),
+                                        Text(
+                                          data.match!.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ],
                                     ),
-                                    border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.08),
-                                    ),
                                   ),
-                                  child: Row(
-                                    children: [
-                                      const Text(
-                                        'Episodes',
-                                        style: TextStyle(
-                                          fontSize: 28,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      if (_isBulkDownloading)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.08),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            border: Border.all(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.12),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                  'Downloading $_bulkDone/$_bulkTotal'),
-                                            ],
-                                          ),
-                                        )
-                                      else
-                                        GlassButton(
-                                          onPressed: () => _downloadAllEpisodes(
-                                              media, episodes),
-                                          child: const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons
-                                                  .download_for_offline_outlined),
-                                              SizedBox(width: 6),
-                                              Text('Download All'),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
+                                  FilledButton.tonal(
+                                    onPressed: () async {
+                                      final manual =
+                                          await _openManualMatchPicker(media);
+                                      if (manual != null) {
+                                        _refreshPahe(media, manual: manual);
+                                      }
+                                    },
+                                    child: const Text('Manual'),
                                   ),
-                                ),
+                                  IconButton(
+                                    onPressed: () => _refreshPahe(media),
+                                    icon: const Icon(Icons.refresh),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          ...episodes.map((ep) {
-                            final p = progressStore.read(media.id, ep.number);
-                            final pct = p?.percent ?? 0;
-                            final thumb =
-                                _episodeThumbnailUrl(media, ep.number);
-                            final fallbackThumb =
-                                media.cover.best ?? media.bannerImage;
-                            final episodeSubtitle =
-                                _episodeSpecificTitle(media, ep.number);
-
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: LiquidGlass.withOwnLayer(
-                                settings: kyomiruLiquidGlassSettings(
-                                  isOledBlack: uiSettings.isOledBlack,
-                                ),
-                                shape: const LiquidRoundedSuperellipse(
-                                    borderRadius: 14),
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () => _playEpisode(media, ep),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 8,
-                                    ),
+                                    padding: const EdgeInsets.fromLTRB(
+                                        14, 10, 10, 10),
                                     decoration: BoxDecoration(
-                                      color: uiSettings.isOledBlack
-                                          ? Colors.black.withValues(alpha: 0.18)
-                                          : Colors.white
-                                              .withValues(alpha: 0.03),
-                                      borderRadius: BorderRadius.circular(14),
+                                      borderRadius: BorderRadius.circular(16),
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.white.withValues(alpha: 0.04),
+                                          Colors.black.withValues(alpha: 0.20),
+                                        ],
+                                      ),
                                       border: Border.all(
                                         color: Colors.white
-                                            .withValues(alpha: 0.10),
+                                            .withValues(alpha: 0.08),
                                       ),
                                     ),
                                     child: Row(
                                       children: [
-                                        SizedBox(
-                                          width: 104,
-                                          height: 64,
-                                          child: _EpisodeRowThumb(
-                                            mediaId: media.id,
-                                            episode: ep.number,
-                                            networkThumbUrl: thumb,
-                                            fallbackUrl: fallbackThumb,
+                                        const Text(
+                                          'Episodes',
+                                          style: TextStyle(
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w800,
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text('EP ${ep.number}',
-                                                  style: const TextStyle(
-                                                      color: Color(0xFF8B5CF6),
-                                                      fontWeight:
-                                                          FontWeight.w700)),
-                                              const SizedBox(height: 2),
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      episodeSubtitle,
-                                                      maxLines: 2,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                          fontSize: 15,
-                                                          fontWeight:
-                                                              FontWeight.w700),
-                                                    ),
-                                                  ),
-                                                  _EpisodeLocalCheck(
-                                                    mediaId: media.id,
-                                                    episodeNumber: ep.number,
-                                                  ),
-                                                ],
+                                        const Spacer(),
+                                        if (_isBulkDownloading)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white
+                                                  .withValues(alpha: 0.08),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.12),
                                               ),
-                                              _EpisodeDownloadStatusText(
-                                                mediaId: media.id,
-                                                episodeNumber: ep.number,
-                                              ),
-                                            ],
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                    'Downloading $_bulkDone/$_bulkTotal'),
+                                              ],
+                                            ),
+                                          )
+                                        else
+                                          GlassButton(
+                                            onPressed: () =>
+                                                _downloadAllEpisodes(
+                                                    media, episodes),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons
+                                                    .download_for_offline_outlined),
+                                                SizedBox(width: 6),
+                                                Text('Download All'),
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        ProgressRing(percent: pct, size: 52),
-                                        const SizedBox(width: 8),
-                                        _EpisodeDownloadAction(
-                                          mediaId: media.id,
-                                          episodeNumber: ep.number,
-                                          onDownloadTap: () async {
-                                            final sources =
-                                                await _loadSourcesWithOverlay(
-                                              media,
-                                              ep,
-                                            );
-                                            if (sources.isEmpty) return;
-                                            final settings =
-                                                ref.read(appSettingsProvider);
-                                            final selected =
-                                                settings.chooseStreamEveryTime
-                                                    ? await _showSourcePicker(
-                                                        sources)
-                                                    : _pickDownloadSource(
-                                                        sources,
-                                                        settings,
-                                                      );
-                                            if (selected == null) return;
-                                            _lockSessionSource(selected);
-                                            await ref
-                                                .read(downloadControllerProvider
-                                                    .notifier)
-                                                .downloadHlsEpisode(
-                                                  mediaId: media.id,
-                                                  episode: ep.number,
-                                                  animeTitle: media.title.best,
-                                                  coverImageUrl:
-                                                      media.cover.best,
-                                                  episodeThumbnailUrl:
-                                                      _episodeThumbnailUrl(
-                                                    media,
-                                                    ep.number,
-                                                  ),
-                                                  source: selected,
-                                                );
-                                          },
-                                        ),
                                       ],
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
-                          }),
-                        ],
-                      );
-                    },
-                  ),
-                if (_tab == 1)
-                  Column(
-                    children: [
-                      GlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(media.title.best,
-                                style: const TextStyle(
-                                    fontSize: 22, fontWeight: FontWeight.w800)),
-                            const SizedBox(height: 8),
-                            Text(description.isEmpty
-                                ? 'No description.'
-                                : description),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      GlassCard(
-                        child: Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Use Manage List to update status, progress, and score.',
-                              ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            FilledButton.tonalIcon(
-                              onPressed: () =>
-                                  _openTrackingSheet(media, auth.token),
-                              icon: const Icon(Icons.edit_document),
-                              label: const Text('Manage List'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                if (_tab == 2)
-                  Column(
-                    children: [
-                      GlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Status: ${media.status ?? 'N/A'}'),
-                            Text('Score: ${media.averageScore ?? 'N/A'}'),
-                            Text('Episodes: ${media.episodes ?? 'N/A'}'),
-                            const SizedBox(height: 8),
-                            FilledButton.tonalIcon(
-                              onPressed: media.siteUrl == null
-                                  ? null
-                                  : () => Share.share(media.siteUrl!,
-                                      subject: media.title.best),
-                              icon: const Icon(Icons.share),
-                              label: const Text('Share AniList'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      GlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Relations',
-                              style: TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 8),
-                            if (media.relations.isEmpty)
-                              const Text(
-                                'No relations available.',
-                                style: TextStyle(color: Color(0xFF9AA0B3)),
-                              )
-                            else
-                              ...media.relations.map(
-                                (rel) => ListTile(
-                                  dense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(
-                                    rel.media.title.best,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                            const SizedBox(height: 10),
+                            ...episodes.map((ep) {
+                              final p = progressStore.read(media.id, ep.number);
+                              final pct = p?.percent ?? 0;
+                              final thumb =
+                                  _episodeThumbnailUrl(media, ep.number);
+                              final fallbackThumb =
+                                  media.cover.best ?? media.bannerImage;
+                              final episodeSubtitle =
+                                  _episodeSpecificTitle(media, ep.number);
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: LiquidGlass.withOwnLayer(
+                                  settings: kyomiruLiquidGlassSettings(
+                                    isOledBlack: uiSettings.isOledBlack,
                                   ),
-                                  subtitle: Text(
-                                    rel.relationType
-                                        .replaceAll('_', ' ')
-                                        .toLowerCase(),
-                                  ),
-                                  trailing:
-                                      const Icon(Icons.chevron_right_rounded),
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          DetailsScreen(mediaId: rel.media.id),
+                                  shape: const LiquidRoundedSuperellipse(
+                                      borderRadius: 14),
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _playEpisode(media, ep),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: uiSettings.isOledBlack
+                                            ? Colors.black
+                                                .withValues(alpha: 0.18)
+                                            : Colors.white
+                                                .withValues(alpha: 0.03),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.10),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            width: 104,
+                                            height: 64,
+                                            child: _EpisodeRowThumb(
+                                              mediaId: media.id,
+                                              episode: ep.number,
+                                              progress: pct,
+                                              networkThumbUrl: thumb,
+                                              fallbackUrl: fallbackThumb,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text('EP ${ep.number}',
+                                                    style: const TextStyle(
+                                                        color:
+                                                            Color(0xFF8B5CF6),
+                                                        fontWeight:
+                                                            FontWeight.w700)),
+                                                const SizedBox(height: 2),
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        episodeSubtitle,
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: const TextStyle(
+                                                            fontSize: 15,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w700),
+                                                      ),
+                                                    ),
+                                                    _EpisodeLocalCheck(
+                                                      mediaId: media.id,
+                                                      episodeNumber: ep.number,
+                                                    ),
+                                                  ],
+                                                ),
+                                                _EpisodeDownloadStatusText(
+                                                  mediaId: media.id,
+                                                  episodeNumber: ep.number,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ProgressRing(percent: pct, size: 52),
+                                          const SizedBox(width: 8),
+                                          _EpisodeDownloadAction(
+                                            mediaId: media.id,
+                                            episodeNumber: ep.number,
+                                            onDownloadTap: () async {
+                                              final sources =
+                                                  await _loadSourcesWithOverlay(
+                                                media,
+                                                ep,
+                                              );
+                                              if (sources.isEmpty) return;
+                                              final settings =
+                                                  ref.read(appSettingsProvider);
+                                              final selected =
+                                                  settings.chooseStreamEveryTime
+                                                      ? await _showSourcePicker(
+                                                          sources)
+                                                      : _pickDownloadSource(
+                                                          sources,
+                                                          settings,
+                                                        );
+                                              if (selected == null) return;
+                                              _lockSessionSource(selected);
+                                              await ref
+                                                  .read(
+                                                      downloadControllerProvider
+                                                          .notifier)
+                                                  .downloadHlsEpisode(
+                                                    mediaId: media.id,
+                                                    episode: ep.number,
+                                                    animeTitle:
+                                                        media.title.best,
+                                                    coverImageUrl:
+                                                        media.cover.best,
+                                                    episodeThumbnailUrl:
+                                                        _episodeThumbnailUrl(
+                                                      media,
+                                                      ep.number,
+                                                    ),
+                                                    source: selected,
+                                                  );
+                                            },
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
+                              );
+                            }),
                           ],
+                        );
+                      },
+                    ),
+                  if (_tab == 1)
+                    Column(
+                      children: [
+                        _TrackingPane(token: auth.token, media: media),
+                        const SizedBox(height: 10),
+                        GlassCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                media.title.best,
+                                style: const TextStyle(
+                                    fontSize: 22, fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(description.isEmpty
+                                  ? 'No description.'
+                                  : description),
+                              const SizedBox(height: 10),
+                              if (media.genres.isNotEmpty)
+                                Text(
+                                  'Genres: ${media.genres.join(', ')}',
+                                  style:
+                                      const TextStyle(color: Color(0xFFA1A8BC)),
+                                ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Studio: ${media.studios.isEmpty ? 'Unknown' : media.studios.join(', ')}',
+                                style:
+                                    const TextStyle(color: Color(0xFFA1A8BC)),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-              ],
+                        const SizedBox(height: 10),
+                        GlassCard(
+                          child: Row(
+                            children: [
+                              const Icon(Icons.share_rounded),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  media.siteUrl ?? 'No share URL available.',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton.tonalIcon(
+                                onPressed: media.siteUrl == null
+                                    ? null
+                                    : () => Share.share(
+                                          media.siteUrl!,
+                                          subject: media.title.best,
+                                        ),
+                                icon: const Icon(Icons.share),
+                                label: const Text('Share'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        GlassCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Relations',
+                                style: TextStyle(
+                                    fontSize: 18, fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 8),
+                              if (media.relations.isEmpty)
+                                const Text(
+                                  'No relations available.',
+                                  style: TextStyle(color: Color(0xFF9AA0B3)),
+                                )
+                              else
+                                SizedBox(
+                                  height: 180,
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: media.relations.length,
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(width: 10),
+                                    itemBuilder: (context, index) {
+                                      final rel = media.relations[index];
+                                      final relImage = rel.media.cover.best ??
+                                          rel.media.bannerImage;
+                                      return SizedBox(
+                                        width: 160,
+                                        child: InkWell(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          onTap: () =>
+                                              Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => DetailsScreen(
+                                                  mediaId: rel.media.id),
+                                            ),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            child: Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                if (relImage != null)
+                                                  KyomiruImageCache.image(
+                                                    relImage,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                else
+                                                  const ColoredBox(
+                                                    color: Color(0x22111111),
+                                                  ),
+                                                Positioned.fill(
+                                                  child: Container(
+                                                    decoration:
+                                                        const BoxDecoration(
+                                                      gradient: LinearGradient(
+                                                        begin:
+                                                            Alignment.topCenter,
+                                                        end: Alignment
+                                                            .bottomCenter,
+                                                        colors: [
+                                                          Colors.transparent,
+                                                          Color(0xC9000000),
+                                                        ],
+                                                        stops: [0.48, 1.0],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                Positioned(
+                                                  left: 8,
+                                                  right: 8,
+                                                  bottom: 8,
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        rel.media.title.best,
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        rel.relationType
+                                                            .replaceAll(
+                                                                '_', ' ')
+                                                            .toLowerCase(),
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          color: Colors.white70,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        GlassCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Characters & Voice Actors',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (media.characters.isEmpty)
+                                const Text(
+                                  'No character data available.',
+                                  style: TextStyle(color: Color(0xFF9AA0B3)),
+                                )
+                              else
+                                ...media.characters.map(
+                                  (c) => ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: CircleAvatar(
+                                      backgroundColor: const Color(0x33111111),
+                                      backgroundImage: c.characterImage == null
+                                          ? null
+                                          : KyomiruImageCache.provider(
+                                              c.characterImage!),
+                                    ),
+                                    title: Text(
+                                      c.characterName.isEmpty
+                                          ? 'Unknown Character'
+                                          : c.characterName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      c.voiceActorName == null
+                                          ? 'Voice actor unknown'
+                                          : '${c.voiceActorName}${c.voiceActorLanguage == null ? '' : ' (${c.voiceActorLanguage})'}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -1552,13 +1727,17 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
 class _BadlandsHero extends StatelessWidget {
   const _BadlandsHero({
     required this.media,
+    required this.inAnyList,
     required this.onPlay,
     required this.onBookmark,
+    required this.onShare,
   });
 
   final AniListMedia media;
+  final bool inAnyList;
   final VoidCallback onPlay;
   final VoidCallback onBookmark;
+  final VoidCallback? onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -1590,23 +1769,17 @@ class _BadlandsHero extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: 16,
-          right: 16,
-          bottom: 18,
-          child: Container(
-            height: 120,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.white.withValues(alpha: 0.05),
-                  Colors.black.withValues(alpha: 0.24),
-                ],
-              ),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.10),
+          top: MediaQuery.viewPaddingOf(context).top + 8,
+          right: 12,
+          child: Material(
+            color: Colors.black.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              onTap: onShare,
+              borderRadius: BorderRadius.circular(999),
+              child: const Padding(
+                padding: EdgeInsets.all(10),
+                child: Icon(Icons.share_rounded, size: 20),
               ),
             ),
           ),
@@ -1614,24 +1787,23 @@ class _BadlandsHero extends StatelessWidget {
         Positioned(
           left: 16,
           right: 16,
-          bottom: 24,
+          bottom: 22,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 media.title.best,
                 maxLines: 2,
-                textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 34,
+                  fontSize: 36,
                   height: 1.05,
                   fontWeight: FontWeight.w900,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                '$typeLabel • $genre',
+                '$typeLabel - $genre',
                 style: const TextStyle(
                   fontSize: 14,
                   color: Colors.white70,
@@ -1640,7 +1812,6 @@ class _BadlandsHero extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ElevatedButton.icon(
                     onPressed: onPlay,
@@ -1677,7 +1848,12 @@ class _BadlandsHero extends StatelessWidget {
                             color: Colors.white.withValues(alpha: 0.18),
                           ),
                         ),
-                        child: const Icon(Icons.bookmark_border_rounded),
+                        child: Icon(
+                          inAnyList
+                              ? Icons.bookmark_rounded
+                              : Icons.bookmark_border_rounded,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -1965,12 +2141,14 @@ class _EpisodeRowThumb extends ConsumerWidget {
   const _EpisodeRowThumb({
     required this.mediaId,
     required this.episode,
+    required this.progress,
     required this.networkThumbUrl,
     required this.fallbackUrl,
   });
 
   final int mediaId;
   final int episode;
+  final double progress;
   final String? networkThumbUrl;
   final String? fallbackUrl;
 
@@ -2041,6 +2219,21 @@ class _EpisodeRowThumb extends ConsumerWidget {
               ),
             ),
           ),
+          if (progress > 0 && progress < 1)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: 4,
+                color: Colors.white24,
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: progress.clamp(0.0, 1.0),
+                  child: Container(color: const Color(0xFF60A5FA)),
+                ),
+              ),
+            ),
         ],
       ),
     );

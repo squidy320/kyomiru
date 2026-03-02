@@ -5,6 +5,7 @@ class AppSettings {
   const AppSettings({
     this.theme = 'Midnight',
     this.isOledBlack = true,
+    this.enableDynamicColors = true,
     this.defaultQuality = '720p',
     this.defaultAudio = 'Sub',
     this.librarySource = 'AniList',
@@ -13,6 +14,7 @@ class AppSettings {
 
   final String theme;
   final bool isOledBlack;
+  final bool enableDynamicColors;
   final String defaultQuality;
   final String defaultAudio;
   final String librarySource;
@@ -30,6 +32,7 @@ class AppSettings {
   AppSettings copyWith({
     String? theme,
     bool? isOledBlack,
+    bool? enableDynamicColors,
     String? defaultQuality,
     String? defaultAudio,
     String? librarySource,
@@ -38,6 +41,7 @@ class AppSettings {
     return AppSettings(
       theme: theme ?? this.theme,
       isOledBlack: isOledBlack ?? this.isOledBlack,
+      enableDynamicColors: enableDynamicColors ?? this.enableDynamicColors,
       defaultQuality: defaultQuality ?? this.defaultQuality,
       defaultAudio: defaultAudio ?? this.defaultAudio,
       librarySource: librarySource ?? this.librarySource,
@@ -55,6 +59,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   static const _kTheme = 'settings.theme';
   static const _kOled = 'settings.isOledBlack';
   static const _kQuality = 'settings.defaultQuality';
+  static const _kDynamicColors = 'settings.enableDynamicColors';
   static const _kAudio = 'settings.defaultAudio';
   static const _kLibrarySource = 'settings.librarySource';
   static const _kChooseEveryTime = 'settings.chooseStreamEveryTime';
@@ -64,6 +69,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     state = AppSettings(
       theme: prefs.getString(_kTheme) ?? 'Midnight',
       isOledBlack: prefs.getBool(_kOled) ?? true,
+      enableDynamicColors: prefs.getBool(_kDynamicColors) ?? true,
       defaultQuality: prefs.getString(_kQuality) ?? '720p',
       defaultAudio: prefs.getString(_kAudio) ?? 'Sub',
       librarySource: prefs.getString(_kLibrarySource) ?? 'AniList',
@@ -75,6 +81,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kTheme, state.theme);
     await prefs.setBool(_kOled, state.isOledBlack);
+    await prefs.setBool(_kDynamicColors, state.enableDynamicColors);
     await prefs.setString(_kQuality, state.defaultQuality);
     await prefs.setString(_kAudio, state.defaultAudio);
     await prefs.setString(_kLibrarySource, state.librarySource);
@@ -96,6 +103,11 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await _save();
   }
 
+  Future<void> setEnableDynamicColors(bool value) async {
+    state = state.copyWith(enableDynamicColors: value);
+    await _save();
+  }
+
   Future<void> setDefaultAudio(String value) async {
     state = state.copyWith(defaultAudio: value);
     await _save();
@@ -114,8 +126,9 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   // Legacy method names for compatibility.
   Future<void> setOled(bool value) => setOledBlack(value);
   Future<void> setPreferredQuality(String value) => setDefaultQuality(value);
-  Future<void> setPreferredAudio(String value) => setDefaultAudio(
-      value.isEmpty ? 'Sub' : '${value[0].toUpperCase()}${value.substring(1).toLowerCase()}');
+  Future<void> setPreferredAudio(String value) => setDefaultAudio(value.isEmpty
+      ? 'Sub'
+      : '${value[0].toUpperCase()}${value.substring(1).toLowerCase()}');
   Future<void> setCompactBar(bool value) async {}
   Future<void> setTouchOutline(bool value) async {}
   Future<void> setGlass(String value) async {}

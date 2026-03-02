@@ -19,10 +19,10 @@ class AniListUser {
         avatar:
             ((json['avatar'] as Map<String, dynamic>?)?['large'])?.toString(),
         bannerImage: json['bannerImage']?.toString(),
-        scoreFormat:
-            ((json['mediaListOptions'] as Map<String, dynamic>?)?['scoreFormat'])
-                    ?.toString() ??
-                'POINT_10_DECIMAL',
+        scoreFormat: ((json['mediaListOptions']
+                    as Map<String, dynamic>?)?['scoreFormat'])
+                ?.toString() ??
+            'POINT_10_DECIMAL',
       );
 }
 
@@ -100,6 +100,8 @@ class AniListMedia {
   final List<String> genres;
   final List<AniListStreamingEpisode> streamingEpisodes;
   final List<AniListRelation> relations;
+  final List<String> studios;
+  final List<AniListCharacterCredit> characters;
 
   AniListMedia({
     required this.id,
@@ -116,6 +118,8 @@ class AniListMedia {
     this.genres = const [],
     this.streamingEpisodes = const [],
     this.relations = const [],
+    this.studios = const [],
+    this.characters = const [],
   });
 
   factory AniListMedia.fromJson(Map<String, dynamic> json) => AniListMedia(
@@ -146,7 +150,58 @@ class AniListMedia {
             .whereType<Map<String, dynamic>>()
             .map(AniListRelation.fromJson)
             .toList(),
+        studios:
+            (((json['studios'] as Map<String, dynamic>?)?['nodes'] as List?) ??
+                    const [])
+                .whereType<Map<String, dynamic>>()
+                .map((e) => (e['name'] ?? '').toString())
+                .where((e) => e.isNotEmpty)
+                .toList(),
+        characters: (((json['characters'] as Map<String, dynamic>?)?['edges']
+                    as List?) ??
+                const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AniListCharacterCredit.fromJson)
+            .toList(),
       );
+}
+
+class AniListCharacterCredit {
+  const AniListCharacterCredit({
+    required this.characterName,
+    this.characterImage,
+    this.voiceActorName,
+    this.voiceActorImage,
+    this.voiceActorLanguage,
+  });
+
+  final String characterName;
+  final String? characterImage;
+  final String? voiceActorName;
+  final String? voiceActorImage;
+  final String? voiceActorLanguage;
+
+  factory AniListCharacterCredit.fromJson(Map<String, dynamic> json) {
+    final node = json['node'] as Map<String, dynamic>? ?? const {};
+    final va = ((json['voiceActors'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .cast<Map<String, dynamic>>()
+        .firstWhere(
+          (_) => true,
+          orElse: () => const {},
+        );
+    return AniListCharacterCredit(
+      characterName:
+          ((node['name'] as Map<String, dynamic>?)?['full'] ?? '').toString(),
+      characterImage:
+          ((node['image'] as Map<String, dynamic>?)?['large'])?.toString(),
+      voiceActorName:
+          ((va['name'] as Map<String, dynamic>?)?['full'])?.toString(),
+      voiceActorImage:
+          ((va['image'] as Map<String, dynamic>?)?['large'])?.toString(),
+      voiceActorLanguage: va['languageV2']?.toString(),
+    );
+  }
 }
 
 class AniListRelation {

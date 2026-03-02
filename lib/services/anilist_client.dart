@@ -1216,6 +1216,24 @@ class AniListClient {
             url
             site
           }
+          studios {
+            nodes {
+              name
+            }
+          }
+          characters(page: 1, perPage: 12, sort: [ROLE, RELEVANCE]) {
+            edges {
+              node {
+                name { full }
+                image { large }
+              }
+              voiceActors(language: JAPANESE, sort: [RELEVANCE, ID]) {
+                name { full }
+                image { large }
+                languageV2
+              }
+            }
+          }
           relations {
             edges {
               relationType

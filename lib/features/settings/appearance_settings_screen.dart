@@ -86,6 +86,14 @@ class AppearanceSettingsScreen extends ConsumerWidget {
                       value: settings.isOledBlack,
                       onChanged: controller.setOledBlack,
                     ),
+                    SwitchListTile(
+                      title: const Text('Enable Dynamic Colors'),
+                      subtitle: const Text(
+                        'Use banner colors to tint page backgrounds.',
+                      ),
+                      value: settings.enableDynamicColors,
+                      onChanged: controller.setEnableDynamicColors,
+                    ),
                   ],
                 ),
               ),
