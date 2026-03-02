@@ -188,6 +188,7 @@ Future<void> main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
   AppLogger.installGlobalHandlers();
+  AppLogger.startUiFreezeWatchdog();
   AppLogger.i('App', 'Boot start');
   MediaKit.ensureInitialized();
   await Hive.initFlutter();
@@ -199,10 +200,9 @@ Future<void> main() async {
   await _openHiveBoxSafe('local_library');
   await _openHiveBoxSafe('watch_history');
   await _openHiveBoxSafe('anilist_media_cache', critical: false);
-  // Optional query cache: proactively reset each launch to avoid stale unknown
-  // typeIds from previous schema builds crashing boot.
+  // Optional query cache: do not open on boot. It is opened lazily when safe.
+  // This prevents stale unknown typeIds in cache from surfacing during startup.
   await _resetHiveBoxSafe('anilist_query_cache');
-  await _openHiveBoxSafe('anilist_query_cache', critical: false);
   final liquidGlassEnabled = await _runShaderWarmup();
   runApp(
     ProviderScope(

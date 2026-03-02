@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Lightweight app logger with levels and tags.
@@ -15,6 +16,9 @@ class AppLogger {
   static IOSink? _sessionSink;
   static Future<void> _fileQueue = Future<void>.value();
   static String? _sessionLogPath;
+  static Timer? _uiWatchdogTimer;
+  static DateTime? _uiLastTick;
+  static bool _frameTimingsHooked = false;
 
   static void d(String tag, String message,
       {Object? error, StackTrace? stackTrace}) {
@@ -127,6 +131,43 @@ class AppLogger {
       await sink.flush();
       await sink.close();
     } catch (_) {}
+  }
+
+  /// Temporary freeze diagnostics: detects main-isolate stalls + slow frames.
+  static void startUiFreezeWatchdog() {
+    if (_uiWatchdogTimer != null) return;
+    _uiLastTick = DateTime.now();
+    _uiWatchdogTimer =
+        Timer.periodic(const Duration(milliseconds: 500), (_) {
+      final now = DateTime.now();
+      final last = _uiLastTick ?? now;
+      final gap = now.difference(last);
+      _uiLastTick = now;
+      if (gap > const Duration(seconds: 2)) {
+        w(
+          'UIWatchdog',
+          'Main isolate stall detected (${gap.inMilliseconds}ms gap)',
+        );
+      }
+    });
+
+    if (!_frameTimingsHooked) {
+      _frameTimingsHooked = true;
+      SchedulerBinding.instance.addTimingsCallback((timings) {
+        for (final t in timings) {
+          final totalMs = t.totalSpan.inMilliseconds;
+          if (totalMs < 250) continue;
+          w(
+            'UIWatchdog',
+            'Slow frame ${totalMs}ms '
+                '(build=${t.buildDuration.inMilliseconds}ms '
+                'raster=${t.rasterDuration.inMilliseconds}ms)',
+          );
+        }
+      });
+    }
+
+    i('UIWatchdog', 'Freeze watchdog enabled');
   }
 
   /// Hook global handlers early in app startup.
