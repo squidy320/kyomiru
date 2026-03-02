@@ -424,15 +424,19 @@ class _TopPillNav extends StatelessWidget {
       ('Library', 0),
     ];
 
-    final isIosTablet =
-        Platform.isIOS && MediaQuery.sizeOf(context).shortestSide >= 600;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final navBody = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.46),
+        color: isDark
+            ? Colors.black.withValues(alpha: 0.40)
+            : Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.20),
+          width: 0.5,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -466,17 +470,10 @@ class _TopPillNav extends StatelessWidget {
       ),
     );
 
-    if (isIosTablet) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: navBody,
-      );
-    }
-
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: navBody,
       ),
     );

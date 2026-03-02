@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -47,23 +49,29 @@ class _GlassContainerState extends ConsumerState<GlassContainer> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
-    final brightness = Theme.of(context).brightness;
-    final solid = DecoratedBox(
-      decoration: BoxDecoration(
-        color: settings.oled
-            ? const Color(0xFF000000)
-            : (brightness == Brightness.dark
-                ? const Color(0xFA1E1E1E)
-                : const Color(0xFA222222)),
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.10),
-          width: 1,
+    final tintColor =
+        settings.oled ? Colors.black.withValues(alpha: 0.40) : Colors.white.withValues(alpha: 0.05);
+    final glass = ClipRRect(
+      borderRadius: BorderRadius.circular(widget.borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: widget.blur ?? 12,
+          sigmaY: widget.blur ?? 12,
         ),
-      ),
-      child: Padding(
-        padding: widget.padding,
-        child: widget.child,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: tintColor,
+            borderRadius: BorderRadius.circular(widget.borderRadius),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.20),
+              width: 0.5,
+            ),
+          ),
+          child: Padding(
+            padding: widget.padding,
+            child: widget.child,
+          ),
+        ),
       ),
     );
 
@@ -77,7 +85,7 @@ class _GlassContainerState extends ConsumerState<GlassContainer> {
         duration: widget.duration,
         curve: Curves.easeOutCubic,
         scale: 0.985 + (_visible * 0.015),
-          child: solid,
+          child: glass,
         ),
       ),
     );

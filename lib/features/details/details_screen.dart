@@ -43,7 +43,6 @@ class DetailsScreen extends ConsumerStatefulWidget {
 }
 
 class _DetailsScreenState extends ConsumerState<DetailsScreen> {
-  int _tab = 0;
   SoraAnimeMatch? _manualMatch;
   int? _prefetchedForMediaId;
   bool _isBulkDownloading = false;
@@ -55,6 +54,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   String? _sourceLoadError;
   SoraEpisode? _lastFailedEpisode;
   late Future<AniListMedia> _mediaDetailsFuture;
+  Future<EpisodeLoadResult>? _episodeFuture;
+  EpisodeQuery? _episodeFutureQuery;
   int _visibleEpisodeCount = 24;
   bool _detailsBuildLogged = false;
   bool _detailsFirstFrameLogged = false;
@@ -66,6 +67,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     setState(() {
       _manualMatch = manual ?? _manualMatch;
       _visibleEpisodeCount = 24;
+      _episodeFuture = null;
+      _episodeFutureQuery = null;
       if (_manualMatch != null) {
         _persistManualMatch(media.id, _manualMatch!);
       }
@@ -113,7 +116,32 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     setState(() {
       _mediaDetailsFuture = _loadMediaDetails();
       _visibleEpisodeCount = 24;
+      _episodeFuture = null;
+      _episodeFutureQuery = null;
     });
+  }
+
+  void _ensureEpisodeFuture(EpisodeQuery query) {
+    if (_episodeFuture != null && _episodeFutureQuery == query) return;
+    _episodeFutureQuery = query;
+    _episodeFuture = ref
+        .read(episodeProvider(query).future)
+        .timeout(const Duration(seconds: 25));
+  }
+
+  void _retryEpisodes(EpisodeQuery query) {
+    ref.invalidate(episodeProvider(query));
+    setState(() {
+      _episodeFutureQuery = null;
+      _episodeFuture = null;
+      _visibleEpisodeCount = 24;
+    });
+    _ensureEpisodeFuture(query);
+  }
+
+  Future<EpisodeLoadResult> _episodeFutureFor(EpisodeQuery query) {
+    _ensureEpisodeFuture(query);
+    return _episodeFuture!;
   }
 
   SoraAnimeMatch? _readSavedMatch(int mediaId) {
@@ -956,28 +984,37 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               body: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
                 children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _TabPill(
-                          label: 'Watch',
-                          selected: _tab == 0,
-                          onTap: () => setState(() => _tab = 0)),
-                      _TabPill(
-                          label: 'AniList',
-                          selected: _tab == 1,
-                          onTap: () => setState(() => _tab = 1)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (_tab == 0)
-                    FutureBuilder<EpisodeLoadResult>(
-                      future: ref.watch(episodeProvider(episodeQuery).future),
+                  const SizedBox(height: 8),
+                  FutureBuilder<EpisodeLoadResult>(
+                      future: _episodeFutureFor(episodeQuery),
                       builder: (context, paheSnap) {
                         if (paheSnap.connectionState ==
                             ConnectionState.waiting) {
                           return const _EpisodeListLoadingSkeleton();
+                        }
+
+                        if (paheSnap.hasError) {
+                          return GlassCard(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.error_outline_rounded,
+                                    color: Colors.orangeAccent),
+                                const SizedBox(width: 10),
+                                const Expanded(
+                                  child: Text(
+                                    'Episode loading timed out. Please retry.',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton.tonal(
+                                  onPressed: () => _retryEpisodes(episodeQuery),
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          );
                         }
 
                         final data = paheSnap.data;
@@ -1338,7 +1375,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         );
                       },
                     ),
-                  if (_tab == 1)
+                  if (media.id == -1)
                     Column(
                       children: [
                         _TrackingPane(token: auth.token, media: media),
@@ -2097,36 +2134,6 @@ class _BadlandsHero extends StatelessWidget {
   }
 }
 
-class _TabPill extends StatelessWidget {
-  const _TabPill(
-      {required this.label, required this.selected, required this.onTap});
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        hapticTap();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF8B5CF6) : const Color(0x66141B2E),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0x33FFFFFF)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: selected ? Colors.white : null)),
-      ),
-    );
-  }
-}
-
 class ProgressRing extends StatelessWidget {
   const ProgressRing({super.key, required this.percent, this.size = 56});
 
@@ -2397,11 +2404,11 @@ class _EpisodeRowThumb extends ConsumerWidget {
     if (localFile != null) {
       base = Image.file(
         localFile,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => fallback.isNotEmpty
             ? KyomiruImageCache.image(
                 fallback,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 error: const ColoredBox(color: Color(0x22111111)),
               )
             : const ColoredBox(color: Color(0x22111111)),
@@ -2409,11 +2416,11 @@ class _EpisodeRowThumb extends ConsumerWidget {
     } else if (network.isNotEmpty) {
       base = KyomiruImageCache.image(
         network,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         error: fallback.isNotEmpty
             ? KyomiruImageCache.image(
                 fallback,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 error: const ColoredBox(color: Color(0x22111111)),
               )
             : const ColoredBox(color: Color(0x22111111)),
@@ -2421,7 +2428,7 @@ class _EpisodeRowThumb extends ConsumerWidget {
     } else if (fallback.isNotEmpty) {
       base = KyomiruImageCache.image(
         fallback,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         error: const ColoredBox(color: Color(0x22111111)),
       );
     } else {
