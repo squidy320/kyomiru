@@ -87,6 +87,8 @@ class AniListClient {
       _episodeAvailabilityCache = {};
   final Map<String, _CacheEntry<List<AniListNotificationItem>>>
       _notificationsCache = {};
+  final Map<String, _CacheEntry<AniListTrackingEntry?>> _trackingEntryCache =
+      {};
 
   _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
   _CacheEntry<List<AniListDiscoverySection>>? _discoverySectionsCache;
@@ -224,6 +226,15 @@ class AniListClient {
     _mediaDetailsMemoryCache[mediaId] =
         _CacheEntry<AniListMedia>(media, DateTime.now().add(_mediaTtl));
     return media;
+  }
+
+  bool _looksDetailedMedia(AniListMedia media) {
+    final desc = (media.description ?? '').trim();
+    return desc.isNotEmpty ||
+        media.streamingEpisodes.isNotEmpty ||
+        media.relations.isNotEmpty ||
+        media.studios.isNotEmpty ||
+        media.characters.isNotEmpty;
   }
 
   void _refreshInBackground(String key, Future<void> Function() task) {
@@ -1240,7 +1251,7 @@ class AniListClient {
 
   Future<AniListMedia> mediaDetails(int mediaId) async {
     final cached = _readMediaFromCache(mediaId);
-    if (cached != null) return cached;
+    if (cached != null && _looksDetailedMedia(cached)) return cached;
     const q = r'''
       query ($id: Int) {
         Media(id: $id, type: ANIME) {
@@ -1301,11 +1312,19 @@ class AniListClient {
         }
       }
     ''';
-    final data = await _graphql(query: q, variables: {'id': mediaId});
-    final media = data['Media'] as Map<String, dynamic>?;
-    if (media == null) throw Exception('Anime not found.');
-    _cacheMediaMap(media);
-    return AniListMedia.fromJson(media);
+    try {
+      final data = await _graphql(query: q, variables: {'id': mediaId});
+      final media = data['Media'] as Map<String, dynamic>?;
+      if (media == null) {
+        if (cached != null) return cached;
+        throw Exception('Anime not found.');
+      }
+      _cacheMediaMap(media);
+      return AniListMedia.fromJson(media);
+    } catch (_) {
+      if (cached != null) return cached;
+      rethrow;
+    }
   }
 
   Future<List<AniListNotificationItem>> notifications(String token) async {
@@ -1463,6 +1482,9 @@ class AniListClient {
     String token,
     int mediaId,
   ) async {
+    final key = '$token:$mediaId';
+    final cached = _trackingEntryCache[key];
+    if (cached != null && cached.isValid) return cached.value;
     const q = r'''
       query ($mediaId: Int) {
         MediaList(mediaId: $mediaId, type: ANIME) {
@@ -1473,14 +1495,23 @@ class AniListClient {
         }
       }
     ''';
-    final data = await _graphql(
-      query: q,
-      token: token,
-      variables: {'mediaId': mediaId},
-    );
-    final raw = data['MediaList'];
-    if (raw is! Map<String, dynamic>) return null;
-    return AniListTrackingEntry.fromJson(raw);
+    try {
+      final data = await _graphql(
+        query: q,
+        token: token,
+        variables: {'mediaId': mediaId},
+      );
+      final raw = data['MediaList'];
+      final entry = raw is! Map<String, dynamic>
+          ? null
+          : AniListTrackingEntry.fromJson(raw);
+      _trackingEntryCache[key] =
+          _CacheEntry<AniListTrackingEntry?>(entry, DateTime.now().add(_staleTtl));
+      return entry;
+    } catch (_) {
+      if (cached != null) return cached.value;
+      return null;
+    }
   }
 
   Future<AniListTrackingEntry> saveTrackingEntry({
@@ -1523,6 +1554,8 @@ class AniListClient {
     final saved = AniListTrackingEntry.fromJson(
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
     );
+    _trackingEntryCache['$token:$mediaId'] =
+        _CacheEntry<AniListTrackingEntry?>(saved, DateTime.now().add(_staleTtl));
     _patchTrackingCaches(
       token: token,
       mediaId: mediaId,
@@ -1552,6 +1585,8 @@ class AniListClient {
     );
     final deleted = data['DeleteMediaListEntry']?['deleted'] == true;
     if (deleted) {
+      _trackingEntryCache['$token:$mediaId'] =
+          _CacheEntry<AniListTrackingEntry?>(null, DateTime.now().add(_staleTtl));
       _pruneFromLibraryCaches(token, mediaId);
     }
     return deleted;

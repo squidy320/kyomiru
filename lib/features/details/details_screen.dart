@@ -2155,10 +2155,15 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final meAsync = ref.watch(currentUserProvider);
     final scoreFormatAsync = ref.watch(trackingScoreFormatProvider);
     final fetchedEntryAsync = ref.watch(mediaListProvider(widget.media.id));
+    final optimisticEntry =
+        ref.watch(mediaListEntryControllerProvider(widget.media.id));
     final fetchedEntry = fetchedEntryAsync.valueOrNull;
-    _hydrateInitial(fetchedEntry);
+    _hydrateInitial(fetchedEntry ?? optimisticEntry);
 
-    if (!_loadedInitial && fetchedEntry == null && fetchedEntryAsync.hasValue) {
+    if (!_loadedInitial &&
+        fetchedEntry == null &&
+        optimisticEntry == null &&
+        fetchedEntryAsync.hasValue) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _loadedInitial) return;
         setState(() {
@@ -2167,6 +2172,19 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
           _progress = 0;
           _loadedInitial = true;
           _lastHydratedEntryId = null;
+        });
+      });
+    }
+
+    if (fetchedEntryAsync.hasError && !_loadedInitial && optimisticEntry != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _loadedInitial) return;
+        setState(() {
+          _status = optimisticEntry.status;
+          _score = optimisticEntry.score;
+          _progress = optimisticEntry.progress;
+          _loadedInitial = true;
+          _lastHydratedEntryId = optimisticEntry.id;
         });
       });
     }
