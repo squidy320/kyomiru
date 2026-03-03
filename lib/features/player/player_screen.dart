@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:chewie/chewie.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -13,7 +11,6 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
-import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/app_logger.dart';
@@ -92,8 +89,6 @@ class _PlayerCandidate {
 class _PlayerScreenState extends ConsumerState<PlayerScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   late final ProgressStore _progressStore;
-  VideoPlayerController? _videoController;
-  ChewieController? _chewieController;
   Player? _mediaKitPlayer;
   VideoController? _mediaKitVideoController;
   final SimplePip _simplePip = SimplePip();
@@ -130,7 +125,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _selectedPlaybackSpeed = 1.0;
   bool _isMediaKitPlaying = false;
   late final AnimationController _skipAnimationController;
-  HttpServer? _hlsProxyServer;
   final BaseCacheManager _playbackCache = DefaultCacheManager();
   final Dio _hlsProbeDio = Dio(
     BaseOptions(
@@ -163,8 +157,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_chewieController == null && _mediaKitPlayer == null) return;
-    final playing = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
+    if (_mediaKitPlayer == null) return;
+    final playing = _isMediaKitPlaying;
 
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
@@ -247,81 +241,122 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _disposeControllers() async {
-    final oldChewie = _chewieController;
-    final oldVideo = _videoController;
     final oldMediaKitPlayer = _mediaKitPlayer;
-    _chewieController = null;
-    _videoController = null;
     _mediaKitPlayer = null;
     _mediaKitVideoController = null;
-    await oldChewie?.pause();
-    oldChewie?.dispose();
-    await oldVideo?.dispose();
+    await oldMediaKitPlayer?.pause();
     oldMediaKitPlayer?.dispose();
   }
 
-  Future<VideoPlayerController?> _createNetworkController(
-      _PlayerCandidate c) async {
-    final lower = c.url.toLowerCase();
-    final isHls = lower.contains('.m3u8');
-    final maxAttempts = isHls ? 2 : 3;
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        if (mounted) {
-          setState(() {
-            _initStatusMessage = isHls
-                ? 'Establishing Secure Connection...'
-                : 'Initializing player...';
-          });
-        }
-        final playbackUrl =
-            isHls ? await _startHlsProxy(c.url, c.headers) : c.url;
-        final uri = Uri.parse(playbackUrl);
-        final controller = VideoPlayerController.networkUrl(
-          uri,
-          formatHint: isHls ? VideoFormat.hls : null,
-          httpHeaders: c.headers,
-          videoPlayerOptions: VideoPlayerOptions(
-            mixWithOthers: false,
-            allowBackgroundPlayback: true,
-          ),
-        );
-        if (isHls) {
-          final warmupCancel = CancelToken();
-          try {
-            await Future.wait([
-              _prewarmHls(c.url, c.headers, cancelToken: warmupCancel),
-              controller.initialize(),
-            ]).timeout(const Duration(seconds: 7));
-          } on TimeoutException {
-            warmupCancel.cancel('hls init timeout');
-            await controller.dispose();
-            await _stopHlsProxy();
-            if (attempt == maxAttempts - 1) {
-              return null;
-            }
-            await Future<void>.delayed(const Duration(seconds: 1));
-            continue;
-          }
-        } else {
-          await controller.initialize().timeout(const Duration(seconds: 7));
-        }
-        _isHlsPlayback = isHls;
-        return controller;
-      } catch (e, st) {
-        AppLogger.w(
-          'Player',
-          'Init attempt ${attempt + 1} failed for ${c.url}',
-          error: e,
-          stackTrace: st,
-        );
-        if (attempt == maxAttempts - 1) {
-          return null;
-        }
-        await Future<void>.delayed(const Duration(seconds: 1));
+  Future<bool> _bindMediaKitController(
+    _PlayerCandidate candidate, {
+    required bool isLocal,
+  }) async {
+    try {
+      await _disposeControllers();
+      final lower = candidate.url.toLowerCase();
+      final isHls = lower.contains('.m3u8');
+      final isTs = lower.endsWith('.ts');
+      final player = Player(
+        configuration: PlayerConfiguration(
+          logLevel: MPVLogLevel.warn,
+          bufferSize: isHls ? 96 * 1024 * 1024 : 48 * 1024 * 1024,
+          pitch: true,
+        ),
+      );
+      final controller = VideoController(player);
+      _mediaKitPlayer = player;
+      _mediaKitVideoController = controller;
+      _isHlsPlayback = isHls;
+      _isMediaKitPlaying = false;
+
+      if (mounted) {
+        setState(() {
+          _initStatusMessage =
+              isHls ? 'Establishing Secure Connection...' : 'Initializing player...';
+        });
       }
+
+      final mediaUrl = isLocal
+          ? Uri.file(candidate.url).toString()
+          : _sanitizeUrl(candidate.url);
+
+      if (isHls && !isLocal) {
+        final warmupCancel = CancelToken();
+        try {
+          await _prewarmHls(
+            candidate.url,
+            candidate.headers,
+            cancelToken: warmupCancel,
+          ).timeout(const Duration(seconds: 7));
+        } on TimeoutException {
+          warmupCancel.cancel('hls prewarm timeout');
+        }
+      }
+
+      await _tuneMpvRuntime(player, isHls: isHls);
+
+      await player.open(
+        Media(mediaUrl, httpHeaders: isLocal ? const {} : candidate.headers),
+        play: false,
+      );
+
+      if (isTs) {
+        if (mounted) {
+          setState(
+              () => _initStatusMessage = 'Scanning local stream metadata...');
+        }
+        await _primeMediaKitTsMetadata(player);
+      }
+
+      final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
+      var initialPositionMs = widget.resumePositionMs ?? saved?.positionMs ?? 0;
+      if (saved != null && saved.positionMs > initialPositionMs) {
+        initialPositionMs = saved.positionMs;
+      }
+      if (initialPositionMs <= 0 && widget.isLocal) {
+        final downloadItem = ref
+            .read(downloadControllerProvider)
+            .item(widget.mediaId, widget.episodeNumber);
+        initialPositionMs = downloadItem?.lastPositionMs ?? 0;
+      }
+      if (initialPositionMs > 0) {
+        await player.seek(Duration(milliseconds: initialPositionMs));
+      }
+
+      await player.setRate(_selectedPlaybackSpeed);
+      await player.play();
+      _isMediaKitPlaying = true;
+      _persistTimer?.cancel();
+      _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        unawaited(_persistProgress());
+      });
+      _startUiPoll();
+      _scheduleOverlayAutoHide();
+      return true;
+    } catch (e, st) {
+      AppLogger.w('Player', 'MediaKit init failed for ${candidate.url}',
+          error: e, stackTrace: st);
+      return false;
     }
-    return null;
+  }
+
+  Future<void> _tuneMpvRuntime(Player player, {required bool isHls}) async {
+    try {
+      final native = player.platform as dynamic;
+      Future<void> setProp(String key, String value) async {
+        try {
+          await native.setProperty(key, value);
+        } catch (_) {}
+      }
+
+      await setProp('cache', 'yes');
+      await setProp('network-timeout', '45');
+      await setProp('demuxer-max-back-bytes', '67108864'); // 64 MB
+      await setProp('demuxer-max-bytes', isHls ? '100663296' : '50331648');
+      await setProp('demuxer-readahead-secs', isHls ? '35' : '12');
+      await setProp('cache-secs', isHls ? '40' : '12');
+    } catch (_) {}
   }
 
   Future<void> _prewarmHls(
@@ -355,163 +390,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  Future<String> _startHlsProxy(
-      String sourceUrl, Map<String, String> headers) async {
-    await _stopHlsProxy();
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _hlsProxyServer = server;
-    server.listen((request) async {
-      final targetEncoded = request.uri.queryParameters['u'];
-      if (targetEncoded == null || targetEncoded.isEmpty) {
-        request.response.statusCode = 400;
-        await request.response.close();
-        return;
-      }
-      final target = Uri.decodeComponent(targetEncoded);
-      try {
-        final response = await _hlsProbeDio.getUri(
-          Uri.parse(target),
-          options: Options(
-            headers: headers,
-            responseType: ResponseType.bytes,
-            validateStatus: (_) => true,
-          ),
-        );
-        final ct = response.headers.value('content-type') ?? '';
-        request.response.statusCode = response.statusCode ?? 200;
-
-        final isPlaylist =
-            ct.contains('mpegurl') || target.toLowerCase().contains('.m3u8');
-        if (isPlaylist) {
-          request.response.headers.contentType =
-              ContentType.parse('application/vnd.apple.mpegurl');
-          final raw = utf8.decode((response.data as List).cast<int>());
-          final baseUri = Uri.parse(target);
-          final rewritten = raw.split('\n').map((line) {
-            final t = line.trim();
-            if (t.isEmpty || t.startsWith('#')) return line;
-            final abs = baseUri.resolve(t).toString();
-            return '/hls?u=${Uri.encodeComponent(abs)}';
-          }).join('\n');
-          request.response.write(rewritten);
-        } else {
-          if (ct.isNotEmpty) {
-            request.response.headers.add('content-type', ct);
-          }
-          request.response.add((response.data as List).cast<int>());
-        }
-      } catch (_) {
-        request.response.statusCode = 502;
-      } finally {
-        await request.response.close();
-      }
-    });
-    return 'http://${server.address.host}:${server.port}/hls?u=${Uri.encodeComponent(sourceUrl)}';
-  }
-
-  Future<void> _stopHlsProxy() async {
-    final server = _hlsProxyServer;
-    _hlsProxyServer = null;
-    if (server != null) {
-      await server.close(force: true);
-    }
-  }
-
-  Future<VideoPlayerController?> _createLocalController(String rawUrl) async {
-    try {
-      final uri = Uri.tryParse(rawUrl);
-      final file = (uri != null && uri.isScheme('file'))
-          ? File.fromUri(uri)
-          : File(rawUrl);
-      final isHlsLocal = file.path.toLowerCase().endsWith('.m3u8');
-      final isTsLocal = file.path.toLowerCase().endsWith('.ts');
-      final controller = isHlsLocal
-          ? VideoPlayerController.networkUrl(
-              Uri.parse(await _startLocalHlsProxy(file)),
-              formatHint: VideoFormat.hls,
-              videoPlayerOptions: VideoPlayerOptions(
-                mixWithOthers: false,
-                allowBackgroundPlayback: true,
-              ),
-            )
-          : VideoPlayerController.file(file);
-      await controller.initialize().timeout(const Duration(seconds: 6));
-      if (isTsLocal) {
-        if (mounted) {
-          setState(
-              () => _initStatusMessage = 'Scanning local stream metadata...');
-        }
-        await _primeTsMetadata(controller);
-      }
-      _isHlsPlayback = isHlsLocal;
-      return controller;
-    } catch (e, st) {
-      AppLogger.w('Player', 'Local source init failed for $rawUrl',
-          error: e, stackTrace: st);
-      return null;
-    }
-  }
-
-  Future<bool> _bindMediaKitTsController(String rawUrl) async {
-    try {
-      final uri = Uri.tryParse(rawUrl);
-      final file = (uri != null && uri.isScheme('file'))
-          ? File.fromUri(uri)
-          : File(rawUrl);
-      if (!file.path.toLowerCase().endsWith('.ts')) return false;
-      if (!await file.exists()) return false;
-
-      await _disposeControllers();
-      final player = Player();
-      final controller = VideoController(player);
-      _mediaKitPlayer = player;
-      _mediaKitVideoController = controller;
-      _isHlsPlayback = false;
-      _isMediaKitPlaying = false;
-
-      if (mounted) {
-        setState(
-            () => _initStatusMessage = 'Scanning local stream metadata...');
-      }
-
-      await player.open(
-        Media(Uri.file(file.path).toString()),
-        play: false,
-      );
-      await _primeMediaKitTsMetadata(player);
-
-      final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-      var initialPositionMs = widget.resumePositionMs ?? saved?.positionMs ?? 0;
-      if (saved != null && saved.positionMs > initialPositionMs) {
-        initialPositionMs = saved.positionMs;
-      }
-      if (initialPositionMs <= 0 && widget.isLocal) {
-        final downloadItem = ref
-            .read(downloadControllerProvider)
-            .item(widget.mediaId, widget.episodeNumber);
-        initialPositionMs = downloadItem?.lastPositionMs ?? 0;
-      }
-      if (initialPositionMs > 0) {
-        await player.seek(Duration(milliseconds: initialPositionMs));
-      }
-
-      await player.setRate(_selectedPlaybackSpeed);
-      await player.play();
-      _isMediaKitPlaying = true;
-      _persistTimer?.cancel();
-      _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-        unawaited(_persistProgress());
-      });
-      _startUiPoll();
-      _scheduleOverlayAutoHide();
-      return true;
-    } catch (e, st) {
-      AppLogger.w('Player', 'MediaKit .ts init failed for $rawUrl',
-          error: e, stackTrace: st);
-      return false;
-    }
-  }
-
   Future<void> _primeMediaKitTsMetadata(Player player) async {
     try {
       if (player.state.duration.inMilliseconds > 0) return;
@@ -526,78 +404,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       await player.setVolume(100);
     } catch (_) {}
-  }
-
-  Future<void> _primeTsMetadata(VideoPlayerController controller) async {
-    try {
-      if (!controller.value.isInitialized) return;
-      if (controller.value.duration.inMilliseconds > 0) return;
-      final wasPlaying = controller.value.isPlaying;
-      await controller.setVolume(0);
-      await controller.play();
-      await Future<void>.delayed(const Duration(milliseconds: 900));
-      await controller.pause();
-      await controller.seekTo(Duration.zero);
-      for (var i = 0; i < 6; i++) {
-        if (controller.value.duration.inMilliseconds > 0) break;
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-      }
-      if (wasPlaying) {
-        await controller.play();
-      }
-    } catch (_) {}
-  }
-
-  Future<String> _startLocalHlsProxy(File manifest) async {
-    await _stopHlsProxy();
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _hlsProxyServer = server;
-    server.listen((request) async {
-      final targetEncoded = request.uri.queryParameters['f'];
-      if (targetEncoded == null || targetEncoded.isEmpty) {
-        request.response.statusCode = 400;
-        await request.response.close();
-        return;
-      }
-
-      final targetPath = Uri.decodeComponent(targetEncoded);
-      final targetFile = File(targetPath);
-      if (!await targetFile.exists()) {
-        request.response.statusCode = 404;
-        await request.response.close();
-        return;
-      }
-
-      final lower = targetFile.path.toLowerCase();
-      try {
-        if (lower.endsWith('.m3u8')) {
-          request.response.headers.contentType =
-              ContentType.parse('application/vnd.apple.mpegurl');
-          final raw = await targetFile.readAsString();
-          final baseUri = Uri.file(targetFile.path);
-          final rewritten = raw.split('\n').map((line) {
-            final t = line.trim();
-            if (t.isEmpty || t.startsWith('#')) return line;
-            if (t.startsWith('http://') || t.startsWith('https://')) {
-              return line;
-            }
-            final absPath = baseUri.resolve(t).toFilePath();
-            return '/lhls?f=${Uri.encodeComponent(absPath)}';
-          }).join('\n');
-          request.response.write(rewritten);
-        } else {
-          if (lower.endsWith('.ts')) {
-            request.response.headers.add('content-type', 'video/mp2t');
-          }
-          request.response.add(await targetFile.readAsBytes());
-        }
-      } catch (_) {
-        request.response.statusCode = 502;
-      } finally {
-        await request.response.close();
-      }
-    });
-    return 'http://${server.address.host}:${server.port}/lhls?f=${Uri.encodeComponent(manifest.path)}';
   }
 
   Future<void> _fetchAniSkipData() async {
@@ -617,33 +423,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void _startUiPoll() {
     _uiPollTimer?.cancel();
     _uiPollTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      final c = _videoController;
       final mk = _mediaKitPlayer;
-      if (!mounted || (c == null && mk == null)) return;
-      if (c != null) {
-        final v = c.value;
-        if (!v.isInitialized) return;
-        _isMediaKitPlaying = v.isPlaying;
-        setState(() {
-          _durationSec = v.duration.inMilliseconds <= 0
-              ? 0
-              : v.duration.inMilliseconds / 1000.0;
-          _currentSec = v.position.inMilliseconds <= 0
-              ? 0
-              : v.position.inMilliseconds / 1000.0;
-        });
-      } else if (mk != null) {
-        final state = mk.state;
-        _isMediaKitPlaying = state.playing;
-        setState(() {
-          _durationSec = state.duration.inMilliseconds <= 0
-              ? 0
-              : state.duration.inMilliseconds / 1000.0;
-          _currentSec = state.position.inMilliseconds <= 0
-              ? 0
-              : state.position.inMilliseconds / 1000.0;
-        });
-      }
+      if (!mounted || mk == null) return;
+      final state = mk.state;
+      _isMediaKitPlaying = state.playing;
+      setState(() {
+        _durationSec = state.duration.inMilliseconds <= 0
+            ? 0
+            : state.duration.inMilliseconds / 1000.0;
+        _currentSec = state.position.inMilliseconds <= 0
+            ? 0
+            : state.position.inMilliseconds / 1000.0;
+      });
       if (!_didEpisodeEndCleanup &&
           _durationSec > 0 &&
           (_currentSec / _durationSec) >= 0.99) {
@@ -895,7 +686,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _overlayHideTimer?.cancel();
     _overlayHideTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
-      final isPlaying = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
+      final isPlaying = _isMediaKitPlaying;
       if (isPlaying) {
         setState(() => _overlayVisible = false);
       }
@@ -916,84 +707,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
     _registerInteraction();
-  }
-
-  Future<void> _bindController(VideoPlayerController controller) async {
-    await _disposeControllers();
-
-    final chewie = ChewieController(
-      videoPlayerController: controller,
-      autoInitialize: false,
-      autoPlay: false,
-      showControls: false,
-      allowFullScreen: true,
-      allowMuting: true,
-      allowedScreenSleep: false,
-      errorBuilder: (context, errorMessage) => Center(
-        child: Text(
-          errorMessage,
-          style: const TextStyle(color: Colors.white70),
-          textAlign: TextAlign.center,
-        ),
-      ),
-    );
-
-    final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-    var initialPositionMs = widget.resumePositionMs ?? saved?.positionMs ?? 0;
-    if (saved != null && saved.positionMs > initialPositionMs) {
-      initialPositionMs = saved.positionMs;
-    }
-    if (initialPositionMs <= 0 && widget.isLocal) {
-      final downloadItem = ref
-          .read(downloadControllerProvider)
-          .item(widget.mediaId, widget.episodeNumber);
-      initialPositionMs = downloadItem?.lastPositionMs ?? 0;
-    }
-    if (initialPositionMs > 0) {
-      final seek = Duration(milliseconds: initialPositionMs);
-      if (seek < controller.value.duration) {
-        await controller.seekTo(seek);
-      }
-    }
-
-    _videoController = controller;
-    _chewieController = chewie;
-
-    await controller.play();
-    await _setPlaybackSpeed(_selectedPlaybackSpeed);
-    if (_isHlsPlayback) {
-      unawaited(_ensureInitialBufferAhead());
-    }
-
-    _persistTimer?.cancel();
-    _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      unawaited(_persistProgress());
-    });
-
-    _startUiPoll();
-    _scheduleOverlayAutoHide();
-  }
-
-  Future<void> _ensureInitialBufferAhead() async {
-    final c = _videoController;
-    if (c == null || !_isHlsPlayback) return;
-    final deadline = DateTime.now().add(const Duration(seconds: 8));
-    while (mounted && DateTime.now().isBefore(deadline)) {
-      final v = c.value;
-      if (!v.isInitialized) break;
-      final pos = v.position;
-      var bufferedAhead = Duration.zero;
-      for (final r in v.buffered) {
-        if (r.end <= pos) continue;
-        final start = r.start > pos ? r.start : pos;
-        final span = r.end - start;
-        if (span > bufferedAhead) bufferedAhead = span;
-      }
-      if (bufferedAhead >= const Duration(seconds: 30)) {
-        break;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    }
   }
 
   Future<void> _clearTemporaryHlsCache() async {
@@ -1036,7 +749,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     localFile ??= await downloader.getLocalEpisodeByMedia(
         widget.mediaId, widget.episodeNumber);
     if (localFile != null) {
-      final boundMediaKit = await _bindMediaKitTsController(localFile.path);
+      final localCandidate = _PlayerCandidate(url: localFile.path, headers: const {});
+      final boundMediaKit =
+          await _bindMediaKitController(localCandidate, isLocal: true);
       if (boundMediaKit) {
         if (!mounted) return;
         setState(() {
@@ -1045,16 +760,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         });
         return;
       }
-      final localController = await _createLocalController(localFile.path);
-      if (localController != null) {
-        await _bindController(localController);
-        if (!mounted) return;
-        setState(() {
-          _isInitializing = false;
-          _initError = null;
-        });
-        return;
-      }
+      // continue to network candidates if local open fails
     }
 
     final url =
@@ -1067,46 +773,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
 
-    VideoPlayerController? selected;
-
-    if (widget.isLocal) {
-      final boundMediaKit = await _bindMediaKitTsController(url);
-      if (boundMediaKit) {
-        if (!mounted) return;
-        setState(() {
-          _isInitializing = false;
-          _initError = null;
-        });
-        return;
-      }
-      selected = await _createLocalController(url);
-      if (selected == null && widget.fallbackSources.isNotEmpty) {
-        _candidates = _buildCandidates(
-          widget.fallbackSources.first.url,
-          widget.fallbackSources,
-        );
-        for (var i = 0; i < _candidates.length; i++) {
-          final controller = await _createNetworkController(_candidates[i]);
-          if (controller != null) {
-            selected = controller;
-            _activeCandidateIndex = i;
-            break;
-          }
-        }
-      }
-    } else {
-      _candidates = _buildCandidates(url, widget.fallbackSources);
-      for (var i = 0; i < _candidates.length; i++) {
-        final controller = await _createNetworkController(_candidates[i]);
-        if (controller != null) {
-          selected = controller;
-          _activeCandidateIndex = i;
-          break;
-        }
+    _candidates = _buildCandidates(url, widget.fallbackSources);
+    var opened = false;
+    for (var i = 0; i < _candidates.length; i++) {
+      final ok = await _bindMediaKitController(
+        _candidates[i],
+        isLocal: widget.isLocal,
+      );
+      if (ok) {
+        opened = true;
+        _activeCandidateIndex = i;
+        break;
       }
     }
 
-    if (selected == null) {
+    if (!opened) {
       AppLogger.e(
         'Player',
         'All source init attempts failed for media ${widget.mediaId} ep ${widget.episodeNumber}',
@@ -1120,8 +801,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       });
       return;
     }
-
-    await _bindController(selected);
 
     AppLogger.i(
       'Player',
@@ -1138,13 +817,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _persistProgress() async {
     int durationMs = 0;
     int positionMs = 0;
-    final controller = _videoController;
-    if (controller != null) {
-      final value = controller.value;
-      if (!value.isInitialized || value.duration.inMilliseconds <= 0) return;
-      durationMs = value.duration.inMilliseconds;
-      positionMs = value.position.inMilliseconds;
-    } else if (_mediaKitPlayer != null && _durationSec > 0) {
+    if (_mediaKitPlayer != null && _durationSec > 0) {
       durationMs = (_durationSec * 1000).round();
       positionMs = (_currentSec * 1000).round();
     } else {
@@ -1230,58 +903,37 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _seekByRatio(double ratio) async {
-    final c = _videoController;
     final mk = _mediaKitPlayer;
-    if ((c == null && mk == null) || _durationSec <= 0) return;
+    if (mk == null || _durationSec <= 0) return;
     final targetMs = (_durationSec * ratio.clamp(0.0, 1.0) * 1000).round();
-    if (c != null) {
-      await c.seekTo(Duration(milliseconds: targetMs));
-    } else if (mk != null) {
-      await mk.seek(Duration(milliseconds: targetMs));
-    }
+    await mk.seek(Duration(milliseconds: targetMs));
   }
 
   Future<void> _seekToSeconds(double sec) async {
-    final c = _videoController;
     final mk = _mediaKitPlayer;
-    if (c == null && mk == null) return;
+    if (mk == null) return;
     final clamped = _durationSec <= 0 ? 0.0 : sec.clamp(0.0, _durationSec);
     final target = Duration(milliseconds: (clamped * 1000).round());
-    if (c != null) {
-      await c.seekTo(target);
-    } else if (mk != null) {
-      await mk.seek(target);
-    }
+    await mk.seek(target);
   }
 
   Future<void> _seekRelative(Duration delta) async {
-    final c = _videoController;
     final mk = _mediaKitPlayer;
-    if (c == null && mk == null) return;
+    if (mk == null) return;
     Duration pos;
     Duration dur;
-    if (c != null) {
-      pos = c.value.position;
-      dur = c.value.duration;
-    } else {
-      final state = mk!.state;
-      pos = state.position;
-      dur = state.duration;
-    }
+    final state = mk.state;
+    pos = state.position;
+    dur = state.duration;
     var target = pos + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (dur > Duration.zero && target > dur) target = dur;
-    if (c != null) {
-      await c.seekTo(target);
-    } else if (mk != null) {
-      await mk.seek(target);
-    }
+    await mk.seek(target);
     _registerInteraction();
   }
 
   void _handleHorizontalSeekStart(DragStartDetails details) {
-    if ((_videoController == null && _mediaKitPlayer == null) ||
-        _durationSec <= 0) {
+    if (_mediaKitPlayer == null || _durationSec <= 0) {
       return;
     }
     _registerInteraction();
@@ -1345,13 +997,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _setPlaybackSpeed(double speed) async {
-    final c = _videoController;
-    if (c != null && c.value.isInitialized) {
-      try {
-        await c.setPlaybackSpeed(speed);
-      } catch (_) {}
-      return;
-    }
     final mk = _mediaKitPlayer;
     if (mk != null) {
       try {
@@ -1424,21 +1069,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _togglePlayPause() async {
-    final c = _videoController;
     final mk = _mediaKitPlayer;
-    if (c != null) {
-      if (c.value.isPlaying) {
-        await c.pause();
-        _isMediaKitPlaying = false;
-        setState(() => _overlayVisible = true);
-        _overlayHideTimer?.cancel();
-      } else {
-        await c.play();
-        _isMediaKitPlaying = true;
-        _registerInteraction();
-      }
-      return;
-    }
     if (mk != null) {
       if (_isMediaKitPlaying) {
         await mk.pause();
@@ -1487,50 +1118,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         ),
       );
     }
-    final chewie = _chewieController;
-    if (chewie == null) return const SizedBox.shrink();
-    final isLarge = constraints.maxWidth > 600;
-    if (!isLarge) {
-      return Center(
-        child: Chewie(controller: chewie),
-      );
-    }
-
-    final aspectRaw = _videoController?.value.aspectRatio ?? (16 / 9);
-    final aspect = aspectRaw.clamp(0.5, 3.0);
-    final fittedHeight = constraints.maxWidth / aspect;
-    if (fittedHeight <= constraints.maxHeight) {
-      return Center(
-        child: SizedBox(
-          width: constraints.maxWidth,
-          height: fittedHeight,
-          child: Chewie(controller: chewie),
-        ),
-      );
-    }
-    return Center(
-      child: SizedBox(
-        width: constraints.maxHeight * aspect,
-        height: constraints.maxHeight,
-        child: Chewie(controller: chewie),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Future<void> _skipIntro() async {
-    final c = _videoController;
     final mk = _mediaKitPlayer;
     final end = opEnd;
-    if (!_hasValidIntroRange || end == null || (c == null && mk == null)) {
+    if (!_hasValidIntroRange || end == null || mk == null) {
       return;
     }
     HapticFeedback.lightImpact();
     final target = Duration(milliseconds: (end * 1000).round());
-    if (c != null) {
-      await c.seekTo(target);
-    } else if (mk != null) {
-      await mk.seek(target);
-    }
+    await mk.seek(target);
     _registerInteraction();
   }
 
@@ -1561,26 +1160,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _persistTimer?.cancel();
     _uiPollTimer?.cancel();
     _overlayHideTimer?.cancel();
-    final chewie = _chewieController;
-    final video = _videoController;
     final mediaKit = _mediaKitPlayer;
-    _chewieController = null;
-    _videoController = null;
     _mediaKitPlayer = null;
     _mediaKitVideoController = null;
     unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
-    if (chewie != null) {
-      unawaited(chewie.pause());
-      chewie.dispose();
-    }
-    if (video != null) {
-      unawaited(video.pause());
-      video.dispose();
-    }
+    unawaited(mediaKit?.pause());
     mediaKit?.dispose();
     _skipAnimationController.dispose();
     unawaited(WakelockPlus.disable());
-    unawaited(_stopHlsProxy());
     unawaited(_clearPlaybackCaches());
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     super.dispose();
@@ -1590,9 +1177,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget build(BuildContext context) {
     final usingMediaKit = _mediaKitVideoController != null;
     final showCustomProgress =
-        (_chewieController != null || usingMediaKit) && _durationSec > 0;
+        usingMediaKit && _durationSec > 0;
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
-    final isPlaying = _videoController?.value.isPlaying ?? _isMediaKitPlaying;
+    final isPlaying = _isMediaKitPlaying;
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final topInset = viewPadding.top;
     final bottomInset = viewPadding.bottom;
@@ -1687,8 +1274,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         ),
                       ),
                     )
-                  else if (_chewieController != null ||
-                      _mediaKitVideoController != null)
+                  else if (_mediaKitVideoController != null)
                     Positioned.fill(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,

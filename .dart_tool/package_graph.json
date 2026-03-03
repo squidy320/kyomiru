@@ -8,7 +8,6 @@
       "version": "1.0.0+1",
       "dependencies": [
         "cached_network_image",
-        "chewie",
         "connectivity_plus",
         "cupertino_icons",
         "dio",
@@ -30,7 +29,6 @@
         "shared_preferences",
         "shimmer",
         "simple_pip_mode",
-        "video_player",
         "wakelock_plus",
         "webview_flutter",
         "window_manager"
@@ -194,29 +192,6 @@
         "uri_parser",
         "uuid",
         "web"
-      ]
-    },
-    {
-      "name": "chewie",
-      "version": "1.13.0",
-      "dependencies": [
-        "cupertino_icons",
-        "flutter",
-        "provider",
-        "video_player",
-        "wakelock_plus"
-      ]
-    },
-    {
-      "name": "video_player",
-      "version": "2.11.0",
-      "dependencies": [
-        "flutter",
-        "html",
-        "video_player_android",
-        "video_player_avfoundation",
-        "video_player_platform_interface",
-        "video_player_web"
       ]
     },
     {
@@ -706,57 +681,6 @@
       ]
     },
     {
-      "name": "provider",
-      "version": "6.1.5+1",
-      "dependencies": [
-        "collection",
-        "flutter",
-        "nested"
-      ]
-    },
-    {
-      "name": "video_player_web",
-      "version": "2.4.0",
-      "dependencies": [
-        "flutter",
-        "flutter_web_plugins",
-        "video_player_platform_interface",
-        "web"
-      ]
-    },
-    {
-      "name": "video_player_platform_interface",
-      "version": "6.6.0",
-      "dependencies": [
-        "flutter",
-        "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "video_player_avfoundation",
-      "version": "2.9.3",
-      "dependencies": [
-        "flutter",
-        "video_player_platform_interface"
-      ]
-    },
-    {
-      "name": "video_player_android",
-      "version": "2.9.4",
-      "dependencies": [
-        "flutter",
-        "video_player_platform_interface"
-      ]
-    },
-    {
-      "name": "html",
-      "version": "0.15.6",
-      "dependencies": [
-        "csslib",
-        "source_span"
-      ]
-    },
-    {
       "name": "motor",
       "version": "1.1.0",
       "dependencies": [
@@ -1215,20 +1139,6 @@
       "dependencies": [
         "path",
         "posix"
-      ]
-    },
-    {
-      "name": "nested",
-      "version": "1.0.0",
-      "dependencies": [
-        "flutter"
-      ]
-    },
-    {
-      "name": "csslib",
-      "version": "1.0.2",
-      "dependencies": [
-        "source_span"
       ]
     },
     {
