@@ -53,7 +53,9 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
       state = null;
       return;
     }
-    state = await _ref.read(anilistClientProvider).trackingEntry(token, mediaId);
+    state = await _ref
+        .read(anilistClientProvider)
+        .trackingEntry(token, mediaId, force: true);
   }
 
   void setLocal({

@@ -771,14 +771,19 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Future<void> _handleBookmarkTap(
     AniListMedia media, {
     required bool inAnyList,
+    required bool trackingResolved,
     required String? token,
   }) async {
+    final source = ref.read(librarySourceProvider);
+    if (source == LibrarySource.anilist && !trackingResolved) {
+      await _openTrackingSheet(media, token);
+      return;
+    }
     if (inAnyList) {
       await _openTrackingSheet(media, token);
       return;
     }
 
-    final source = ref.read(librarySourceProvider);
     if (source == LibrarySource.local) {
       await ref.read(localLibraryStoreProvider).upsertFromMedia(
             media,
@@ -1177,7 +1182,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         final media = snap.data!;
         _manualMatch ??= _readSavedMatch(media.id);
         final trackingEntryAsync = ref.watch(mediaListProvider(media.id));
-        final inAnyList = trackingEntryAsync.valueOrNull != null;
+        final optimisticTracking =
+            ref.watch(mediaListEntryControllerProvider(media.id));
+        final inAnyList = trackingEntryAsync.valueOrNull != null ||
+            optimisticTracking != null;
+        final trackingResolved = trackingEntryAsync.hasValue;
         final episodeQuery = EpisodeQuery(
           mediaId: media.id,
           title: media.title.best,
@@ -1235,6 +1244,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       onBookmark: () => _handleBookmarkTap(
                         media,
                         inAnyList: inAnyList,
+                        trackingResolved: trackingResolved,
                         token: auth.token,
                       ),
                     ),

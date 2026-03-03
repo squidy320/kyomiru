@@ -74,6 +74,7 @@ class AniListClient {
   DateTime _anonymousCooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const Duration _staleTtl = Duration(minutes: 30);
+  static const Duration _trackingTtl = Duration(minutes: 2);
   static const Duration _mediaTtl = Duration(hours: 24);
   final Set<String> _refreshing = <String>{};
 
@@ -1481,10 +1482,30 @@ class AniListClient {
   Future<AniListTrackingEntry?> trackingEntry(
     String token,
     int mediaId,
+    {bool force = false}
   ) async {
     final key = '$token:$mediaId';
+    final persistedKey = 'trackingEntry:${token.hashCode}:$mediaId';
     final cached = _trackingEntryCache[key];
-    if (cached != null && cached.isValid) return cached.value;
+    if (!force && cached != null && cached.isValid) return cached.value;
+    if (!force) {
+      final persisted = _readQueryCache(
+        persistedKey,
+        maxAge: _trackingTtl,
+      );
+      if (persisted != null) {
+        final hasEntry = persisted['hasEntry'] == true;
+        final raw = persisted['entry'];
+        final entry = hasEntry && raw is Map<String, dynamic>
+            ? AniListTrackingEntry.fromJson(raw)
+            : null;
+        _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
+          entry,
+          DateTime.now().add(_trackingTtl),
+        );
+        return entry;
+      }
+    }
     const q = r'''
       query ($mediaId: Int) {
         MediaList(mediaId: $mediaId, type: ANIME) {
@@ -1508,8 +1529,19 @@ class AniListClient {
             : AniListTrackingEntry.fromJson(raw);
         _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
           entry,
-          DateTime.now().add(_staleTtl),
+          DateTime.now().add(_trackingTtl),
         );
+        _writeQueryCache(persistedKey, {
+          'hasEntry': entry != null,
+          'entry': entry == null
+              ? null
+              : {
+                  'id': entry.id,
+                  'status': entry.status,
+                  'progress': entry.progress,
+                  'score': entry.score,
+                },
+        });
         return entry;
       } catch (_) {
         if (attempt < 3) {
@@ -1521,6 +1553,19 @@ class AniListClient {
       }
     }
     if (cached != null) return cached.value;
+    final stale = _readQueryCache(persistedKey, maxAge: null);
+    if (stale != null) {
+      final hasEntry = stale['hasEntry'] == true;
+      final raw = stale['entry'];
+      final entry = hasEntry && raw is Map<String, dynamic>
+          ? AniListTrackingEntry.fromJson(raw)
+          : null;
+      _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
+        entry,
+        DateTime.now().add(_trackingTtl),
+      );
+      return entry;
+    }
     return null;
   }
 
@@ -1565,7 +1610,16 @@ class AniListClient {
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
     );
     _trackingEntryCache['$token:$mediaId'] =
-        _CacheEntry<AniListTrackingEntry?>(saved, DateTime.now().add(_staleTtl));
+        _CacheEntry<AniListTrackingEntry?>(saved, DateTime.now().add(_trackingTtl));
+    _writeQueryCache('trackingEntry:${token.hashCode}:$mediaId', {
+      'hasEntry': true,
+      'entry': {
+        'id': saved.id,
+        'status': saved.status,
+        'progress': saved.progress,
+        'score': saved.score,
+      },
+    });
     _patchTrackingCaches(
       token: token,
       mediaId: mediaId,
@@ -1596,10 +1650,27 @@ class AniListClient {
     final deleted = data['DeleteMediaListEntry']?['deleted'] == true;
     if (deleted) {
       _trackingEntryCache['$token:$mediaId'] =
-          _CacheEntry<AniListTrackingEntry?>(null, DateTime.now().add(_staleTtl));
+          _CacheEntry<AniListTrackingEntry?>(null, DateTime.now().add(_trackingTtl));
+      _writeQueryCache('trackingEntry:${token.hashCode}:$mediaId', {
+        'hasEntry': false,
+        'entry': null,
+      });
       _pruneFromLibraryCaches(token, mediaId);
     }
     return deleted;
+  }
+
+  void clearRuntimeCaches() {
+    _viewerCache.clear();
+    _unreadCache.clear();
+    _libraryCurrentCache.clear();
+    _librarySectionsCache.clear();
+    _episodeAvailabilityCache.clear();
+    _notificationsCache.clear();
+    _trackingEntryCache.clear();
+    _discoveryTrendingCache = null;
+    _discoverySectionsCache = null;
+    _mediaDetailsMemoryCache.clear();
   }
 
   Future<AniListEpisodeAvailability?> episodeAvailability(

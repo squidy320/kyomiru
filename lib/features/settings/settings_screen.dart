@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/haptics.dart';
+import '../../services/cache_service.dart';
 import '../../services/sora_extension_loader.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
@@ -19,6 +20,7 @@ class SettingsScreen extends ConsumerWidget {
     final auth = ref.watch(authControllerProvider);
     final settings = ref.watch(appSettingsProvider);
     final librarySource = ref.watch(librarySourceProvider);
+    final cacheStatsAsync = ref.watch(cacheStatsProvider);
     final loader = SoraExtensionLoader();
     final connected = auth.token != null && auth.token!.isNotEmpty;
 
@@ -117,6 +119,51 @@ class SettingsScreen extends ConsumerWidget {
                     subtitle: 'View, copy, and share runtime logs',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const DebugLogsScreen()),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.cleaning_services_outlined),
+                    title: const Text('Cache'),
+                    subtitle: Text(
+                      cacheStatsAsync.when(
+                        data: (stats) => 'Used: ${formatBytes(stats.totalBytes)}',
+                        loading: () => 'Calculating...',
+                        error: (_, __) => 'Unable to read cache size',
+                      ),
+                    ),
+                    trailing: FilledButton.tonal(
+                      onPressed: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Delete Cache'),
+                            content: const Text(
+                              'This clears AniList cache, image cache, and temporary streaming files.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton.tonal(
+                                onPressed: () => Navigator.of(context).pop(true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (ok != true) return;
+                        await ref.read(cacheServiceProvider).clearAll(
+                              anilistClient: ref.read(anilistClientProvider),
+                            );
+                        ref.invalidate(cacheStatsProvider);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Cache cleared.')),
+                          );
+                        }
+                      },
+                      child: const Text('Delete'),
                     ),
                   ),
                 ],
