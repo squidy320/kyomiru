@@ -54,13 +54,19 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   String? _sourceLoadError;
   SoraEpisode? _lastFailedEpisode;
   late Future<AniListMedia> _mediaDetailsFuture;
-  Future<EpisodeLoadResult>? _episodeFuture;
-  EpisodeQuery? _episodeFutureQuery;
   int _visibleEpisodeCount = 24;
   bool _detailsBuildLogged = false;
   bool _detailsFirstFrameLogged = false;
   String? _bgPaletteLoadingKey;
   AniListMedia? _previewMedia;
+  bool _deferredInitStarted = false;
+  bool _allowGlass = false;
+  bool _emergencyResetTriggered = false;
+  final List<DateTime> _recentBuilds = <DateTime>[];
+  String? _lastBuildSignature;
+  final ValueNotifier<AsyncValue<EpisodeLoadResult>> _episodeState =
+      ValueNotifier<AsyncValue<EpisodeLoadResult>>(const AsyncLoading());
+  EpisodeQuery? _episodeLoadQuery;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
 
@@ -68,8 +74,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     setState(() {
       _manualMatch = manual ?? _manualMatch;
       _visibleEpisodeCount = 24;
-      _episodeFuture = null;
-      _episodeFutureQuery = null;
+      _episodeLoadQuery = null;
+      _episodeState.value = const AsyncLoading();
       if (_manualMatch != null) {
         _persistManualMatch(media.id, _manualMatch!);
       }
@@ -82,13 +88,40 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     super.initState();
     AppLogger.i('Details', 'initState mediaId=${widget.mediaId}');
     _previewMedia = _readCachedMediaPreview(widget.mediaId);
-    _mediaDetailsFuture = _loadMediaDetails();
-    ref.invalidate(episodeProvider);
+    _mediaDetailsFuture = Future<AniListMedia>.value(
+      _previewMedia ??
+          AniListMedia(
+            id: widget.mediaId,
+            title: AniListTitle(romaji: 'Loading...', english: 'Loading...'),
+            cover: AniListCover(),
+            isAdult: false,
+          ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_detailsFirstFrameLogged) return;
       _detailsFirstFrameLogged = true;
       AppLogger.i('Details', 'first frame rendered mediaId=${widget.mediaId}');
+      _startDeferredInit();
     });
+  }
+
+  @override
+  void dispose() {
+    _episodeState.dispose();
+    super.dispose();
+  }
+
+  void _startDeferredInit() {
+    if (_deferredInitStarted) return;
+    _deferredInitStarted = true;
+    ref.invalidate(episodeProvider);
+    setState(() {
+      _mediaDetailsFuture = _loadMediaDetails();
+    });
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 420), () {
+      if (!mounted) return;
+      setState(() => _allowGlass = true);
+    }));
   }
 
   Future<AniListMedia> _loadMediaDetails() async {
@@ -130,35 +163,69 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   void _retryMediaDetails() {
     setState(() {
+      _deferredInitStarted = true;
       _mediaDetailsFuture = _loadMediaDetails();
       _visibleEpisodeCount = 24;
-      _episodeFuture = null;
-      _episodeFutureQuery = null;
+      _episodeLoadQuery = null;
+      _episodeState.value = const AsyncLoading();
     });
   }
 
-  void _ensureEpisodeFuture(EpisodeQuery query) {
-    if (_episodeFuture != null && _episodeFutureQuery == query) return;
-    _episodeFutureQuery = query;
-    _episodeFuture = ref.read(episodeProvider(query).future);
+  void _ensureEpisodesStreaming(EpisodeQuery query) {
+    if (_episodeLoadQuery == query) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadEpisodesStreamed(query);
+    });
   }
 
-  void _retryEpisodes(EpisodeQuery query) {
+  void _loadEpisodesStreamed(EpisodeQuery query) {
+    if (_episodeLoadQuery == query) return;
+    _episodeLoadQuery = query;
+    _episodeState.value = const AsyncLoading();
+    unawaited(() async {
+      try {
+        final result = await ref
+            .read(episodeProvider(query).future)
+            .timeout(const Duration(seconds: 10));
+        if (!mounted) return;
+        _episodeState.value = AsyncData(result);
+      } catch (e, st) {
+        if (!mounted) return;
+        _episodeState.value = AsyncError(e, st);
+      }
+    }());
+  }
+
+  void _retryEpisodesStreamed(EpisodeQuery query) {
     ref.invalidate(episodeProvider(query));
-    setState(() {
-      _episodeFutureQuery = null;
-      _episodeFuture = null;
-      _visibleEpisodeCount = 24;
-    });
-    _ensureEpisodeFuture(query);
+    _episodeLoadQuery = null;
+    _visibleEpisodeCount = 24;
+    _loadEpisodesStreamed(query);
   }
 
-  Future<EpisodeLoadResult> _episodeFutureFor(EpisodeQuery query) {
-    _ensureEpisodeFuture(query);
-    return _episodeFuture!
-        .timeout(const Duration(seconds: 10), onTimeout: () {
-      throw TimeoutException('server busy');
-    });
+  void _watchBuildLoop(String signature) {
+    if (_lastBuildSignature != signature) {
+      _lastBuildSignature = signature;
+      _recentBuilds.clear();
+      return;
+    }
+    final now = DateTime.now();
+    _recentBuilds.add(now);
+    _recentBuilds.removeWhere((t) => now.difference(t).inMilliseconds > 100);
+    if (_emergencyResetTriggered) return;
+    if (_recentBuilds.length > 3) {
+      _emergencyResetTriggered = true;
+      AppLogger.w('Details',
+          'Emergency break: excessive builds in short interval; resetting episode stream');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _episodeLoadQuery = null;
+        });
+        _episodeState.value = const AsyncLoading();
+      });
+    }
   }
 
   SoraAnimeMatch? _readSavedMatch(int mediaId) {
@@ -839,7 +906,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     ProgressStore progressStore,
   ) async {
     try {
-      final result = await ref.read(episodeProvider(episodeQuery).future);
+      final cached = _episodeLoadQuery == episodeQuery
+          ? _episodeState.value.valueOrNull
+          : null;
+      final EpisodeLoadResult result =
+          cached ?? await ref.read(episodeProvider(episodeQuery).future);
       final episodes = result.episodes;
       if (episodes.isEmpty) {
         if (!mounted) return;
@@ -897,6 +968,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       _detailsBuildLogged = true;
       AppLogger.i('Details', 'build start mediaId=${widget.mediaId}');
     }
+    _watchBuildLoop(
+      '$_deferredInitStarted-${_episodeState.value.runtimeType}-$_sourceRequestInFlight-$_isBulkDownloading-$_allowGlass',
+    );
     final progressStore = ref.watch(progressStoreProvider);
     final auth = ref.watch(authControllerProvider);
     final uiSettings = ref.watch(appSettingsProvider);
@@ -914,6 +988,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             title: preview.title.best,
             manualMatch: _manualMatch,
           );
+          _ensureEpisodesStreaming(episodeQuery);
           return Scaffold(
             body: Container(
               color: Colors.black,
@@ -986,19 +1061,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    FutureBuilder<EpisodeLoadResult>(
-                      future: _episodeFutureFor(episodeQuery),
-                      builder: (context, paheSnap) {
-                        if (paheSnap.connectionState == ConnectionState.waiting) {
+                    ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
+                      valueListenable: _episodeState,
+                      builder: (context, episodeAsync, _) {
+                        if (episodeAsync.isLoading) {
                           return const _EpisodeListLoadingSkeleton();
                         }
-                        if (paheSnap.hasError) {
-                          final serverBusy = paheSnap.error is TimeoutException;
-                          return GlassCard(
+                        if (episodeAsync.hasError) {
+                          final err = episodeAsync.error;
+                          final serverBusy = err is TimeoutException;
+                          return _LiteCard(
                             child: Row(
                               children: [
-                                const Icon(Icons.error_outline_rounded,
-                                    color: Colors.orangeAccent),
+                                const Icon(
+                                  Icons.error_outline_rounded,
+                                  color: Colors.orangeAccent,
+                                ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
@@ -1011,7 +1089,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 FilledButton.tonal(
-                                  onPressed: () => _retryEpisodes(episodeQuery),
+                                  onPressed: () =>
+                                      _retryEpisodesStreamed(episodeQuery),
                                   child: const Text('Retry'),
                                 ),
                               ],
@@ -1068,6 +1147,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           title: media.title.best,
           manualMatch: _manualMatch,
         );
+        _ensureEpisodesStreaming(episodeQuery);
         final description = (media.description ?? '')
             .replaceAll(RegExp(r'<[^>]*>'), ' ')
             .trim();
@@ -1122,17 +1202,17 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
                 children: [
                   const SizedBox(height: 8),
-                  FutureBuilder<EpisodeLoadResult>(
-                      future: _episodeFutureFor(episodeQuery),
-                      builder: (context, paheSnap) {
-                        if (paheSnap.connectionState ==
-                            ConnectionState.waiting) {
+                  ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
+                      valueListenable: _episodeState,
+                      builder: (context, episodeAsync, _) {
+                        if (episodeAsync.isLoading) {
                           return const _EpisodeListLoadingSkeleton();
                         }
 
-                        if (paheSnap.hasError) {
-                          final serverBusy = paheSnap.error is TimeoutException;
-                          return GlassCard(
+                        if (episodeAsync.hasError) {
+                          final err = episodeAsync.error;
+                          final serverBusy = err is TimeoutException;
+                          return _LiteCard(
                             child: Row(
                               children: [
                                 const Icon(Icons.error_outline_rounded,
@@ -1149,7 +1229,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 FilledButton.tonal(
-                                  onPressed: () => _retryEpisodes(episodeQuery),
+                                  onPressed: () =>
+                                      _retryEpisodesStreamed(episodeQuery),
                                   child: const Text('Retry'),
                                 ),
                               ],
@@ -1157,16 +1238,18 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           );
                         }
 
-                        final data = paheSnap.data;
+                        final data = episodeAsync.valueOrNull;
                         if (data == null ||
                             data.match == null ||
                             data.episodes.isEmpty) {
-                          return GlassCard(
+                          return _LiteCard(
                             child: Row(
                               children: [
                                 const Expanded(
-                                    child: Text(
-                                        'Could not load AnimePahe episodes for this title.')),
+                                  child: Text(
+                                    'Could not load AnimePahe episodes for this title.',
+                                  ),
+                                ),
                                 FilledButton.tonal(
                                   onPressed: () => _refreshPahe(media),
                                   child: const Text('Retry'),
@@ -1193,55 +1276,107 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             : _visibleEpisodeCount;
                         final visibleEpisodes = episodes.take(shownCount).toList();
                         final hasMoreEpisodes = shownCount < episodes.length;
+                        final glassReady = _allowGlass;
                         _prefetchPlaybackData(media, episodes);
                         return Column(
                           children: [
-                            GlassCard(
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.link),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                            glassReady
+                                ? GlassCard(
+                                    child: Row(
                                       children: [
-                                        const Text('AnimePahe',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800)),
-                                        Text(
-                                          _manualMatch == null
-                                              ? 'Using automatic matching'
-                                              : 'Using manual matching',
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Color(0xFF9AA0B3)),
+                                        const Icon(Icons.link),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('AnimePahe',
+                                                  style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w800)),
+                                              Text(
+                                                _manualMatch == null
+                                                    ? 'Using automatic matching'
+                                                    : 'Using manual matching',
+                                                style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Color(0xFF9AA0B3)),
+                                              ),
+                                              Text(
+                                                data.match!.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        Text(
-                                          data.match!.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                        FilledButton.tonal(
+                                          onPressed: () async {
+                                            final manual =
+                                                await _openManualMatchPicker(
+                                                    media);
+                                            if (manual != null) {
+                                              _refreshPahe(media, manual: manual);
+                                            }
+                                          },
+                                          child: const Text('Manual'),
+                                        ),
+                                        IconButton(
+                                          onPressed: () => _refreshPahe(media),
+                                          icon: const Icon(Icons.refresh),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : _LiteCard(
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.link),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('AnimePahe',
+                                                  style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w800)),
+                                              Text(
+                                                _manualMatch == null
+                                                    ? 'Using automatic matching'
+                                                    : 'Using manual matching',
+                                                style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Color(0xFF9AA0B3)),
+                                              ),
+                                              Text(
+                                                data.match!.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        FilledButton.tonal(
+                                          onPressed: () async {
+                                            final manual =
+                                                await _openManualMatchPicker(
+                                                    media);
+                                            if (manual != null) {
+                                              _refreshPahe(media, manual: manual);
+                                            }
+                                          },
+                                          child: const Text('Manual'),
+                                        ),
+                                        IconButton(
+                                          onPressed: () => _refreshPahe(media),
+                                          icon: const Icon(Icons.refresh),
                                         ),
                                       ],
                                     ),
                                   ),
-                                  FilledButton.tonal(
-                                    onPressed: () async {
-                                      final manual =
-                                          await _openManualMatchPicker(media);
-                                      if (manual != null) {
-                                        _refreshPahe(media, manual: manual);
-                                      }
-                                    },
-                                    child: const Text('Manual'),
-                                  ),
-                                  IconButton(
-                                    onPressed: () => _refreshPahe(media),
-                                    icon: const Icon(Icons.refresh),
-                                  ),
-                                ],
-                              ),
-                            ),
                             const SizedBox(height: 12),
                             Row(
                               children: [
@@ -1332,29 +1467,55 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             if (_sourceLoadError != null)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
-                                child: GlassCard(
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.error_outline_rounded,
-                                          color: Colors.orangeAccent),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          'Error: $_sourceLoadError',
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                child: glassReady
+                                    ? GlassCard(
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.error_outline_rounded,
+                                                color: Colors.orangeAccent),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'Error: $_sourceLoadError',
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            FilledButton.tonal(
+                                              onPressed: _lastFailedEpisode == null
+                                                  ? null
+                                                  : () => _retryLastFailedSource(
+                                                      media),
+                                              child: const Text('Retry'),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : _LiteCard(
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.error_outline_rounded,
+                                                color: Colors.orangeAccent),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'Error: $_sourceLoadError',
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            FilledButton.tonal(
+                                              onPressed: _lastFailedEpisode == null
+                                                  ? null
+                                                  : () => _retryLastFailedSource(
+                                                      media),
+                                              child: const Text('Retry'),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      FilledButton.tonal(
-                                        onPressed: _lastFailedEpisode == null
-                                            ? null
-                                            : () => _retryLastFailedSource(media),
-                                        child: const Text('Retry'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
                               ),
                             ...visibleEpisodes.map((ep) {
                               final p = progressStore.read(media.id, ep.number);
@@ -1748,6 +1909,25 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _LiteCard extends StatelessWidget {
+  const _LiteCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161822),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: child,
     );
   }
 }
