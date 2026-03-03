@@ -356,6 +356,43 @@ class AniListClient {
     }
   }
 
+  void _pruneFromLibraryCaches(String token, int mediaId) {
+    for (final entry in _libraryCurrentCache.entries.toList()) {
+      if (!entry.key.startsWith('$token:')) continue;
+      final current = entry.value;
+      if (!current.isValid) continue;
+      final patched = current.value
+          .where((row) => row.media.id != mediaId)
+          .toList(growable: false);
+      _libraryCurrentCache[entry.key] = _CacheEntry<List<AniListLibraryEntry>>(
+        patched,
+        current.expiresAt,
+      );
+    }
+
+    for (final entry in _librarySectionsCache.entries.toList()) {
+      if (!entry.key.startsWith('$token:')) continue;
+      final current = entry.value;
+      if (!current.isValid) continue;
+      final patchedSections = current.value
+          .map(
+            (section) => AniListLibrarySection(
+              title: section.title,
+              items: section.items
+                  .where((item) => item.media.id != mediaId)
+                  .toList(growable: false),
+            ),
+          )
+          .where((section) => section.items.isNotEmpty)
+          .toList(growable: false);
+      _librarySectionsCache[entry.key] =
+          _CacheEntry<List<AniListLibrarySection>>(
+        patchedSections,
+        current.expiresAt,
+      );
+    }
+  }
+
   String buildAuthUrl({
     required String clientId,
     required String redirectUri,
@@ -1493,6 +1530,31 @@ class AniListClient {
       progress: saved.progress,
     );
     return saved;
+  }
+
+  Future<bool> deleteTrackingEntry({
+    required String token,
+    required int mediaId,
+  }) async {
+    final existing = await trackingEntry(token, mediaId);
+    if (existing == null || existing.id <= 0) return true;
+    const q = r'''
+      mutation ($id: Int!) {
+        DeleteMediaListEntry(id: $id) {
+          deleted
+        }
+      }
+    ''';
+    final data = await _graphql(
+      query: q,
+      token: token,
+      variables: {'id': existing.id},
+    );
+    final deleted = data['DeleteMediaListEntry']?['deleted'] == true;
+    if (deleted) {
+      _pruneFromLibraryCaches(token, mediaId);
+    }
+    return deleted;
   }
 
   Future<AniListEpisodeAvailability?> episodeAvailability(

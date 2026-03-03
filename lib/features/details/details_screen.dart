@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:palette_generator/palette_generator.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
@@ -1238,12 +1237,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         inAnyList: inAnyList,
                         token: auth.token,
                       ),
-                      onShare: media.siteUrl == null
-                          ? null
-                          : () => Share.share(
-                                media.siteUrl!,
-                                subject: media.title.best,
-                              ),
                     ),
                   ),
                 ),
@@ -1822,33 +1815,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         ),
                         const SizedBox(height: 10),
                         GlassCard(
-                          child: Row(
-                            children: [
-                              const Icon(Icons.share_rounded),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  media.siteUrl ?? 'No share URL available.',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton.tonalIcon(
-                                onPressed: media.siteUrl == null
-                                    ? null
-                                    : () => Share.share(
-                                          media.siteUrl!,
-                                          subject: media.title.best,
-                                        ),
-                                icon: const Icon(Icons.share),
-                                label: const Text('Share'),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        GlassCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1967,54 +1933,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        GlassCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Characters & Voice Actors',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              if (media.characters.isEmpty)
-                                const Text(
-                                  'No character data available.',
-                                  style: TextStyle(color: Color(0xFF9AA0B3)),
-                                )
-                              else
-                                ...media.characters.map(
-                                  (c) => ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: CircleAvatar(
-                                      backgroundColor: const Color(0x33111111),
-                                      backgroundImage: c.characterImage == null
-                                          ? null
-                                          : KyomiruImageCache.provider(
-                                              c.characterImage!),
-                                    ),
-                                    title: Text(
-                                      c.characterName.isEmpty
-                                          ? 'Unknown Character'
-                                          : c.characterName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    subtitle: Text(
-                                      c.voiceActorName == null
-                                          ? 'Voice actor unknown'
-                                          : '${c.voiceActorName}${c.voiceActorLanguage == null ? '' : ' (${c.voiceActorLanguage})'}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                 ],
@@ -2062,6 +1980,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   int _progress = 0;
   bool _saving = false;
   bool _loadedInitial = false;
+  int? _lastHydratedEntryId;
 
   @override
   void initState() {
@@ -2082,6 +2001,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
         _score = entry.score;
         _progress = entry.progress;
         _loadedInitial = true;
+        _lastHydratedEntryId = entry.id;
       });
       ref
           .read(mediaListEntryControllerProvider(widget.media.id).notifier)
@@ -2235,10 +2155,37 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final meAsync = ref.watch(currentUserProvider);
     final scoreFormatAsync = ref.watch(trackingScoreFormatProvider);
     final fetchedEntryAsync = ref.watch(mediaListProvider(widget.media.id));
-    final optimisticEntry =
-        ref.watch(mediaListEntryControllerProvider(widget.media.id));
-    final entry = optimisticEntry ?? fetchedEntryAsync.valueOrNull;
-    _hydrateInitial(entry);
+    final fetchedEntry = fetchedEntryAsync.valueOrNull;
+    _hydrateInitial(fetchedEntry);
+
+    if (!_loadedInitial && fetchedEntry == null && fetchedEntryAsync.hasValue) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _loadedInitial) return;
+        setState(() {
+          _status = 'PLANNING';
+          _score = 0;
+          _progress = 0;
+          _loadedInitial = true;
+          _lastHydratedEntryId = null;
+        });
+      });
+    }
+
+    if (!_saving &&
+        fetchedEntry != null &&
+        _lastHydratedEntryId != fetchedEntry.id &&
+        fetchedEntryAsync.hasValue) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _status = fetchedEntry.status;
+          _score = fetchedEntry.score;
+          _progress = fetchedEntry.progress;
+          _loadedInitial = true;
+          _lastHydratedEntryId = fetchedEntry.id;
+        });
+      });
+    }
 
     if (fetchedEntryAsync.isLoading || scoreFormatAsync.isLoading) {
       return const GlassCard(child: Text('Loading tracking...'));
@@ -2321,30 +2268,33 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Wrap(
+                    spacing: 8,
                     children: [
-                      TextButton.icon(
+                      FilledButton.tonalIcon(
                         onPressed: () async {
                           final messenger = ScaffoldMessenger.of(context);
+                          setState(() => _saving = true);
                           final removed = await ref
-                              .read(downloadControllerProvider.notifier)
-                              .removeDownloadsForMedia(widget.media.id);
+                              .read(
+                                  mediaListEntryControllerProvider(widget.media.id)
+                                      .notifier)
+                              .remove(tokenOverride: widget.token);
                           if (!mounted) return;
+                          setState(() => _saving = false);
                           messenger.showSnackBar(
                             SnackBar(
                               content: Text(
-                                removed > 0
-                                    ? 'Removed $removed downloaded episode(s).'
-                                    : 'No local downloads to remove.',
+                                removed
+                                    ? 'Removed from list.'
+                                    : 'Could not remove from list.',
                               ),
                             ),
                           );
                         },
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        label: const Text('Remove Download'),
+                        icon: const Icon(Icons.playlist_remove_rounded),
+                        label: const Text('Remove from List'),
                       ),
-                      const SizedBox(width: 8),
                       FilledButton.tonalIcon(
                         onPressed: _saving
                             ? null
@@ -2432,14 +2382,12 @@ class _BadlandsHero extends StatelessWidget {
     required this.inAnyList,
     required this.onPlay,
     required this.onBookmark,
-    required this.onShare,
   });
 
   final AniListMedia media;
   final bool inAnyList;
   final VoidCallback onPlay;
   final VoidCallback onBookmark;
-  final VoidCallback? onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -2469,22 +2417,6 @@ class _BadlandsHero extends StatelessWidget {
                   const Color(0xFF090B13),
                 ],
                 stops: const [0.45, 0.78, 1.0],
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          top: MediaQuery.viewPaddingOf(context).top + 8,
-          right: 12,
-          child: Material(
-            color: Colors.black.withValues(alpha: 0.42),
-            borderRadius: BorderRadius.circular(999),
-            child: InkWell(
-              onTap: onShare,
-              borderRadius: BorderRadius.circular(999),
-              child: const Padding(
-                padding: EdgeInsets.all(10),
-                child: Icon(Icons.share_rounded, size: 20),
               ),
             ),
           ),

@@ -152,6 +152,10 @@ class LocalLibraryStore {
     );
     await _box.put(mediaId.toString(), entry.toJson());
   }
+
+  Future<void> removeByMediaId(int mediaId) async {
+    await _box.delete(mediaId.toString());
+  }
 }
 
 final localLibraryStoreProvider = Provider<LocalLibraryStore>((ref) {
@@ -161,4 +165,3 @@ final localLibraryStoreProvider = Provider<LocalLibraryStore>((ref) {
 final localLibraryEntriesProvider = FutureProvider<List<AnimeEntry>>((ref) {
   return ref.watch(localLibraryStoreProvider).allEntries();
 });
-

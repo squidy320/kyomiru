@@ -133,4 +133,45 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
       return false;
     }
   }
+
+  Future<bool> remove({String? tokenOverride}) async {
+    final source = _ref.read(librarySourceProvider);
+    final previous = state;
+    state = null;
+    if (source == LibrarySource.local) {
+      try {
+        await _ref.read(localLibraryStoreProvider).removeByMediaId(mediaId);
+        _ref.invalidate(localLibraryEntriesProvider);
+        _ref.invalidate(mediaListProvider(mediaId));
+        return true;
+      } catch (_) {
+        state = previous;
+        return false;
+      }
+    }
+
+    final auth = _ref.read(authControllerProvider);
+    final token = (tokenOverride != null && tokenOverride.isNotEmpty)
+        ? tokenOverride
+        : auth.token;
+    if (token == null || token.isEmpty) {
+      AppLogger.e('AniList', 'AniList Update Failed: No Token');
+      state = previous;
+      return false;
+    }
+    try {
+      final ok = await _ref
+          .read(anilistClientProvider)
+          .deleteTrackingEntry(token: token, mediaId: mediaId);
+      if (!ok) {
+        state = previous;
+        return false;
+      }
+      _ref.invalidate(mediaListProvider(mediaId));
+      return true;
+    } catch (_) {
+      state = previous;
+      return false;
+    }
+  }
 }
