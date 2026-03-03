@@ -990,53 +990,30 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           );
           _ensureEpisodesStreaming(episodeQuery);
           return Scaffold(
-            body: Container(
-              color: Colors.black,
-              child: NestedScrollView(
-                headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                  SliverAppBar(
-                    expandedHeight: 360,
-                    pinned: true,
-                    stretch: true,
-                    backgroundColor: Colors.black,
-                    leading: IconButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      icon:
-                          const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-                    ),
-                    flexibleSpace: FlexibleSpaceBar(
-                      collapseMode: CollapseMode.parallax,
-                      background: _BadlandsHero(
-                        media: preview,
-                        inAnyList: false,
-                        onPlay: () => _playSmartEpisode(
-                          preview,
-                          episodeQuery,
-                          progressStore,
-                        ),
-                        onBookmark: () => _openTrackingSheet(preview, auth.token),
-                        onShare: preview.siteUrl == null
-                            ? null
-                            : () => Share.share(
-                                  preview.siteUrl!,
-                                  subject: preview.title.best,
-                                ),
-                      ),
-                    ),
-                  ),
-                ],
-                body: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+            backgroundColor: Colors.black,
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF161822),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
-                        ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      preview.title.best,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        height: 1.05,
                       ),
+                    ),
+                    const SizedBox(height: 14),
+                    _LiteCard(
                       child: Row(
                         children: [
                           const SizedBox(
@@ -1061,44 +1038,46 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
-                      valueListenable: _episodeState,
-                      builder: (context, episodeAsync, _) {
-                        if (episodeAsync.isLoading) {
-                          return const _EpisodeListLoadingSkeleton();
-                        }
-                        if (episodeAsync.hasError) {
-                          final err = episodeAsync.error;
-                          final serverBusy = err is TimeoutException;
-                          return _LiteCard(
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.error_outline_rounded,
-                                  color: Colors.orangeAccent,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    serverBusy
-                                        ? 'Server Busy. Try again.'
-                                        : 'Episode loading failed. Try again.',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
+                    Expanded(
+                      child: ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
+                        valueListenable: _episodeState,
+                        builder: (context, episodeAsync, _) {
+                          if (episodeAsync.isLoading) {
+                            return const _EpisodeListLoadingSkeleton();
+                          }
+                          if (episodeAsync.hasError) {
+                            final err = episodeAsync.error;
+                            final serverBusy = err is TimeoutException;
+                            return _LiteCard(
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline_rounded,
+                                    color: Colors.orangeAccent,
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                FilledButton.tonal(
-                                  onPressed: () =>
-                                      _retryEpisodesStreamed(episodeQuery),
-                                  child: const Text('Retry'),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        return const SizedBox.shrink();
-                      },
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      serverBusy
+                                          ? 'Server Busy. Try again.'
+                                          : 'Episode loading failed. Try again.',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  FilledButton.tonal(
+                                    onPressed: () =>
+                                        _retryEpisodesStreamed(episodeQuery),
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
                     ),
                   ],
                 ),

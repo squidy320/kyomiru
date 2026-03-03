@@ -21,6 +21,14 @@ const double _kCardWidth = 152;
 const double _kCardHeight = 232;
 const Color _kDiscoveryBaseColor = Color(0xFF090B13);
 
+Route<void> _detailsRoute(int mediaId) {
+  return PageRouteBuilder<void>(
+    pageBuilder: (_, __, ___) => DetailsScreen(mediaId: mediaId),
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+  );
+}
+
 class DiscoveryScreen extends ConsumerStatefulWidget {
   const DiscoveryScreen({super.key});
 
@@ -353,12 +361,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                                 'Nav',
                                 'Discovery -> Details (section card) mediaId=${item.id}',
                               );
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      DetailsScreen(mediaId: item.id),
-                                ),
-                              );
+                              Navigator.of(context).push(_detailsRoute(item.id));
                             },
                             child: _AnimePosterCard(media: item),
                           ),
@@ -487,11 +490,7 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                       'Nav',
                       'Discovery -> Details (hero) mediaId=${media.id}',
                     );
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DetailsScreen(mediaId: media.id),
-                      ),
-                    );
+                    Navigator.of(context).push(_detailsRoute(media.id));
                   },
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(28),
@@ -655,11 +654,7 @@ class _HorizontalSection extends StatelessWidget {
                       'Nav',
                       'Discovery -> Details (horizontal list) mediaId=${item.id}',
                     );
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DetailsScreen(mediaId: item.id),
-                      ),
-                    );
+                    Navigator.of(context).push(_detailsRoute(item.id));
                   },
                   child: _AnimePosterCard(media: item),
                 ),

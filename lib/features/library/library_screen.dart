@@ -25,6 +25,14 @@ import '../../state/watch_history_state.dart';
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
 
+Route<void> _detailsRoute(int mediaId) {
+  return PageRouteBuilder<void>(
+    pageBuilder: (_, __, ___) => DetailsScreen(mediaId: mediaId),
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+  );
+}
+
 class _ContinueWatchingNotifierMeta {
   const _ContinueWatchingNotifierMeta({
     required this.unseen,
@@ -452,11 +460,7 @@ class _LocalLibrarySection extends StatelessWidget {
                 child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DetailsScreen(mediaId: entry.mediaId),
-                      ),
-                    );
+                    Navigator.of(context).push(_detailsRoute(entry.mediaId));
                   },
                   child: Consumer(
                     builder: (context, ref, _) {
@@ -525,8 +529,7 @@ class _LibrarySection extends StatelessWidget {
                 child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
-                    Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => DetailsScreen(mediaId: e.media.id)));
+                    Navigator.of(context).push(_detailsRoute(e.media.id));
                   },
                   child: Consumer(
                     builder: (context, ref, _) {
