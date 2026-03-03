@@ -2160,22 +2160,6 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final fetchedEntry = fetchedEntryAsync.valueOrNull;
     _hydrateInitial(fetchedEntry ?? optimisticEntry);
 
-    if (!_loadedInitial &&
-        fetchedEntry == null &&
-        optimisticEntry == null &&
-        fetchedEntryAsync.hasValue) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _loadedInitial) return;
-        setState(() {
-          _status = 'PLANNING';
-          _score = 0;
-          _progress = 0;
-          _loadedInitial = true;
-          _lastHydratedEntryId = null;
-        });
-      });
-    }
-
     if (fetchedEntryAsync.hasError && !_loadedInitial && optimisticEntry != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _loadedInitial) return;
@@ -2237,6 +2221,32 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                       fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 10),
+                if (source == LibrarySource.anilist &&
+                    fetchedEntry == null &&
+                    optimisticEntry == null) ...[
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Not in AniList list yet.',
+                          style: TextStyle(color: Color(0xFFA1A8BC)),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          ref.invalidate(mediaListProvider(widget.media.id));
+                          unawaited(ref
+                              .read(mediaListEntryControllerProvider(widget.media.id)
+                                  .notifier)
+                              .loadFresh());
+                        },
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 Wrap(
                   spacing: 8,
                   children: [

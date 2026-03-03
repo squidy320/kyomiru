@@ -1495,23 +1495,33 @@ class AniListClient {
         }
       }
     ''';
-    try {
-      final data = await _graphql(
-        query: q,
-        token: token,
-        variables: {'mediaId': mediaId},
-      );
-      final raw = data['MediaList'];
-      final entry = raw is! Map<String, dynamic>
-          ? null
-          : AniListTrackingEntry.fromJson(raw);
-      _trackingEntryCache[key] =
-          _CacheEntry<AniListTrackingEntry?>(entry, DateTime.now().add(_staleTtl));
-      return entry;
-    } catch (_) {
-      if (cached != null) return cached.value;
-      return null;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final data = await _graphql(
+          query: q,
+          token: token,
+          variables: {'mediaId': mediaId},
+        );
+        final raw = data['MediaList'];
+        final entry = raw is! Map<String, dynamic>
+            ? null
+            : AniListTrackingEntry.fromJson(raw);
+        _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
+          entry,
+          DateTime.now().add(_staleTtl),
+        );
+        return entry;
+      } catch (_) {
+        if (attempt < 3) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 400 * attempt),
+          );
+          continue;
+        }
+      }
     }
+    if (cached != null) return cached.value;
+    return null;
   }
 
   Future<AniListTrackingEntry> saveTrackingEntry({
