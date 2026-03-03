@@ -1241,6 +1241,103 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
+  void _setDragFromDx(double dx, double width) {
+    if (width <= 0 || _durationSec <= 0) return;
+    final ratio = (dx / width).clamp(0.0, 1.0);
+    setState(() {
+      _dragValueSec = _durationSec * ratio;
+    });
+  }
+
+  Widget _buildAppleProgressBar({
+    required double currentSec,
+    required double durationSec,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final played = durationSec <= 0 ? 0.0 : (currentSec / durationSec).clamp(0.0, 1.0);
+        final hasSkip = _hasValidIntroRange && durationSec > 0;
+        final skipStart = hasSkip ? (opStart! / durationSec).clamp(0.0, 1.0) : 0.0;
+        final skipEnd = hasSkip ? (opEnd! / durationSec).clamp(0.0, 1.0) : 0.0;
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            _registerInteraction();
+            _setDragFromDx(details.localPosition.dx, width);
+            final ratio = width <= 0 ? 0.0 : (details.localPosition.dx / width).clamp(0.0, 1.0);
+            unawaited(_seekByRatio(ratio));
+          },
+          onHorizontalDragStart: (details) {
+            _registerInteraction();
+            setState(() {
+              _isDragging = true;
+              _dragValueSec = currentSec;
+            });
+            _setDragFromDx(details.localPosition.dx, width);
+          },
+          onHorizontalDragUpdate: (details) {
+            _setDragFromDx(details.localPosition.dx, width);
+          },
+          onHorizontalDragEnd: (_) {
+            final ratio = durationSec <= 0 ? 0.0 : (_dragValueSec / durationSec).clamp(0.0, 1.0);
+            setState(() => _isDragging = false);
+            unawaited(_seekByRatio(ratio));
+            _registerInteraction();
+          },
+          onHorizontalDragCancel: () => setState(() => _isDragging = false),
+          child: SizedBox(
+            height: 22,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                Container(
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.24),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                if (hasSkip && skipEnd > skipStart)
+                  Positioned(
+                    left: width * skipStart,
+                    child: Container(
+                      width: width * (skipEnd - skipStart),
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF60A5FA).withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                Container(
+                  width: width * played,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                Positioned(
+                  left: (width * played).clamp(0.0, width) - 5,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _handleVerticalAdjustStart(DragStartDetails details) {
     if (_isControlsLocked) return;
     final width = MediaQuery.sizeOf(context).width;
@@ -1604,157 +1701,88 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 ? Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      _glassPanel(
-                                        radius: 18,
-                                        child: Row(
-                                          children: [
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                _controlPillButton(
-                                                  icon: Icons.speed_rounded,
-                                                  label:
-                                                      '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
-                                                  onTap: _openSpeedMenu,
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _controlPillButton(
-                                                  icon: Icons.subtitles_rounded,
-                                                  label: _selectedSubtitle,
-                                                  onTap: _openSubtitleMenu,
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _controlPillButton(
-                                                  icon: Icons.high_quality_rounded,
-                                                  label: _selectedQuality,
-                                                  onTap: _openQualityMenu,
-                                                ),
-                                              ],
+                                      LayoutBuilder(
+                                        builder: (context, c) {
+                                          final compact = c.maxWidth < 460;
+                                          final veryNarrow = c.maxWidth < 390;
+                                          final leftControls = <Widget>[
+                                            _controlPillButton(
+                                              icon: Icons.speed_rounded,
+                                              label:
+                                                  '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
+                                              onTap: _openSpeedMenu,
                                             ),
-                                            const Spacer(),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                _controlPillButton(
-                                                  icon: Icons.skip_next_rounded,
-                                                  label: _dynamicSkipLabel,
-                                                  onTap: _handleDynamicSkip,
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _controlPillButton(
-                                                  icon: Icons.aspect_ratio_rounded,
-                                                  label: _videoFit == BoxFit.contain
-                                                      ? 'Fit'
-                                                      : 'Fill',
-                                                  onTap: _toggleAspectFit,
-                                                ),
-                                                const SizedBox(width: 6),
-                                                _controlPillButton(
-                                                  icon: _isControlsLocked
-                                                      ? Icons.lock_rounded
-                                                      : Icons.lock_open_rounded,
-                                                  onTap: _toggleControlLock,
-                                                ),
-                                                if (_pipSupported) ...[
-                                                  const SizedBox(width: 6),
-                                                  _controlPillButton(
-                                                    icon: Icons.picture_in_picture_alt_rounded,
-                                                    onTap: enterPictureInPictureMode,
-                                                  ),
+                                            const SizedBox(width: 6),
+                                            _controlPillButton(
+                                              icon: Icons.subtitles_rounded,
+                                              label: compact ? null : _selectedSubtitle,
+                                              onTap: _openSubtitleMenu,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            _controlPillButton(
+                                              icon: Icons.high_quality_rounded,
+                                              label: compact ? null : _selectedQuality,
+                                              onTap: _openQualityMenu,
+                                            ),
+                                          ];
+                                          final rightControls = <Widget>[
+                                            _controlPillButton(
+                                              icon: Icons.skip_next_rounded,
+                                              label: compact
+                                                  ? (_hasActiveAniSkipWindow ? 'Intro' : '85s')
+                                                  : _dynamicSkipLabel,
+                                              onTap: _handleDynamicSkip,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            _controlPillButton(
+                                              icon: Icons.aspect_ratio_rounded,
+                                              label: compact
+                                                  ? null
+                                                  : (_videoFit == BoxFit.contain ? 'Fit' : 'Fill'),
+                                              onTap: _toggleAspectFit,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            _controlPillButton(
+                                              icon: _isControlsLocked
+                                                  ? Icons.lock_rounded
+                                                  : Icons.lock_open_rounded,
+                                              onTap: _toggleControlLock,
+                                            ),
+                                            if (_pipSupported) ...[
+                                              const SizedBox(width: 6),
+                                              _controlPillButton(
+                                                icon: Icons.picture_in_picture_alt_rounded,
+                                                onTap: enterPictureInPictureMode,
+                                              ),
+                                            ],
+                                          ];
+
+                                          if (veryNarrow) {
+                                            return SingleChildScrollView(
+                                              scrollDirection: Axis.horizontal,
+                                              child: Row(
+                                                children: [
+                                                  ...leftControls,
+                                                  const SizedBox(width: 10),
+                                                  ...rightControls,
                                                 ],
-                                              ],
-                                            ),
-                                          ],
-                                        ),
+                                              ),
+                                            );
+                                          }
+
+                                          return Row(
+                                            children: [
+                                              ...leftControls,
+                                              const Spacer(),
+                                              ...rightControls,
+                                            ],
+                                          );
+                                        },
                                       ),
                                       const SizedBox(height: 8),
-                                      if (_durationSec > 0)
-                                        LayoutBuilder(
-                                          builder: (context, c) {
-                                            final start = opStart;
-                                            final end = opEnd;
-                                            final hasRange = start != null &&
-                                                end != null &&
-                                                end > start &&
-                                                _durationSec > 0;
-                                            final left = hasRange
-                                                ? (c.maxWidth * (start / _durationSec))
-                                                    .clamp(0.0, c.maxWidth)
-                                                : 0.0;
-                                            final width = hasRange
-                                                ? (c.maxWidth * ((end - start) / _durationSec))
-                                                    .clamp(0.0, c.maxWidth)
-                                                : 0.0;
-                                            return Stack(
-                                              children: [
-                                                Container(
-                                                  height: 3,
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.white.withValues(alpha: 0.18),
-                                                    borderRadius: BorderRadius.circular(999),
-                                                  ),
-                                                ),
-                                                if (hasRange)
-                                                  Positioned(
-                                                    left: left,
-                                                    width: width,
-                                                    child: Container(
-                                                      height: 3,
-                                                      decoration: BoxDecoration(
-                                                        color: const Color(0xFF60A5FA),
-                                                        borderRadius: BorderRadius.circular(999),
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            );
-                                          },
-                                        ),
-                                      const SizedBox(height: 6),
-                                      SliderTheme(
-                                        data: SliderTheme.of(context).copyWith(
-                                          trackHeight: 3,
-                                          inactiveTrackColor: Colors.white
-                                              .withValues(alpha: 0.18),
-                                          activeTrackColor: Colors.white,
-                                          thumbColor: Colors.white,
-                                          overlayColor: Colors.white
-                                              .withValues(alpha: 0.12),
-                                          thumbShape:
-                                              const RoundSliderThumbShape(
-                                            enabledThumbRadius: 5,
-                                          ),
-                                        ),
-                                          child: Slider(
-                                          min: 0,
-                                          max: _durationSec <= 0
-                                              ? 1
-                                              : _durationSec,
-                                          value: uiCurrent.clamp(
-                                            0.0,
-                                            _durationSec <= 0
-                                                ? 1.0
-                                                : _durationSec,
-                                          ),
-                                          onChangeStart: (_) {
-                                            _registerInteraction();
-                                            setState(() {
-                                              _isDragging = true;
-                                              _dragValueSec = uiCurrent;
-                                            });
-                                          },
-                                          onChanged: (v) {
-                                            setState(() => _dragValueSec = v);
-                                          },
-                                          onChangeEnd: (v) {
-                                            setState(() => _isDragging = false);
-                                            final ratio = _durationSec <= 0
-                                                ? 0.0
-                                                : v / _durationSec;
-                                            unawaited(_seekByRatio(ratio));
-                                            _registerInteraction();
-                                          },
-                                        ),
+                                      _buildAppleProgressBar(
+                                        currentSec: uiCurrent,
+                                        durationSec: _durationSec,
                                       ),
                                       Padding(
                                         padding: const EdgeInsets.symmetric(
