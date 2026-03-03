@@ -11,7 +11,6 @@ import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
 import '../../core/liquid_glass_preset.dart';
-import '../../core/app_logger.dart';
 import '../../models/anilist_models.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
@@ -357,10 +356,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                           child: _HoverPosterTile(
                             onTap: () {
                               hapticTap();
-                              AppLogger.i(
-                                'Nav',
-                                'Discovery -> Details (section card) mediaId=${item.id}',
-                              );
                               Navigator.of(context).push(_detailsRoute(item.id));
                             },
                             child: _AnimePosterCard(media: item),
@@ -486,10 +481,6 @@ class _DiscoveryHeroCarousel extends StatelessWidget {
                 return GestureDetector(
                   onTap: () {
                     hapticTap();
-                    AppLogger.i(
-                      'Nav',
-                      'Discovery -> Details (hero) mediaId=${media.id}',
-                    );
                     Navigator.of(context).push(_detailsRoute(media.id));
                   },
                   child: ClipRRect(
@@ -650,10 +641,6 @@ class _HorizontalSection extends StatelessWidget {
                 child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
-                    AppLogger.i(
-                      'Nav',
-                      'Discovery -> Details (horizontal list) mediaId=${item.id}',
-                    );
                     Navigator.of(context).push(_detailsRoute(item.id));
                   },
                   child: _AnimePosterCard(media: item),

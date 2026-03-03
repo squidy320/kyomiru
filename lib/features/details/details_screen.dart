@@ -173,7 +173,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   void _ensureEpisodesStreaming(EpisodeQuery query) {
     if (_episodeLoadQuery == query) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future<void>.delayed(const Duration(milliseconds: 180), () {
       if (!mounted) return;
       _loadEpisodesStreamed(query);
     });
@@ -988,7 +988,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             title: preview.title.best,
             manualMatch: _manualMatch,
           );
-          _ensureEpisodesStreaming(episodeQuery);
           return Scaffold(
             backgroundColor: Colors.black,
             body: SafeArea(
