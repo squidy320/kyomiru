@@ -58,6 +58,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   bool _detailsBuildLogged = false;
   bool _detailsFirstFrameLogged = false;
   String? _bgPaletteLoadingKey;
+  String? _lastPaletteRequestImage;
   AniListMedia? _previewMedia;
   bool _deferredInitStarted = false;
   bool _allowGlass = false;
@@ -945,7 +946,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     if (_bgPaletteLoadingKey == image) return;
     final cached = _detailPaletteCache[image];
     if (cached != null) {
-      if (!mounted) return;
+      if (!mounted || _detailBgSeed.toARGB32() == cached.toARGB32()) return;
       setState(() => _detailBgSeed = cached);
       return;
     }
@@ -961,7 +962,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           palette.mutedColor?.color;
       if (picked == null) return;
       _detailPaletteCache[image] = picked;
-      if (!mounted) return;
+      if (!mounted || _detailBgSeed.toARGB32() == picked.toARGB32()) return;
       setState(() => _detailBgSeed = picked);
     } catch (_) {
     } finally {
@@ -1139,7 +1140,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             .trim();
 
         if (uiSettings.enableDynamicColors && _allowGlass) {
-          unawaited(_updateDetailBackground(media));
+          final paletteImage = media.bannerImage ?? media.cover.best;
+          if (paletteImage != null &&
+              paletteImage.isNotEmpty &&
+              _lastPaletteRequestImage != paletteImage) {
+            _lastPaletteRequestImage = paletteImage;
+            unawaited(_updateDetailBackground(media));
+          }
         }
         final bgBase = uiSettings.enableDynamicColors
             ? _detailBgSeed.withValues(alpha: 0.30)
