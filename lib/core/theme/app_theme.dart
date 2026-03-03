@@ -22,8 +22,9 @@ const _accentMap = {
 ThemeData buildKyomiruTheme(AppSettings settings) {
   final base = ThemeData.dark(useMaterial3: true);
   final accent = _accentMap[settings.theme] ?? _accentMap['Midnight']!;
-  final appBg =
-      settings.isOledBlack ? Colors.black : const Color(0xFF121212);
+  final appBg = !settings.enableDynamicColors
+      ? Colors.black
+      : (settings.isOledBlack ? Colors.black : const Color(0xFF121212));
 
   return base.copyWith(
     useMaterial3: true,

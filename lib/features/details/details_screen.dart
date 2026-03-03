@@ -63,6 +63,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   bool _deferredInitStarted = false;
   bool _allowGlass = false;
   bool _emergencyResetTriggered = false;
+  int _detailTabIndex = 0;
   final List<DateTime> _recentBuilds = <DateTime>[];
   String? _lastBuildSignature;
   final ValueNotifier<AsyncValue<EpisodeLoadResult>> _episodeState =
@@ -768,6 +769,55 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
   }
 
+  Future<void> _handleBookmarkTap(
+    AniListMedia media, {
+    required bool inAnyList,
+    required String? token,
+  }) async {
+    if (inAnyList) {
+      await _openTrackingSheet(media, token);
+      return;
+    }
+
+    final source = ref.read(librarySourceProvider);
+    if (source == LibrarySource.local) {
+      await ref.read(localLibraryStoreProvider).upsertFromMedia(
+            media,
+            status: 'PLANNING',
+            progress: 0,
+            score: 0,
+          );
+      ref.invalidate(localLibraryEntriesProvider);
+      ref.invalidate(mediaListProvider(media.id));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Added to Planning (Local).')),
+      );
+      return;
+    }
+
+    final ok = await ref
+        .read(mediaListEntryControllerProvider(media.id).notifier)
+        .save(
+          status: 'PLANNING',
+          progress: 0,
+          score: 0,
+          media: media,
+          tokenOverride: token,
+        );
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to add to AniList.')),
+      );
+      return;
+    }
+    ref.invalidate(mediaListProvider(media.id));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Added to Planning.')),
+    );
+  }
+
   SoraEpisode _pickSmartEpisode(
     List<SoraEpisode> episodes,
     ProgressStore progressStore,
@@ -1183,7 +1233,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       inAnyList: inAnyList,
                       onPlay: () =>
                           _playSmartEpisode(media, episodeQuery, progressStore),
-                      onBookmark: () => _openTrackingSheet(media, auth.token),
+                      onBookmark: () => _handleBookmarkTap(
+                        media,
+                        inAnyList: inAnyList,
+                        token: auth.token,
+                      ),
                       onShare: media.siteUrl == null
                           ? null
                           : () => Share.share(
@@ -1198,7 +1252,67 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
                 children: [
                   const SizedBox(height: 8),
-                  ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _detailTabIndex = 0),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                color: _detailTabIndex == 0
+                                    ? Colors.white.withValues(alpha: 0.16)
+                                    : Colors.transparent,
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'Episodes',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _detailTabIndex = 1),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                color: _detailTabIndex == 1
+                                    ? Colors.white.withValues(alpha: 0.16)
+                                    : Colors.transparent,
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'AniList',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_detailTabIndex == 0)
+                    ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
                       valueListenable: _episodeState,
                       builder: (context, episodeAsync, _) {
                         if (episodeAsync.isLoading) {
@@ -1672,7 +1786,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         );
                       },
                     ),
-                  if (media.id == -1)
+                  if (_detailTabIndex == 1)
                     Column(
                       children: [
                         _TrackingPane(token: auth.token, media: media),
@@ -1773,18 +1887,22 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   mediaId: rel.media.id),
                                             ),
                                           ),
-                                          child: ClipRRect(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            child: Stack(
-                                              fit: StackFit.expand,
-                                              children: [
-                                                if (relImage != null)
-                                                  KyomiruImageCache.image(
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              if (relImage != null)
+                                                Hero(
+                                                  tag:
+                                                      'detail-banner-${rel.media.id}',
+                                                  child: KyomiruImageCache.image(
                                                     relImage,
                                                     fit: BoxFit.cover,
-                                                  )
-                                                else
+                                                  ),
+                                                )
+                                              else
                                                   const ColoredBox(
                                                     color: Color(0x22111111),
                                                   ),
@@ -1926,6 +2044,7 @@ class _LiteCard extends StatelessWidget {
       child: child,
     );
   }
+
 }
 
 class _TrackingPane extends ConsumerStatefulWidget {
@@ -2332,7 +2451,10 @@ class _BadlandsHero extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         if (hero != null && hero.isNotEmpty)
-          KyomiruImageCache.image(hero, fit: BoxFit.cover)
+          Hero(
+            tag: 'detail-banner-${media.id}',
+            child: KyomiruImageCache.image(hero, fit: BoxFit.cover),
+          )
         else
           const ColoredBox(color: Color(0xFF111111)),
         Positioned.fill(

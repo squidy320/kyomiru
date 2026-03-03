@@ -336,9 +336,14 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                       bottom: false,
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                        child: _TopPillNav(
-                          currentIndex: safeIndex,
-                          onTap: _onItemTapped,
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: _TopPillNav(
+                            currentIndex: safeIndex,
+                            onTap: _onItemTapped,
+                            liquidGlassEnabled: widget.liquidGlassEnabled,
+                            isOledBlack: settings.isOledBlack,
+                          ),
                         ),
                       ),
                     ),
@@ -410,10 +415,14 @@ class _TopPillNav extends StatelessWidget {
   const _TopPillNav({
     required this.currentIndex,
     required this.onTap,
+    required this.liquidGlassEnabled,
+    required this.isOledBlack,
   });
 
   final int currentIndex;
   final ValueChanged<int> onTap;
+  final bool liquidGlassEnabled;
+  final bool isOledBlack;
 
   @override
   Widget build(BuildContext context) {
@@ -470,6 +479,13 @@ class _TopPillNav extends StatelessWidget {
       ),
     );
 
+    if (liquidGlassEnabled) {
+      return LiquidGlass.withOwnLayer(
+        settings: kyomiruLiquidGlassSettings(isOledBlack: isOledBlack),
+        shape: const LiquidRoundedSuperellipse(borderRadius: 999),
+        child: navBody,
+      );
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(999),
       child: BackdropFilter(

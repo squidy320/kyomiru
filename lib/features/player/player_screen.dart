@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -123,6 +124,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _skipAnimationForward = true;
   bool _isLongPressSpeeding = false;
   double _selectedPlaybackSpeed = 1.0;
+  String _selectedSubtitle = 'Sub';
+  String _selectedQuality = 'Auto';
+  bool _isControlsLocked = false;
+  BoxFit _videoFit = BoxFit.contain;
+  bool _isVerticalAdjusting = false;
+  bool _verticalAdjustBrightness = false;
+  double _verticalStartValue = 1.0;
+  double _virtualBrightness = 1.0;
   bool _isMediaKitPlaying = false;
   late final AnimationController _skipAnimationController;
   final BaseCacheManager _playbackCache = DefaultCacheManager();
@@ -694,6 +703,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _registerInteraction() {
+    if (_isControlsLocked) return;
     if (!_overlayVisible) {
       setState(() => _overlayVisible = true);
     }
@@ -701,6 +711,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleSurfaceTap() {
+    if (_isControlsLocked) return;
     if (_overlayVisible) {
       setState(() => _overlayVisible = false);
       _overlayHideTimer?.cancel();
@@ -933,6 +944,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleHorizontalSeekStart(DragStartDetails details) {
+    if (_isControlsLocked) return;
     if (_mediaKitPlayer == null || _durationSec <= 0) {
       return;
     }
@@ -945,6 +957,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleHorizontalSeekUpdate(DragUpdateDetails details) {
+    if (_isControlsLocked) return;
     if (!_isHorizontalSeeking || _durationSec <= 0) return;
     final width = MediaQuery.sizeOf(context).width;
     if (width <= 0) return;
@@ -958,6 +971,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleHorizontalSeekEnd() {
+    if (_isControlsLocked) return;
     if (!_isHorizontalSeeking) return;
     final target = _horizontalSeekSec;
     setState(() => _isHorizontalSeeking = false);
@@ -966,6 +980,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleDoubleTapSkip(TapDownDetails details) {
+    if (_isControlsLocked) return;
     final width = MediaQuery.sizeOf(context).width;
     final isForward = details.localPosition.dx > width / 2;
     HapticFeedback.lightImpact();
@@ -1058,6 +1073,206 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _registerInteraction();
   }
 
+  Future<void> _openSubtitleMenu() async {
+    final options = <String>['Sub', 'Dub', 'Off'];
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: _glassPanel(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Subtitles', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                ...options.map(
+                  (o) => ListTile(
+                    dense: true,
+                    title: Text(o),
+                    trailing: _selectedSubtitle == o
+                        ? const Icon(Icons.check_rounded)
+                        : null,
+                    onTap: () => Navigator.of(context).pop(o),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _selectedSubtitle = selected);
+    _registerInteraction();
+  }
+
+  Future<void> _openQualityMenu() async {
+    final options = <String>['Auto', '1080p', '720p', '480p'];
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: _glassPanel(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Quality', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                ...options.map(
+                  (o) => ListTile(
+                    dense: true,
+                    title: Text(o),
+                    trailing: _selectedQuality == o
+                        ? const Icon(Icons.check_rounded)
+                        : null,
+                    onTap: () => Navigator.of(context).pop(o),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _selectedQuality = selected);
+    _registerInteraction();
+  }
+
+  Future<void> _toggleAspectFit() async {
+    setState(() {
+      _videoFit = _videoFit == BoxFit.contain ? BoxFit.cover : BoxFit.contain;
+    });
+    _registerInteraction();
+  }
+
+  void _toggleControlLock() {
+    setState(() {
+      _isControlsLocked = !_isControlsLocked;
+      if (_isControlsLocked) _overlayVisible = false;
+    });
+    if (!_isControlsLocked) {
+      _registerInteraction();
+    }
+  }
+
+  bool get _hasActiveAniSkipWindow {
+    if (!_hasValidIntroRange) return false;
+    final start = opStart!;
+    final end = opEnd!;
+    return _currentSec >= start && _currentSec <= end;
+  }
+
+  String get _dynamicSkipLabel {
+    return _hasActiveAniSkipWindow ? 'Skip Intro' : 'Skip 85s';
+  }
+
+  Future<void> _handleDynamicSkip() async {
+    if (_hasActiveAniSkipWindow) {
+      await _skipIntro();
+      return;
+    }
+    await _seekRelative(const Duration(seconds: 85));
+  }
+
+  Widget _glassPanel({required Widget child, double radius = 16}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.20),
+              width: 0.5,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _controlPillButton({
+    required IconData icon,
+    VoidCallback? onTap,
+    String? label,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: label == null ? 10 : 12,
+          vertical: 8,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: Colors.white),
+            if (label != null) ...[
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleVerticalAdjustStart(DragStartDetails details) {
+    if (_isControlsLocked) return;
+    final width = MediaQuery.sizeOf(context).width;
+    if (width <= 0) return;
+    _isVerticalAdjusting = true;
+    _verticalAdjustBrightness = details.localPosition.dx < (width / 2);
+    _verticalStartValue =
+        _verticalAdjustBrightness ? _virtualBrightness : (_mediaKitPlayer?.state.volume ?? 100) / 100.0;
+  }
+
+  void _handleVerticalAdjustUpdate(DragUpdateDetails details) {
+    if (_isControlsLocked || !_isVerticalAdjusting) return;
+    final height = MediaQuery.sizeOf(context).height;
+    if (height <= 0) return;
+    final delta = -(details.delta.dy / height) * 2.0;
+    if (_verticalAdjustBrightness) {
+      setState(() {
+        _virtualBrightness = (_virtualBrightness + delta).clamp(0.2, 1.0);
+      });
+      return;
+    }
+    final mk = _mediaKitPlayer;
+    if (mk == null) return;
+    final next = ((_verticalStartValue + delta).clamp(0.0, 1.0) * 100).roundToDouble();
+    unawaited(mk.setVolume(next));
+    _verticalStartValue = (next / 100.0);
+  }
+
+  void _handleVerticalAdjustEnd([DragEndDetails? _]) {
+    _isVerticalAdjusting = false;
+  }
+
   void _handleLongPressStart(LongPressStartDetails _) {
     setState(() => _isLongPressSpeeding = true);
     unawaited(_setPlaybackSpeed(2.0));
@@ -1113,7 +1328,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           child: Video(
             controller: mediaKit,
             controls: NoVideoControls,
-            fit: BoxFit.contain,
+            fit: _videoFit,
           ),
         ),
       );
@@ -1176,8 +1391,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   Widget build(BuildContext context) {
     final usingMediaKit = _mediaKitVideoController != null;
-    final showCustomProgress =
-        usingMediaKit && _durationSec > 0;
+    final showCustomProgress = usingMediaKit && _durationSec > 0;
     final uiCurrent = _isDragging ? _dragValueSec : _currentSec;
     final isPlaying = _isMediaKitPlaying;
     final viewPadding = MediaQuery.viewPaddingOf(context);
@@ -1286,6 +1500,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
                         onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
                         onHorizontalDragCancel: _handleHorizontalSeekEnd,
+                        onVerticalDragStart: _handleVerticalAdjustStart,
+                        onVerticalDragUpdate: _handleVerticalAdjustUpdate,
+                        onVerticalDragEnd: _handleVerticalAdjustEnd,
+                        onVerticalDragCancel: _handleVerticalAdjustEnd,
                         child: LayoutBuilder(
                           builder: (context, constraints) {
                             return _buildAdaptivePlayerSurface(constraints);
@@ -1297,7 +1515,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     opacity: _overlayVisible ? 1 : 0,
                     duration: const Duration(milliseconds: 220),
                     child: IgnorePointer(
-                      ignoring: !_overlayVisible,
+                      ignoring: !_overlayVisible || _isControlsLocked,
                       child: Stack(
                         children: [
                           Positioned(
@@ -1343,32 +1561,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               ],
                             ),
                           ),
-                          Positioned(
-                            top: topHudOffset,
-                            left: 54,
-                            child: Material(
-                              color: const Color(0xFA1E1E1E),
-                              borderRadius: BorderRadius.circular(999),
-                              child: InkWell(
-                                onTap: _openSpeedMenu,
-                                borderRadius: BorderRadius.circular(999),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 8,
-                                  ),
-                                  child: Text(
-                                    '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                           Positioned.fill(
                             child: IgnorePointer(
                               ignoring: !_overlayVisible,
@@ -1399,48 +1591,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(width: 16),
-                                    Visibility(
-                                      visible: _hasValidIntroRange &&
-                                          _currentSec > 5 &&
-                                          _currentSec < 150,
-                                      child: Material(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.40),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                        child: InkWell(
-                                          onTap: _skipIntro,
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                          child: const Padding(
-                                            padding: EdgeInsets.symmetric(
-                                              horizontal: 14,
-                                              vertical: 10,
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  Icons.skip_next_rounded,
-                                                  color: Colors.white,
-                                                  size: 18,
-                                                ),
-                                                SizedBox(width: 6),
-                                                Text(
-                                                  'Skip Intro',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
@@ -1454,6 +1604,113 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 ? Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      _glassPanel(
+                                        radius: 18,
+                                        child: Row(
+                                          children: [
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                _controlPillButton(
+                                                  icon: Icons.speed_rounded,
+                                                  label:
+                                                      '${_selectedPlaybackSpeed.toStringAsFixed(_selectedPlaybackSpeed % 1 == 0 ? 1 : 2)}x',
+                                                  onTap: _openSpeedMenu,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _controlPillButton(
+                                                  icon: Icons.subtitles_rounded,
+                                                  label: _selectedSubtitle,
+                                                  onTap: _openSubtitleMenu,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _controlPillButton(
+                                                  icon: Icons.high_quality_rounded,
+                                                  label: _selectedQuality,
+                                                  onTap: _openQualityMenu,
+                                                ),
+                                              ],
+                                            ),
+                                            const Spacer(),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                _controlPillButton(
+                                                  icon: Icons.skip_next_rounded,
+                                                  label: _dynamicSkipLabel,
+                                                  onTap: _handleDynamicSkip,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _controlPillButton(
+                                                  icon: Icons.aspect_ratio_rounded,
+                                                  label: _videoFit == BoxFit.contain
+                                                      ? 'Fit'
+                                                      : 'Fill',
+                                                  onTap: _toggleAspectFit,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _controlPillButton(
+                                                  icon: _isControlsLocked
+                                                      ? Icons.lock_rounded
+                                                      : Icons.lock_open_rounded,
+                                                  onTap: _toggleControlLock,
+                                                ),
+                                                if (_pipSupported) ...[
+                                                  const SizedBox(width: 6),
+                                                  _controlPillButton(
+                                                    icon: Icons.picture_in_picture_alt_rounded,
+                                                    onTap: enterPictureInPictureMode,
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      if (_durationSec > 0)
+                                        LayoutBuilder(
+                                          builder: (context, c) {
+                                            final start = opStart;
+                                            final end = opEnd;
+                                            final hasRange = start != null &&
+                                                end != null &&
+                                                end > start &&
+                                                _durationSec > 0;
+                                            final left = hasRange
+                                                ? (c.maxWidth * (start / _durationSec))
+                                                    .clamp(0.0, c.maxWidth)
+                                                : 0.0;
+                                            final width = hasRange
+                                                ? (c.maxWidth * ((end - start) / _durationSec))
+                                                    .clamp(0.0, c.maxWidth)
+                                                : 0.0;
+                                            return Stack(
+                                              children: [
+                                                Container(
+                                                  height: 3,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white.withValues(alpha: 0.18),
+                                                    borderRadius: BorderRadius.circular(999),
+                                                  ),
+                                                ),
+                                                if (hasRange)
+                                                  Positioned(
+                                                    left: left,
+                                                    width: width,
+                                                    child: Container(
+                                                      height: 3,
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFF60A5FA),
+                                                        borderRadius: BorderRadius.circular(999),
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                      const SizedBox(height: 6),
                                       SliderTheme(
                                         data: SliderTheme.of(context).copyWith(
                                           trackHeight: 3,
@@ -1468,7 +1725,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                             enabledThumbRadius: 5,
                                           ),
                                         ),
-                                        child: Slider(
+                                          child: Slider(
                                           min: 0,
                                           max: _durationSec <= 0
                                               ? 1
@@ -1530,6 +1787,46 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       ),
                     ),
                   ),
+                  if (_isControlsLocked)
+                    Positioned(
+                      top: topHudOffset,
+                      left: 8,
+                      child: _glassPanel(
+                        radius: 999,
+                        child: InkWell(
+                          onTap: _toggleControlLock,
+                          borderRadius: BorderRadius.circular(999),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lock_rounded, size: 16, color: Colors.white),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Locked',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_virtualBrightness < 0.99)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: ColoredBox(
+                          color: Colors.black.withValues(
+                            alpha: (1 - _virtualBrightness).clamp(0.0, 0.65),
+                          ),
+                        ),
+                      ),
+                    ),
                   if (_isHorizontalSeeking)
                     Center(
                       child: Container(

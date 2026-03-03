@@ -49,8 +49,11 @@ class _GlassContainerState extends ConsumerState<GlassContainer> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
-    final tintColor =
-        settings.oled ? Colors.black.withValues(alpha: 0.40) : Colors.white.withValues(alpha: 0.05);
+    final tintColor = !settings.enableDynamicColors
+        ? const Color(0xFF1F1F1F).withValues(alpha: 0.72)
+        : (settings.oled
+            ? Colors.black.withValues(alpha: 0.40)
+            : Colors.white.withValues(alpha: 0.05));
     final glass = ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
       child: BackdropFilter(
@@ -204,8 +207,9 @@ class GlassScaffoldBackground extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
-    final background =
-        settings.oled ? const Color(0xFF000000) : const Color(0xFF040714);
+    final background = !settings.enableDynamicColors
+        ? const Color(0xFF000000)
+        : (settings.oled ? const Color(0xFF000000) : const Color(0xFF040714));
 
     return Stack(
       children: [
