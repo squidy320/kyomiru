@@ -5,7 +5,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:palette_generator/palette_generator.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -47,8 +46,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   int? _prefetchedForMediaId;
   bool _isBulkDownloading = false;
   int _bulkDone = 0;
-  Color _detailBgSeed = const Color(0xFF090B13);
-  final Map<String, Color> _detailPaletteCache = <String, Color>{};
   int _bulkTotal = 0;
   bool _sourceRequestInFlight = false;
   String? _sourceLoadError;
@@ -57,7 +54,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   int _visibleEpisodeCount = 24;
   bool _detailsBuildLogged = false;
   bool _detailsFirstFrameLogged = false;
-  String? _bgPaletteLoadingKey;
   AniListMedia? _previewMedia;
   bool _deferredInitStarted = false;
   bool _allowGlass = false;
@@ -118,10 +114,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     setState(() {
       _mediaDetailsFuture = _loadMediaDetails();
     });
-    unawaited(Future<void>.delayed(const Duration(milliseconds: 420), () {
-      if (!mounted) return;
-      setState(() => _allowGlass = true);
-    }));
+    // Keep heavy glass effects disabled during stabilization.
+    _allowGlass = false;
   }
 
   Future<AniListMedia> _loadMediaDetails() async {
@@ -930,38 +924,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     }
   }
 
-  Future<void> _updateDetailBackground(AniListMedia media) async {
-    final image = media.bannerImage ?? media.cover.best;
-    if (image == null || image.isEmpty) return;
-    if (_bgPaletteLoadingKey == image) return;
-    final cached = _detailPaletteCache[image];
-    if (cached != null) {
-      if (!mounted) return;
-      setState(() => _detailBgSeed = cached);
-      return;
-    }
-    _bgPaletteLoadingKey = image;
-    try {
-      final palette = await PaletteGenerator.fromImageProvider(
-        KyomiruImageCache.provider(image),
-        size: const Size(120, 120),
-        maximumColorCount: 12,
-      );
-      final picked = palette.dominantColor?.color ??
-          palette.vibrantColor?.color ??
-          palette.mutedColor?.color;
-      if (picked == null) return;
-      _detailPaletteCache[image] = picked;
-      if (!mounted) return;
-      setState(() => _detailBgSeed = picked);
-    } catch (_) {
-    } finally {
-      if (_bgPaletteLoadingKey == image) {
-        _bgPaletteLoadingKey = null;
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!_detailsBuildLogged) {
@@ -1116,7 +1078,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         }
 
         final media = snap.data!;
-        unawaited(_updateDetailBackground(media));
         _manualMatch ??= _readSavedMatch(media.id);
         final trackingEntryAsync = ref.watch(mediaListProvider(media.id));
         final inAnyList = trackingEntryAsync.valueOrNull != null;
@@ -1130,8 +1091,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             .replaceAll(RegExp(r'<[^>]*>'), ' ')
             .trim();
 
+        // Stabilization mode: avoid runtime palette extraction/updates on page open.
         final bgBase = uiSettings.enableDynamicColors
-            ? _detailBgSeed.withValues(alpha: 0.30)
+            ? const Color(0xFF10131F)
             : Colors.black;
         return Scaffold(
           body: Container(
