@@ -73,6 +73,21 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
   int get _currentMediaId => _activeMediaId ?? widget.mediaId;
 
+  double _phoneDetailHeroHeight(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return (w * 0.92).clamp(320.0, 420.0);
+  }
+
+  double _phoneEpisodeThumbWidth(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return (w * 0.27).clamp(96.0, 126.0);
+  }
+
+  double _phoneEpisodeThumbHeight(BuildContext context) {
+    final tw = _phoneEpisodeThumbWidth(context);
+    return (tw * 0.62).clamp(60.0, 78.0);
+  }
+
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
     setState(() {
       _manualMatch = manual ?? _manualMatch;
@@ -1302,6 +1317,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             ? _detailBgSeed.withValues(alpha: 0.30)
             : Colors.black;
         final isWide = MediaQuery.sizeOf(context).width > 600;
+        final mobileHeroHeight = _phoneDetailHeroHeight(context);
+        final mobileThumbWidth = _phoneEpisodeThumbWidth(context);
+        final mobileThumbHeight = _phoneEpisodeThumbHeight(context);
         if (isWide) {
           return _WideDetailsScaffold(
             media: media,
@@ -1323,6 +1341,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             episodeState: _episodeState,
             onRetryEpisodes: () => _retryEpisodesStreamed(episodeQuery),
             onPlayEpisode: (ep) => _playEpisode(media, ep),
+            episodeTitleFor: (episodeNumber) =>
+                _episodeSpecificTitle(media, episodeNumber),
             fallbackImage: media.bannerImage ?? media.cover.best,
           );
         }
@@ -1342,7 +1362,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) => [
                 SliverAppBar(
-                  expandedHeight: 360,
+                  expandedHeight: mobileHeroHeight,
                   pinned: true,
                   stretch: true,
                   backgroundColor: Colors.black,
@@ -1371,7 +1391,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 ),
               ],
               body: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 100),
                 children: [
                   const SizedBox(height: 8),
                   Container(
@@ -1787,8 +1807,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       child: Row(
                                         children: [
                                           SizedBox(
-                                            width: 104,
-                                            height: 64,
+                                            width: mobileThumbWidth,
+                                            height: mobileThumbHeight,
                                             child: _EpisodeRowThumb(
                                               mediaId: media.id,
                                               episode: ep.number,
@@ -2077,6 +2097,7 @@ class _WideDetailsScaffold extends StatelessWidget {
     required this.episodeState,
     required this.onRetryEpisodes,
     required this.onPlayEpisode,
+    required this.episodeTitleFor,
     this.fallbackImage,
   });
 
@@ -2094,6 +2115,7 @@ class _WideDetailsScaffold extends StatelessWidget {
   final ValueNotifier<AsyncValue<EpisodeLoadResult>> episodeState;
   final VoidCallback onRetryEpisodes;
   final ValueChanged<SoraEpisode> onPlayEpisode;
+  final String Function(int episodeNumber) episodeTitleFor;
   final String? fallbackImage;
 
   @override
@@ -2332,6 +2354,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                           separatorBuilder: (_, __) => const SizedBox(width: 10),
                           itemBuilder: (context, index) {
                             final ep = episodes[index];
+                            final episodeName = episodeTitleFor(ep.number);
                             return SizedBox(
                               width: 240,
                               child: GestureDetector(
@@ -2372,14 +2395,32 @@ class _WideDetailsScaffold extends StatelessWidget {
                                           left: 10,
                                           right: 10,
                                           bottom: 10,
-                                          child: Text(
-                                            'Episode ${ep.number}',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 15,
-                                            ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                'Episode ${ep.number}',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                episodeName,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12,
+                                                  color: Colors.white70,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
