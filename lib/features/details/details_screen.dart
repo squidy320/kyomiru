@@ -598,7 +598,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       return;
     }
     if (!mounted || probeSources.isEmpty) return;
-    final chosen = await _showSourcePicker(probeSources);
+    final settings = ref.read(appSettingsProvider);
+    final chosen = settings.chooseStreamEveryTime
+        ? await _showSourcePicker(probeSources)
+        : _pickDownloadSource(probeSources, settings);
     if (!mounted || chosen == null) return;
     _lockSessionSource(chosen);
 
@@ -608,7 +611,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       _bulkTotal = selectedEpisodes.length;
     });
 
-    final settings = ref.read(appSettingsProvider);
     try {
       for (final ep in selectedEpisodes) {
         final local = await ref
@@ -943,10 +945,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         return;
       }
       final settings = ref.read(appSettingsProvider);
-      final selected = settings.chooseStreamEveryTime
-          ? await _showSourcePicker(sources)
-          : _pickSourceByPreference(sources, settings);
-      if (selected == null || !context.mounted) return;
+      final selected = _pickSourceByPreference(sources, settings);
+      if (!context.mounted) return;
       _lockSessionSource(selected);
       final fallback = sources
           .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))

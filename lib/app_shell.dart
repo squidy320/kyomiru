@@ -21,6 +21,7 @@ import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
+import 'services/anilist_client.dart';
 import 'state/app_settings_state.dart';
 import 'state/auth_state.dart';
 
@@ -684,6 +685,8 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
   Timer? _heroTimer;
   int _heroIndex = 0;
   String _selected = 'All';
+  Future<List<dynamic>>? _libraryFuture;
+  String? _libraryFutureToken;
 
   @override
   void dispose() {
@@ -701,6 +704,21 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
     });
   }
 
+  Future<List<dynamic>> _loadLibraryData(
+    AniListClient client,
+    String token,
+  ) {
+    return client
+        .me(token)
+        .then((u) async => [u, await client.librarySections(token, userId: u.id)]);
+  }
+
+  void _ensureLibraryFuture(AniListClient client, String token) {
+    if (_libraryFuture != null && _libraryFutureToken == token) return;
+    _libraryFutureToken = token;
+    _libraryFuture = _loadLibraryData(client, token);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
@@ -715,10 +733,9 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
 
     final token = auth.token!;
     final client = ref.watch(anilistClientProvider);
+    _ensureLibraryFuture(client, token);
     return FutureBuilder<List<dynamic>>(
-      future: client
-          .me(token)
-          .then((u) async => [u, await client.librarySections(token, userId: u.id)]),
+      future: _libraryFuture,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -774,7 +791,11 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
               ),
             ),
             child: RefreshIndicator(
-              onRefresh: () async => setState(() {}),
+              onRefresh: () async {
+                _libraryFuture = _loadLibraryData(client, token);
+                setState(() {});
+                await _libraryFuture;
+              },
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
                 children: [
@@ -871,7 +892,11 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
             ),
           ),
           child: RefreshIndicator(
-            onRefresh: () async => setState(() {}),
+            onRefresh: () async {
+              _libraryFuture = _loadLibraryData(client, token);
+              setState(() {});
+              await _libraryFuture;
+            },
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [

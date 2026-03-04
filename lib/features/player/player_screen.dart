@@ -126,6 +126,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _selectedPlaybackSpeed = 1.0;
   String _selectedSubtitle = 'Sub';
   String _selectedQuality = 'Auto';
+  List<SoraSource> _sourceCatalog = const [];
+  bool _sourceCatalogLoading = false;
+  bool _sourceSwitching = false;
   bool _isControlsLocked = false;
   BoxFit _videoFit = BoxFit.contain;
   bool _isVerticalAdjusting = false;
@@ -149,6 +152,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void initState() {
     super.initState();
+    final settings = ref.read(appSettingsProvider);
+    _selectedQuality = settings.defaultQuality;
+    _selectedSubtitle = settings.defaultAudio;
     unawaited(
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
     );
@@ -219,6 +225,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   List<_PlayerCandidate> _buildCandidates(
     String url,
     List<PlayerSourceOption> fallbackSources,
+    Map<String, String> baseHeaders,
   ) {
     final out = <_PlayerCandidate>[];
     final seen = <String>{};
@@ -233,8 +240,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     final normalized = _normalizeHlsUrl(url);
-    final baseHeaders = Map<String, String>.from(widget.headers);
-
     add(url, baseHeaders);
     add(normalized, baseHeaders);
     add(url, const {});
@@ -461,6 +466,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return int.tryParse(m?.group(1) ?? '') ?? 0;
   }
 
+  String _prettyAudio(String value) {
+    final v = value.trim().toLowerCase();
+    if (v == 'dub') return 'Dub';
+    return 'Sub';
+  }
+
+  String _prettyQuality(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return 'Auto';
+    return v.toLowerCase() == 'auto' ? 'Auto' : v;
+  }
+
   SoraSource _pickSourceByLock(
     List<SoraSource> sources,
     AppSettings settings,
@@ -505,6 +522,106 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (quality.isNotEmpty) return quality.first;
     }
     return pool.first;
+  }
+
+  Future<List<SoraSource>> _fetchCurrentEpisodeSources() async {
+    final title = widget.mediaTitle?.trim();
+    if (widget.isLocal || title == null || title.isEmpty) return const [];
+    final episodeResult = await ref
+        .read(
+          episodeProvider(
+            EpisodeQuery(mediaId: widget.mediaId, title: title),
+          ).future,
+        )
+        .timeout(const Duration(seconds: 20));
+    SoraEpisode? current;
+    for (final ep in episodeResult.episodes) {
+      if (ep.number == widget.episodeNumber) {
+        current = ep;
+        break;
+      }
+    }
+    if (current == null) return const [];
+    final sources = await ref
+        .read(
+          episodeSourcesProvider(
+            EpisodeSourceQuery(
+              playUrl: current.playUrl,
+              anilistId: widget.mediaId,
+              episodeNumber: widget.episodeNumber,
+            ),
+          ).future,
+        )
+        .timeout(const Duration(seconds: 45));
+    return sources;
+  }
+
+  Future<void> _ensureSourceCatalog() async {
+    if (_sourceCatalogLoading || _sourceCatalog.isNotEmpty || widget.isLocal) {
+      return;
+    }
+    _sourceCatalogLoading = true;
+    try {
+      final sources = await _fetchCurrentEpisodeSources();
+      if (!mounted) return;
+      setState(() {
+        _sourceCatalog = sources;
+      });
+    } catch (_) {
+      // Keep existing playback if catalog loading fails.
+    } finally {
+      _sourceCatalogLoading = false;
+    }
+  }
+
+  Future<void> _switchToSource(SoraSource target) async {
+    if (_sourceSwitching || widget.isLocal) return;
+    final currentMs = (_currentSec * 1000).round();
+    final wasPlaying = _isMediaKitPlaying;
+    setState(() => _sourceSwitching = true);
+    try {
+      final candidate = _PlayerCandidate(
+        url: _sanitizeUrl(target.url),
+        headers: target.headers,
+      );
+      final ok = await _bindMediaKitController(candidate, isLocal: false);
+      if (!ok || !mounted) return;
+
+      _candidates = _buildCandidates(
+        candidate.url,
+        _sourceCatalog
+            .map((s) => PlayerSourceOption(url: s.url, headers: s.headers))
+            .toList(),
+        target.headers,
+      );
+      var matchedIndex = _candidates.indexWhere(
+        (c) => c.url == candidate.url && c.headers.toString() == target.headers.toString(),
+      );
+      if (matchedIndex < 0) {
+        matchedIndex = _candidates.indexWhere((c) => c.url == candidate.url);
+      }
+      _activeCandidateIndex = matchedIndex < 0 ? 0 : matchedIndex;
+
+      await _mediaKitPlayer?.seek(Duration(milliseconds: currentMs));
+      if (!wasPlaying) {
+        await _mediaKitPlayer?.pause();
+        _isMediaKitPlaying = false;
+      }
+
+      ref.read(sessionSourceLockProvider.notifier).lockFromSelection(
+            sourceUrl: target.url,
+            quality: target.quality,
+            audio: target.subOrDub,
+            format: target.format,
+          );
+
+      setState(() {
+        _selectedQuality = _prettyQuality(target.quality);
+        _selectedSubtitle = _prettyAudio(target.subOrDub);
+      });
+    } finally {
+      if (mounted) setState(() => _sourceSwitching = false);
+    }
   }
 
   Future<void> _maybeAutoPlayNext() async {
@@ -790,8 +907,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       // continue to network candidates if local open fails
     }
 
-    final url =
-        widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
+    String? url = widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
+    Map<String, String> initialHeaders = Map<String, String>.from(widget.headers);
+
+    if (!widget.isLocal) {
+      try {
+        final sources = await _fetchCurrentEpisodeSources();
+        if (sources.isNotEmpty) {
+          _sourceCatalog = sources;
+          final settings = ref.read(appSettingsProvider);
+          final lock = ref.read(sessionSourceLockProvider);
+          final selected = _pickSourceByLock(sources, settings, lock);
+          url = _sanitizeUrl(selected.url);
+          initialHeaders = Map<String, String>.from(selected.headers);
+          _selectedQuality = _prettyQuality(selected.quality);
+          _selectedSubtitle = _prettyAudio(selected.subOrDub);
+          ref.read(sessionSourceLockProvider.notifier).lockFromSelection(
+                sourceUrl: selected.url,
+                quality: selected.quality,
+                audio: selected.subOrDub,
+                format: selected.format,
+              );
+        }
+      } catch (_) {
+        // Keep fallback initial URL path when source catalog fetch fails.
+      }
+    }
+
     if (url == null || url.isEmpty) {
       setState(() {
         _isInitializing = false;
@@ -800,7 +942,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return;
     }
 
-    _candidates = _buildCandidates(url, widget.fallbackSources);
+    _candidates = _buildCandidates(url, widget.fallbackSources, initialHeaders);
     var opened = false;
     for (var i = 0; i < _candidates.length; i++) {
       final ok = await _bindMediaKitController(
@@ -839,6 +981,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _isInitializing = false;
       _initError = null;
     });
+    unawaited(_ensureSourceCatalog());
   }
 
   Future<void> _persistProgress() async {
@@ -1090,7 +1233,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _openSubtitleMenu() async {
-    final options = <String>['Sub', 'Dub', 'Off'];
+    await _ensureSourceCatalog();
+    final audioValues = _sourceCatalog
+        .map((s) => _prettyAudio(s.subOrDub))
+        .toSet()
+        .toList()
+      ..sort();
+    final options = audioValues.isEmpty ? <String>['Sub', 'Dub'] : audioValues;
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1120,12 +1269,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    setState(() => _selectedSubtitle = selected);
+    final target = _sourceCatalog.firstWhere(
+      (s) => _prettyAudio(s.subOrDub) == selected,
+      orElse: () => _sourceCatalog.isNotEmpty ? _sourceCatalog.first : SoraSource(
+        url: _activePlaybackUrl() ?? '',
+        quality: _selectedQuality,
+        subOrDub: selected.toLowerCase(),
+        format: 'm3u8',
+        headers: _activePlaybackHeaders(),
+      ),
+    );
+    if (_sourceCatalog.isNotEmpty) {
+      await _switchToSource(target);
+    } else {
+      setState(() => _selectedSubtitle = selected);
+    }
     _registerInteraction();
   }
 
   Future<void> _openQualityMenu() async {
-    final options = <String>['Auto', '1080p', '720p', '480p'];
+    await _ensureSourceCatalog();
+    final qualityValues = _sourceCatalog
+        .map((s) => _prettyQuality(s.quality))
+        .toSet()
+        .toList()
+      ..sort((a, b) {
+        if (a == 'Auto') return -1;
+        if (b == 'Auto') return 1;
+        return _qualityRank(b).compareTo(_qualityRank(a));
+      });
+    final options = qualityValues.isEmpty
+        ? <String>['Auto', '1080p', '720p', '480p']
+        : qualityValues;
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1155,7 +1330,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    setState(() => _selectedQuality = selected);
+    final preferredAudio = _selectedSubtitle.toLowerCase();
+    final candidates = _sourceCatalog.where((s) {
+      final q = _prettyQuality(s.quality).toLowerCase();
+      return q == selected.toLowerCase();
+    }).toList();
+    SoraSource? target;
+    if (candidates.isNotEmpty) {
+      target = candidates.firstWhere(
+        (s) => _prettyAudio(s.subOrDub).toLowerCase() == preferredAudio,
+        orElse: () => candidates.first,
+      );
+    }
+    if (target != null) {
+      await _switchToSource(target);
+    } else {
+      setState(() => _selectedQuality = selected);
+    }
     _registerInteraction();
   }
 
