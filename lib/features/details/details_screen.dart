@@ -604,11 +604,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
     List<SoraSource> probeSources;
     try {
-      probeSources = await _loadSourcesWithOverlay(media, selectedEpisodes.first);
+      probeSources =
+          await _loadSourcesWithOverlay(media, selectedEpisodes.first);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to load stream sources right now.')),
+        const SnackBar(
+            content: Text('Unable to load stream sources right now.')),
       );
       return;
     }
@@ -638,7 +640,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           } catch (_) {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Source load failed for episode ${ep.number}.')),
+              SnackBar(
+                  content:
+                      Text('Source load failed for episode ${ep.number}.')),
             );
             continue;
           }
@@ -1053,7 +1057,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   }
 
   Future<void> _handleDownloadAllTap(AniListMedia media) async {
-    final episodes = _episodeState.value.valueOrNull?.episodes ?? const <SoraEpisode>[];
+    final episodes =
+        _episodeState.value.valueOrNull?.episodes ?? const <SoraEpisode>[];
     if (episodes.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1169,7 +1174,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                   children: [
                     IconButton(
                       onPressed: () => Navigator.of(context).maybePop(),
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                          size: 18),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -1209,7 +1215,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                     ),
                     const SizedBox(height: 12),
                     Expanded(
-                      child: ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
+                      child:
+                          ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
                         valueListenable: _episodeState,
                         builder: (context, episodeAsync, _) {
                           if (episodeAsync.isLoading) {
@@ -1521,10 +1528,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         }
 
                         final episodes = data.episodes;
-                        final shownCount = episodes.length < _visibleEpisodeCount
-                            ? episodes.length
-                            : _visibleEpisodeCount;
-                        final visibleEpisodes = episodes.take(shownCount).toList();
+                        final shownCount =
+                            episodes.length < _visibleEpisodeCount
+                                ? episodes.length
+                                : _visibleEpisodeCount;
+                        final visibleEpisodes =
+                            episodes.take(shownCount).toList();
                         final hasMoreEpisodes = shownCount < episodes.length;
                         final glassReady = _allowGlass;
                         _prefetchPlaybackData(media, episodes);
@@ -1690,7 +1699,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     ? GlassCard(
                                         child: Row(
                                           children: [
-                                            const Icon(Icons.error_outline_rounded,
+                                            const Icon(
+                                                Icons.error_outline_rounded,
                                                 color: Colors.orangeAccent),
                                             const SizedBox(width: 10),
                                             Expanded(
@@ -1702,10 +1712,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             ),
                                             const SizedBox(width: 8),
                                             FilledButton.tonal(
-                                              onPressed: _lastFailedEpisode == null
+                                              onPressed: _lastFailedEpisode ==
+                                                      null
                                                   ? null
-                                                  : () => _retryLastFailedSource(
-                                                      media),
+                                                  : () =>
+                                                      _retryLastFailedSource(
+                                                          media),
                                               child: const Text('Retry'),
                                             ),
                                           ],
@@ -1714,7 +1726,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     : _LiteCard(
                                         child: Row(
                                           children: [
-                                            const Icon(Icons.error_outline_rounded,
+                                            const Icon(
+                                                Icons.error_outline_rounded,
                                                 color: Colors.orangeAccent),
                                             const SizedBox(width: 10),
                                             Expanded(
@@ -1726,10 +1739,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                             ),
                                             const SizedBox(width: 8),
                                             FilledButton.tonal(
-                                              onPressed: _lastFailedEpisode == null
+                                              onPressed: _lastFailedEpisode ==
+                                                      null
                                                   ? null
-                                                  : () => _retryLastFailedSource(
-                                                      media),
+                                                  : () =>
+                                                      _retryLastFailedSource(
+                                                          media),
                                               child: const Text('Retry'),
                                             ),
                                           ],
@@ -1879,9 +1894,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     fontSize: 22, fontWeight: FontWeight.w800),
                               ),
                               const SizedBox(height: 8),
-                              Text(description.isEmpty
-                                  ? 'No description.'
-                                  : description),
+                              _ExpandableSynopsis(
+                                text: description.isEmpty
+                                    ? 'No description.'
+                                    : description,
+                                collapsedLines: 4,
+                              ),
                               const SizedBox(height: 10),
                               if (media.genres.isNotEmpty)
                                 Text(
@@ -1909,7 +1927,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     fontSize: 18, fontWeight: FontWeight.w800),
                               ),
                               const SizedBox(height: 8),
-                              if (media.relations.isEmpty)
+                              if (media.relations
+                                  .where((r) =>
+                                      (r.media.mediaType ?? 'ANIME') == 'ANIME')
+                                  .isEmpty)
                                 const Text(
                                   'No relations available.',
                                   style: TextStyle(color: Color(0xFF9AA0B3)),
@@ -1919,11 +1940,20 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                   height: 180,
                                   child: ListView.separated(
                                     scrollDirection: Axis.horizontal,
-                                    itemCount: media.relations.length,
+                                    itemCount: media.relations
+                                        .where((r) =>
+                                            (r.media.mediaType ?? 'ANIME') ==
+                                            'ANIME')
+                                        .length,
                                     separatorBuilder: (_, __) =>
                                         const SizedBox(width: 10),
                                     itemBuilder: (context, index) {
-                                      final rel = media.relations[index];
+                                      final rels = media.relations
+                                          .where((r) =>
+                                              (r.media.mediaType ?? 'ANIME') ==
+                                              'ANIME')
+                                          .toList();
+                                      final rel = rels[index];
                                       final relImage = rel.media.cover.best ??
                                           rel.media.bannerImage;
                                       return SizedBox(
@@ -1938,22 +1968,23 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   mediaId: rel.media.id),
                                             ),
                                           ),
-                                        child: ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          child: Stack(
-                                            fit: StackFit.expand,
-                                            children: [
-                                              if (relImage != null)
-                                                Hero(
-                                                  tag:
-                                                      'detail-banner-${rel.media.id}',
-                                                  child: KyomiruImageCache.image(
-                                                    relImage,
-                                                    fit: BoxFit.cover,
-                                                  ),
-                                                )
-                                              else
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            child: Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                if (relImage != null)
+                                                  Hero(
+                                                    tag:
+                                                        'detail-banner-${rel.media.id}',
+                                                    child:
+                                                        KyomiruImageCache.image(
+                                                      relImage,
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                                  )
+                                                else
                                                   const ColoredBox(
                                                     color: Color(0x22111111),
                                                   ),
@@ -2047,7 +2078,58 @@ class _LiteCard extends StatelessWidget {
       child: child,
     );
   }
+}
 
+class _ExpandableSynopsis extends StatefulWidget {
+  const _ExpandableSynopsis({
+    required this.text,
+    this.collapsedLines = 3,
+  });
+
+  final String text;
+  final int collapsedLines;
+
+  @override
+  State<_ExpandableSynopsis> createState() => _ExpandableSynopsisState();
+}
+
+class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = widget.text.trim();
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          text,
+          maxLines: _expanded ? null : widget.collapsedLines,
+          overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 15,
+            height: 1.3,
+          ),
+        ),
+        if (text.length > 180)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Text(
+                _expanded ? 'Read Less' : 'Read More',
+                style: const TextStyle(
+                  color: Color(0xFF93C5FD),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _InlineActionPill extends StatelessWidget {
@@ -2151,9 +2233,12 @@ class _WideDetailsScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final image = fallbackImage;
+    final playableRelations = media.relations
+        .where((r) => (r.media.mediaType ?? 'ANIME') == 'ANIME')
+        .toList();
     final relationItems = <(String label, int id)>[
       ('Current Series', media.id),
-      ...media.relations.map((r) => (r.relationType, r.media.id)),
+      ...playableRelations.map((r) => (r.relationType, r.media.id)),
     ];
     final unique = <int>{};
     final relations = relationItems.where((e) => unique.add(e.$2)).toList();
@@ -2201,7 +2286,8 @@ class _WideDetailsScaffold extends StatelessWidget {
                 children: [
                   IconButton(
                     onPressed: onBack,
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                    icon:
+                        const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
                   ),
                   const Spacer(),
                   ConstrainedBox(
@@ -2220,43 +2306,40 @@ class _WideDetailsScaffold extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        Text(
-                          '${media.episodes ?? '-'} EPS  •  $studio  •  ${media.averageScore ?? 0}%',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        _MetadataGlassPill(
+                          text:
+                              '${media.episodes ?? '-'} EPS  •  $studio  •  ${media.averageScore ?? 0}%',
                         ),
                         const SizedBox(height: 10),
-                        Text(
-                          description.isEmpty ? 'No description.' : description,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 15,
-                            height: 1.3,
-                          ),
+                        _ExpandableSynopsis(
+                          text: description.isEmpty
+                              ? 'No description.'
+                              : description,
+                          collapsedLines: 3,
                         ),
                         const SizedBox(height: 14),
                         Row(
                           children: [
-                            GlassButton(
+                            FilledButton(
                               onPressed: onPlay,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 2,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF6366F1),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(999),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.play_arrow_rounded, size: 22),
-                                    SizedBox(width: 6),
-                                    Text('Play'),
-                                  ],
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 10,
                                 ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.play_arrow_rounded, size: 22),
+                                  SizedBox(width: 6),
+                                  Text('Play'),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -2370,7 +2453,8 @@ class _WideDetailsScaffold extends StatelessWidget {
                           ),
                         );
                       }
-                      final episodes = asyncEpisodes.valueOrNull?.episodes ?? const [];
+                      final episodes =
+                          asyncEpisodes.valueOrNull?.episodes ?? const [];
                       if (episodes.isEmpty) {
                         return const GlassCard(
                           child: Text('No episodes found for this source.'),
@@ -2381,7 +2465,8 @@ class _WideDetailsScaffold extends StatelessWidget {
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: episodes.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 10),
                           itemBuilder: (context, index) {
                             final ep = episodes[index];
                             final episodeName = episodeTitleFor(ep.number);
@@ -2393,10 +2478,11 @@ class _WideDetailsScaffold extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(14),
                                   child: Container(
                                     decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.30),
+                                      color:
+                                          Colors.black.withValues(alpha: 0.30),
                                       border: Border.all(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.16),
+                                        color: Colors.white
+                                            .withValues(alpha: 0.16),
                                       ),
                                       borderRadius: BorderRadius.circular(14),
                                     ),
@@ -2669,7 +2755,9 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final fetchedEntry = fetchedEntryAsync.valueOrNull;
     _hydrateInitial(fetchedEntry ?? optimisticEntry);
 
-    if (fetchedEntryAsync.hasError && !_loadedInitial && optimisticEntry != null) {
+    if (fetchedEntryAsync.hasError &&
+        !_loadedInitial &&
+        optimisticEntry != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _loadedInitial) return;
         setState(() {
@@ -2745,7 +2833,8 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                         onPressed: () {
                           ref.invalidate(mediaListProvider(widget.media.id));
                           unawaited(ref
-                              .read(mediaListEntryControllerProvider(widget.media.id)
+                              .read(mediaListEntryControllerProvider(
+                                      widget.media.id)
                                   .notifier)
                               .loadFresh());
                         },
@@ -2813,9 +2902,9 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                           final messenger = ScaffoldMessenger.of(context);
                           setState(() => _saving = true);
                           final removed = await ref
-                              .read(
-                                  mediaListEntryControllerProvider(widget.media.id)
-                                      .notifier)
+                              .read(mediaListEntryControllerProvider(
+                                      widget.media.id)
+                                  .notifier)
                               .remove(tokenOverride: widget.token);
                           if (!mounted) return;
                           setState(() => _saving = false);
@@ -2930,6 +3019,13 @@ class _BadlandsHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final typeLabel = (media.episodes ?? 0) == 1 ? 'Movie' : 'TV';
     final genre = media.genres.isNotEmpty ? media.genres.first : 'Anime';
+    final logoCandidate = media.siteUrl?.contains('anilist.co') == true &&
+            (media.cover.best?.toLowerCase().endsWith('.png') ?? false)
+        ? media.cover.best
+        : null;
+    final ratingTag = media.isAdult ? 'R' : 'TV-14';
+    final score = media.averageScore ?? 78;
+    final matchScore = (score + 8).clamp(60, 99);
     final hero = media.bannerImage ?? media.cover.best;
 
     return Stack(
@@ -2965,16 +3061,25 @@ class _BadlandsHero extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                media.title.best,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 36,
-                  height: 1.05,
-                  fontWeight: FontWeight.w900,
+              if (logoCandidate != null)
+                SizedBox(
+                  height: 52,
+                  child: KyomiruImageCache.image(
+                    logoCandidate,
+                    fit: BoxFit.contain,
+                  ),
+                )
+              else
+                Text(
+                  media.title.best,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 36,
+                    height: 1.05,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
               const SizedBox(height: 8),
               Text(
                 '$typeLabel - $genre',
@@ -2984,14 +3089,36 @@ class _BadlandsHero extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _CompactMetaPill(
+                    icon: Icons.thumb_up_alt_rounded,
+                    label: '$matchScore% Match',
+                    color: const Color(0xFF22C55E),
+                  ),
+                  _CompactMetaPill(
+                    icon: Icons.shield_rounded,
+                    label: ratingTag,
+                    color: const Color(0xFF93C5FD),
+                  ),
+                  _CompactMetaPill(
+                    icon: Icons.star_rounded,
+                    label: '${media.averageScore ?? 0}%',
+                    color: const Color(0xFFFFD54F),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   ElevatedButton.icon(
                     onPressed: onPlay,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
+                      backgroundColor: const Color(0xFF6366F1),
+                      foregroundColor: Colors.white,
                       minimumSize: const Size(210, 54),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(999),
@@ -3037,6 +3164,75 @@ class _BadlandsHero extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CompactMetaPill extends StatelessWidget {
+  const _CompactMetaPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetadataGlassPill extends StatelessWidget {
+  const _MetadataGlassPill({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.18),
+          width: 0.5,
+        ),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }

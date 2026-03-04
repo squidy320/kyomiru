@@ -87,6 +87,7 @@ class AniListStreamingEpisode {
 
 class AniListMedia {
   final int id;
+  final String? mediaType;
   final int? idMal;
   final AniListTitle title;
   final AniListCover cover;
@@ -105,6 +106,7 @@ class AniListMedia {
 
   AniListMedia({
     required this.id,
+    this.mediaType,
     this.idMal,
     required this.title,
     required this.cover,
@@ -124,6 +126,7 @@ class AniListMedia {
 
   factory AniListMedia.fromJson(Map<String, dynamic> json) => AniListMedia(
         id: (json['id'] as num?)?.toInt() ?? 0,
+        mediaType: json['type']?.toString(),
         idMal: (json['idMal'] as num?)?.toInt(),
         title: AniListTitle.fromJson(
             (json['title'] as Map<String, dynamic>? ?? const {})),

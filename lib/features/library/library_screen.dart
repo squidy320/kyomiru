@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
@@ -22,6 +23,7 @@ import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/library_source_state.dart';
 import '../../state/tracking_state.dart';
+import '../../state/ui_ambient_state.dart';
 import '../../state/watch_history_state.dart';
 
 const double _kCardWidth = 152;
@@ -59,8 +61,9 @@ final continueWatchingNotifierProvider = FutureProvider.family<
       status: '',
     );
   }
-  final info =
-      await ref.watch(anilistClientProvider).episodeAvailability(token, query.mediaId);
+  final info = await ref
+      .watch(anilistClientProvider)
+      .episodeAvailability(token, query.mediaId);
   if (info == null) {
     return const _ContinueWatchingNotifierMeta(
       unseen: 0,
@@ -69,8 +72,9 @@ final continueWatchingNotifierProvider = FutureProvider.family<
     );
   }
   final latestReleased = info.latestReleasedEpisode;
-  final unseen =
-      info.status == 'RELEASING' ? (latestReleased - query.lastCompleted).clamp(0, 9999) : 0;
+  final unseen = info.status == 'RELEASING'
+      ? (latestReleased - query.lastCompleted).clamp(0, 9999)
+      : 0;
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
     totalAvailable: info.availableEpisodes,
@@ -100,8 +104,9 @@ final libraryWatchingNotifierProvider = FutureProvider.family<
       status: '',
     );
   }
-  final info =
-      await ref.watch(anilistClientProvider).episodeAvailability(token, query.mediaId);
+  final info = await ref
+      .watch(anilistClientProvider)
+      .episodeAvailability(token, query.mediaId);
   if (info == null) {
     return const _ContinueWatchingNotifierMeta(
       unseen: 0,
@@ -110,8 +115,9 @@ final libraryWatchingNotifierProvider = FutureProvider.family<
     );
   }
   final latestReleased = info.latestReleasedEpisode;
-  final unseen =
-      info.status == 'RELEASING' ? (latestReleased - query.progress).clamp(0, 9999) : 0;
+  final unseen = info.status == 'RELEASING'
+      ? (latestReleased - query.progress).clamp(0, 9999)
+      : 0;
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
     totalAvailable: info.availableEpisodes,
@@ -376,8 +382,7 @@ class _LocalLibraryView extends ConsumerWidget {
                         id: e.mediaId,
                         title: AniListTitle(english: e.title),
                         cover: AniListCover(large: e.coverImage),
-                        episodes:
-                            e.totalEpisodes <= 0 ? null : e.totalEpisodes,
+                        episodes: e.totalEpisodes <= 0 ? null : e.totalEpisodes,
                       ),
                     )
                     .toList(),
@@ -543,7 +548,7 @@ class _LocalLibrarySection extends StatelessWidget {
   }
 }
 
-class _LibraryAnimatedHero extends StatefulWidget {
+class _LibraryAnimatedHero extends ConsumerStatefulWidget {
   const _LibraryAnimatedHero({
     required this.items,
     required this.title,
@@ -555,12 +560,15 @@ class _LibraryAnimatedHero extends StatefulWidget {
   final String subtitle;
 
   @override
-  State<_LibraryAnimatedHero> createState() => _LibraryAnimatedHeroState();
+  ConsumerState<_LibraryAnimatedHero> createState() =>
+      _LibraryAnimatedHeroState();
 }
 
-class _LibraryAnimatedHeroState extends State<_LibraryAnimatedHero> {
+class _LibraryAnimatedHeroState extends ConsumerState<_LibraryAnimatedHero> {
   Timer? _timer;
   int _index = 0;
+  final Map<String, Color> _ambientCache = <String, Color>{};
+  String? _lastAmbientKey;
 
   @override
   void didUpdateWidget(covariant _LibraryAnimatedHero oldWidget) {
@@ -592,11 +600,44 @@ class _LibraryAnimatedHeroState extends State<_LibraryAnimatedHero> {
     });
   }
 
+  Future<void> _syncAmbient(AniListMedia? media) async {
+    final image = media?.bannerImage ?? media?.cover.best;
+    if (image == null || image.isEmpty || _lastAmbientKey == image) return;
+    _lastAmbientKey = image;
+    final cached = _ambientCache[image];
+    if (cached != null) {
+      ref.read(uiAmbientColorProvider.notifier).state = cached;
+      return;
+    }
+    try {
+      final palette = await PaletteGenerator.fromImageProvider(
+        KyomiruImageCache.provider(image),
+        size: const Size(96, 96),
+      );
+      final color = palette.dominantColor?.color ??
+          palette.vibrantColor?.color ??
+          const Color(0xFF8B5CF6);
+      final adjusted = Color.alphaBlend(
+        Colors.black.withValues(alpha: 0.18),
+        color,
+      );
+      _ambientCache[image] = adjusted;
+      if (!mounted) return;
+      ref.read(uiAmbientColorProvider.notifier).state = adjusted;
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
-    final media = widget.items.isEmpty ? null : widget.items[_index % widget.items.length];
+    final media = widget.items.isEmpty
+        ? null
+        : widget.items[_index % widget.items.length];
+    unawaited(_syncAmbient(media));
     final image = media?.bannerImage ?? media?.cover.best;
     final genres = media?.genres.take(2).join('  ') ?? '';
+    final score = media?.averageScore ?? 78;
+    final matchScore = (score + 8).clamp(60, 99);
+    final ratingTag = (media?.isAdult ?? false) ? 'R' : 'TV-14';
     return SizedBox(
       height: 250,
       child: ClipRRect(
@@ -656,6 +697,22 @@ class _LibraryAnimatedHeroState extends State<_LibraryAnimatedHero> {
                               color: Colors.amber, size: 16),
                           const SizedBox(width: 4),
                           Text('${media.averageScore ?? 0}%'),
+                          const SizedBox(width: 10),
+                          Text(
+                            '$matchScore% Match',
+                            style: const TextStyle(
+                              color: Color(0xFF86EFAC),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            ratingTag,
+                            style: const TextStyle(
+                              color: Color(0xFFBFDBFE),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                           if (genres.isNotEmpty) ...[
                             const SizedBox(width: 10),
                             Expanded(
@@ -735,6 +792,10 @@ class _LibrarySection extends StatelessWidget {
                         progressText: _showProgress
                             ? '${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'
                             : null,
+                        progressFraction: _showProgress &&
+                                (e.media.episodes ?? 0) > 0
+                            ? (e.progress / (e.media.episodes!)).clamp(0.0, 1.0)
+                            : null,
                         unseenCount: unseenCount,
                       );
                     },
@@ -753,11 +814,13 @@ class _AnimePosterCard extends StatelessWidget {
   const _AnimePosterCard({
     required this.media,
     this.progressText,
+    this.progressFraction,
     this.unseenCount,
   });
 
   final AniListMedia media;
   final String? progressText;
+  final double? progressFraction;
   final int? unseenCount;
 
   @override
@@ -788,15 +851,18 @@ class _AnimePosterCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xFA1E1E1E),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.10)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                      const Icon(Icons.star_rounded,
+                          color: Colors.amber, size: 12),
                       const SizedBox(width: 3),
                       Text(media.averageScore?.toString() ?? 'NR',
                           style: const TextStyle(
@@ -807,12 +873,14 @@ class _AnimePosterCard extends StatelessWidget {
                 if ((unseenCount ?? 0) > 0) ...[
                   const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEF4444),
+                      color: Colors.white.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
+                        color: Colors.white.withValues(alpha: 0.22),
+                        width: 0.5,
                       ),
                     ),
                     child: Text(
@@ -828,6 +896,21 @@ class _AnimePosterCard extends StatelessWidget {
               ],
             ),
           ),
+          if ((progressFraction ?? 0) > 0)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: 3,
+                color: Colors.white.withValues(alpha: 0.24),
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: (progressFraction ?? 0).clamp(0.0, 1.0),
+                  child: Container(color: const Color(0xFF8B5CF6)),
+                ),
+              ),
+            ),
           Positioned(
             left: 0,
             right: 0,
@@ -937,9 +1020,14 @@ class _HoverPosterTileState extends State<_HoverPosterTile> {
                 ]
               : const [],
         ),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: widget.child,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          scale: _hover ? 1.05 : 1.0,
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: widget.child,
+          ),
         ),
       ),
     );
@@ -996,10 +1084,9 @@ class _ContinueWatchingCard extends ConsumerWidget {
       try {
         final client = ref.read(anilistClientProvider);
         final current = await client.trackingEntry(token, entry.mediaId);
-        final targetProgress =
-            ((current?.progress ?? 0) > entry.episodeNumber)
-                ? (current?.progress ?? 0)
-                : entry.episodeNumber;
+        final targetProgress = ((current?.progress ?? 0) > entry.episodeNumber)
+            ? (current?.progress ?? 0)
+            : entry.episodeNumber;
         final currentStatus = current?.status ?? 'CURRENT';
         final nextStatus =
             currentStatus == 'PLANNING' ? 'CURRENT' : currentStatus;
@@ -1055,8 +1142,8 @@ class _ContinueWatchingCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final progress = entry.progress;
     final percent = (progress * 100).round();
-    final remainingMs =
-        (entry.totalDurationMs - entry.lastPositionMs).clamp(0, entry.totalDurationMs);
+    final remainingMs = (entry.totalDurationMs - entry.lastPositionMs)
+        .clamp(0, entry.totalDurationMs);
     final timeLeftLabel = _formatTimeLeft(remainingMs);
     final notifierAsync = ref.watch(
       continueWatchingNotifierProvider(
@@ -1123,7 +1210,8 @@ class _ContinueWatchingCard extends ConsumerWidget {
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final progressWidth = (constraints.maxWidth * progress).clamp(0.0, constraints.maxWidth);
+              final progressWidth = (constraints.maxWidth * progress)
+                  .clamp(0.0, constraints.maxWidth);
               return Stack(
                 children: [
                   Row(
@@ -1159,7 +1247,8 @@ class _ContinueWatchingCard extends ConsumerWidget {
                                 KyomiruImageCache.image(
                                   resolvedCoverUrl,
                                   fit: BoxFit.cover,
-                                  error: const ColoredBox(color: Color(0x22111111)),
+                                  error: const ColoredBox(
+                                      color: Color(0x22111111)),
                                 )
                               else
                                 const ColoredBox(color: Color(0x22111111)),
@@ -1209,7 +1298,7 @@ class _ContinueWatchingCard extends ConsumerWidget {
                               ),
                               const Spacer(),
                               Text(
-                                '$percent% • ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} • ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' • Local' : ''}',
+                                '$percent% â€¢ ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} â€¢ ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' â€¢ Local' : ''}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -1283,8 +1372,8 @@ class _ContinueWatchingCard extends ConsumerWidget {
                       top: 8,
                       right: 8,
                       child: Container(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: const Color(0xFFEF4444),
                           borderRadius: BorderRadius.circular(999),
@@ -1383,6 +1472,3 @@ class _LibrarySkeletonBody extends StatelessWidget {
     );
   }
 }
-
-
-

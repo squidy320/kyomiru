@@ -25,6 +25,7 @@ import 'models/anilist_models.dart';
 import 'services/anilist_client.dart';
 import 'state/app_settings_state.dart';
 import 'state/auth_state.dart';
+import 'state/ui_ambient_state.dart';
 import 'state/watch_history_state.dart';
 
 class KyomiruApp extends ConsumerWidget {
@@ -200,7 +201,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   }
 
   Rect _wideDockRect(Size size, EdgeInsets viewPadding) {
-    final vertical = _wideDockEdge == _DockEdge.left || _wideDockEdge == _DockEdge.right;
+    final vertical =
+        _wideDockEdge == _DockEdge.left || _wideDockEdge == _DockEdge.right;
     const verticalWidth = 74.0;
     const verticalHeight = 368.0;
     const horizontalHeight = 74.0;
@@ -300,6 +302,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
+    final ambientColor = ref.watch(uiAmbientColorProvider);
     final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
 
     if (unread > _lastServerUnread) {
@@ -431,7 +434,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                   ),
                   Builder(builder: (dockContext) {
                     final viewPadding = MediaQuery.viewPaddingOf(context);
-                    final size = Size(constraints.maxWidth, constraints.maxHeight);
+                    final size =
+                        Size(constraints.maxWidth, constraints.maxHeight);
                     final rect = _wideDockRect(size, viewPadding);
                     final dock = _MagneticWideNavDock(
                       edge: _wideDockEdge,
@@ -444,6 +448,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                       onSettingsTap: () => _onItemTapped(4),
                       liquidGlassEnabled: widget.liquidGlassEnabled,
                       isOledBlack: settings.isOledBlack,
+                      activeGlowColor: ambientColor,
                     );
                     return Positioned.fromRect(
                       rect: rect,
@@ -545,6 +550,7 @@ class _MagneticWideNavDock extends StatelessWidget {
     required this.onSettingsTap,
     required this.liquidGlassEnabled,
     required this.isOledBlack,
+    required this.activeGlowColor,
   });
 
   final _DockEdge edge;
@@ -557,6 +563,7 @@ class _MagneticWideNavDock extends StatelessWidget {
   final VoidCallback onSettingsTap;
   final bool liquidGlassEnabled;
   final bool isOledBlack;
+  final Color activeGlowColor;
 
   @override
   Widget build(BuildContext context) {
@@ -579,36 +586,42 @@ class _MagneticWideNavDock extends StatelessWidget {
             icon: CupertinoIcons.search,
             active: false,
             onTap: onSearchTap,
+            glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.house_fill,
             active: currentIndex == 1,
             onTap: onHomeTap,
+            glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.book_fill,
             active: currentIndex == 0,
             onTap: onLibraryTap,
+            glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.bell_fill,
             active: currentIndex == 2,
             onTap: onNotificationsTap,
+            glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.arrow_down_circle_fill,
             active: currentIndex == 3,
             onTap: onDownloadsTap,
+            glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.gear,
             active: currentIndex == 4,
             onTap: onSettingsTap,
+            glowColor: activeGlowColor,
           ),
         ],
       ),
@@ -632,38 +645,66 @@ class _MagneticWideNavDock extends StatelessWidget {
   }
 }
 
-class _WideRailItem extends StatelessWidget {
+class _WideRailItem extends StatefulWidget {
   const _WideRailItem({
     required this.icon,
     required this.active,
     required this.onTap,
+    required this.glowColor,
   });
 
   final IconData icon;
   final bool active;
   final VoidCallback onTap;
+  final Color glowColor;
+
+  @override
+  State<_WideRailItem> createState() => _WideRailItemState();
+}
+
+class _WideRailItemState extends State<_WideRailItem> {
+  bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          height: 48,
-          width: 48,
-          decoration: BoxDecoration(
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        scale: (_hover || widget.active) ? 1.05 : 1.0,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            color:
-                active ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
-          ),
-          child: Icon(
-            icon,
-            size: 23,
-            color: active ? Colors.white : Colors.white70,
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: widget.active
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : Colors.transparent,
+                boxShadow: widget.active
+                    ? [
+                        BoxShadow(
+                          color: widget.glowColor.withValues(alpha: 0.45),
+                          blurRadius: 18,
+                          spreadRadius: 1.5,
+                        ),
+                      ]
+                    : const [],
+              ),
+              child: Icon(
+                widget.icon,
+                size: 23,
+                color: widget.active ? Colors.white : Colors.white70,
+              ),
+            ),
           ),
         ),
       ),
@@ -706,9 +747,8 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
     AniListClient client,
     String token,
   ) {
-    return client
-        .me(token)
-        .then((u) async => [u, await client.librarySections(token, userId: u.id)]);
+    return client.me(token).then(
+        (u) async => [u, await client.librarySections(token, userId: u.id)]);
   }
 
   void _ensureLibraryFuture(AniListClient client, String token) {
@@ -768,8 +808,9 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
             .where((s) => s.title.toLowerCase().contains('plan'))
             .expand((s) => s.items)
             .toList();
-        final heroPool =
-            (watching.isNotEmpty ? watching : planning).map((e) => e.media).toList();
+        final heroPool = (watching.isNotEmpty ? watching : planning)
+            .map((e) => e.media)
+            .toList();
         _startHeroTimer(heroPool.length);
         final heroMedia =
             heroPool.isEmpty ? null : heroPool[_heroIndex % heroPool.length];
@@ -803,11 +844,11 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
                 children: [
-                _LibraryHero(media: heroMedia, height: heroHeight),
-                const SizedBox(height: 10),
-                const _LibraryContinueWatchingShelf(),
-                const SizedBox(height: 10),
-                SizedBox(
+                  _LibraryHero(media: heroMedia, height: heroHeight),
+                  const SizedBox(height: 10),
+                  const _LibraryContinueWatchingShelf(),
+                  const SizedBox(height: 10),
+                  SizedBox(
                     height: 36,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
@@ -819,14 +860,14 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                         onSelected: (_) => setState(() => _selected = chips[i]),
                       ),
                     ),
-                ),
-                const SizedBox(height: 12),
-                for (final section in filtered) ...[
-                  if (section.items.isNotEmpty) ...[
+                  ),
+                  const SizedBox(height: 12),
+                  for (final section in filtered) ...[
+                    if (section.items.isNotEmpty) ...[
                       Text(
                         section.title,
-                        style:
-                            const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 8),
                       SizedBox(
@@ -834,7 +875,8 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: section.items.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 10),
                           itemBuilder: (context, index) => _LibraryPosterCard(
                             media: section.items[index].media,
                             width: phoneCardW,
@@ -890,7 +932,8 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                         itemBuilder: (context, i) => ChoiceChip(
                           label: Text(chips[i]),
                           selected: chips[i] == _selected,
-                          onSelected: (_) => setState(() => _selected = chips[i]),
+                          onSelected: (_) =>
+                              setState(() => _selected = chips[i]),
                         ),
                       ),
                     ),
@@ -918,7 +961,8 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             itemCount: section.items.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 14),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 14),
                             itemBuilder: (context, index) => _LibraryPosterCard(
                               media: section.items[index].media,
                               width: _wideCardWidth,
@@ -995,7 +1039,8 @@ class _LibraryHero extends StatelessWidget {
                       media!.title.best,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w700),
                     ),
                 ],
               ),
@@ -1184,8 +1229,9 @@ class _LibraryContinueWatchingShelf extends ConsumerWidget {
                 itemBuilder: (context, index) {
                   final entry = entries[index];
                   final cover = (entry.coverImageUrl ?? '').trim();
-                  final remainingMs = (entry.totalDurationMs - entry.lastPositionMs)
-                      .clamp(0, entry.totalDurationMs);
+                  final remainingMs =
+                      (entry.totalDurationMs - entry.lastPositionMs)
+                          .clamp(0, entry.totalDurationMs);
                   return Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -1220,14 +1266,16 @@ class _LibraryContinueWatchingShelf extends ConsumerWidget {
                         child: LayoutBuilder(
                           builder: (context, constraints) {
                             final progress = entry.progress.clamp(0.0, 1.0);
-                            final progressWidth = (constraints.maxWidth * progress)
-                                .clamp(0.0, constraints.maxWidth);
+                            final progressWidth =
+                                (constraints.maxWidth * progress)
+                                    .clamp(0.0, constraints.maxWidth);
                             return Stack(
                               children: [
                                 Row(
                                   children: [
                                     ClipRRect(
-                                      borderRadius: const BorderRadius.horizontal(
+                                      borderRadius:
+                                          const BorderRadius.horizontal(
                                         left: Radius.circular(16),
                                       ),
                                       child: SizedBox(
@@ -1247,9 +1295,11 @@ class _LibraryContinueWatchingShelf extends ConsumerWidget {
                                     ),
                                     Expanded(
                                       child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                                        padding: const EdgeInsets.fromLTRB(
+                                            10, 10, 10, 10),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
                                               entry.mediaTitle,
@@ -1286,7 +1336,8 @@ class _LibraryContinueWatchingShelf extends ConsumerWidget {
                                   left: 0,
                                   right: 0,
                                   bottom: 0,
-                                  child: Container(height: 4, color: Colors.white24),
+                                  child: Container(
+                                      height: 4, color: Colors.white24),
                                 ),
                                 Positioned(
                                   left: 0,
@@ -1565,6 +1616,3 @@ class _NotificationsSkeleton extends StatelessWidget {
     );
   }
 }
-
-
-

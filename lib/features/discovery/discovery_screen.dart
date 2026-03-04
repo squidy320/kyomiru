@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
@@ -13,6 +14,7 @@ import '../../core/liquid_glass_preset.dart';
 import '../../models/anilist_models.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
+import '../../state/ui_ambient_state.dart';
 import '../details/details_screen.dart';
 
 const double _kCardWidth = 152;
@@ -65,6 +67,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   bool _searching = false;
   int _heroIndex = 0;
   int _lastFocusRequestTick = -1;
+  String? _lastAmbientHeroKey;
+  final Map<String, Color> _ambientColorCache = <String, Color>{};
 
   @override
   void initState() {
@@ -116,6 +120,35 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
       final next = (_heroIndex + 1) % count;
       setState(() => _heroIndex = next);
     });
+  }
+
+  Future<void> _updateAmbientFromMedia(AniListMedia? media) async {
+    if (media == null) return;
+    final image = media.bannerImage ?? media.cover.best;
+    if (image == null || image.isEmpty) return;
+    if (_lastAmbientHeroKey == image) return;
+    _lastAmbientHeroKey = image;
+    final cached = _ambientColorCache[image];
+    if (cached != null) {
+      ref.read(uiAmbientColorProvider.notifier).state = cached;
+      return;
+    }
+    try {
+      final palette = await PaletteGenerator.fromImageProvider(
+        KyomiruImageCache.provider(image),
+        size: const Size(96, 96),
+      );
+      final color = palette.dominantColor?.color ??
+          palette.vibrantColor?.color ??
+          const Color(0xFF8B5CF6);
+      final adjusted = Color.alphaBlend(
+        Colors.black.withValues(alpha: 0.18),
+        color,
+      );
+      _ambientColorCache[image] = adjusted;
+      if (!mounted) return;
+      ref.read(uiAmbientColorProvider.notifier).state = adjusted;
+    } catch (_) {}
   }
 
   void _onSearchChanged(String value) {
@@ -172,7 +205,9 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
         final heroPool = trending.take(5).toList();
-        final heroMedia = heroPool.isEmpty ? null : heroPool[_heroIndex % heroPool.length];
+        final heroMedia =
+            heroPool.isEmpty ? null : heroPool[_heroIndex % heroPool.length];
+        unawaited(_updateAmbientFromMedia(heroMedia));
         if (isWide) {
           return _buildWideDiscovery(
             context: context,
@@ -359,7 +394,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                           child: _HoverPosterTile(
                             onTap: () {
                               hapticTap();
-                              Navigator.of(context).push(_detailsRoute(item.id));
+                              Navigator.of(context)
+                                  .push(_detailsRoute(item.id));
                             },
                             child: _AnimePosterCard(media: item),
                           ),
@@ -447,7 +483,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                 media: heroMedia,
                 onTapHero: heroMedia == null
                     ? null
-                    : () => Navigator.of(context).push(_detailsRoute(heroMedia.id)),
+                    : () =>
+                        Navigator.of(context).push(_detailsRoute(heroMedia.id)),
               ),
             ),
             SliverToBoxAdapter(
@@ -555,6 +592,13 @@ class _DiscoveryAnimatedHero extends StatelessWidget {
     if (media == null) return const SizedBox.shrink();
     final image = media!.bannerImage ?? media!.cover.best;
     final genresText = media!.genres.take(2).join('  ');
+    final score = media!.averageScore ?? 78;
+    final matchScore = (score + 8).clamp(60, 99);
+    final ratingTag = media!.isAdult ? 'R' : 'TV-14';
+    final logoCandidate = media!.siteUrl?.contains('anilist.co') == true &&
+            (media!.cover.best?.toLowerCase().endsWith('.png') ?? false)
+        ? media!.cover.best
+        : null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
       child: SizedBox(
@@ -597,44 +641,51 @@ class _DiscoveryAnimatedHero extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        media!.title.best,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 24,
-                          height: 1.05,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${media!.averageScore ?? 0}%',
-                            style: const TextStyle(
-                              color: Color(0xFFFFD54F),
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                            ),
+                      if (logoCandidate != null)
+                        SizedBox(
+                          height: 44,
+                          child: KyomiruImageCache.image(
+                            logoCandidate,
+                            fit: BoxFit.contain,
                           ),
-                          if (genresText.isNotEmpty) ...[
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Text(
-                                genresText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                        )
+                      else
+                        Text(
+                          media!.title.best,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            height: 1.05,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 6,
+                        children: [
+                          _HeroMetaPill(
+                            icon: Icons.thumb_up_alt_rounded,
+                            label: '$matchScore% Match',
+                            color: const Color(0xFF22C55E),
+                          ),
+                          _HeroMetaPill(
+                            icon: Icons.star_rounded,
+                            label: '${media!.averageScore ?? 0}%',
+                            color: const Color(0xFFFFD54F),
+                          ),
+                          _HeroMetaPill(
+                            icon: Icons.shield_rounded,
+                            label: ratingTag,
+                            color: const Color(0xFF93C5FD),
+                          ),
+                          if (genresText.isNotEmpty)
+                            _HeroMetaPill(
+                              icon: Icons.local_offer_rounded,
+                              label: genresText,
+                              color: Colors.white70,
                             ),
-                          ],
                         ],
                       ),
                     ],
@@ -644,6 +695,45 @@ class _DiscoveryAnimatedHero extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _HeroMetaPill extends StatelessWidget {
+  const _HeroMetaPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: color == Colors.white70 ? Colors.white70 : Colors.white,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -826,9 +916,14 @@ class _HoverPosterTileState extends State<_HoverPosterTile> {
                 ]
               : const [],
         ),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: widget.child,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          scale: _hover ? 1.05 : 1.0,
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: widget.child,
+          ),
         ),
       ),
     );
@@ -912,9 +1007,8 @@ class _WideHeroBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final image = media?.bannerImage ?? media?.cover.best;
     final topInset = MediaQuery.viewPaddingOf(context).top;
-    final synopsis = (media?.description ?? '')
-        .replaceAll(RegExp(r'<[^>]*>'), ' ')
-        .trim();
+    final synopsis =
+        (media?.description ?? '').replaceAll(RegExp(r'<[^>]*>'), ' ').trim();
     final studio = media?.studios.isNotEmpty == true
         ? media!.studios.first
         : 'Unknown Studio';
@@ -978,7 +1072,9 @@ class _WideHeroBanner extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        synopsis.isEmpty ? 'Browse trending and top rated anime.' : synopsis,
+                        synopsis.isEmpty
+                            ? 'Browse trending and top rated anime.'
+                            : synopsis,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

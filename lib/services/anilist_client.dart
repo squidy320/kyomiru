@@ -1257,6 +1257,7 @@ class AniListClient {
       query ($id: Int) {
         Media(id: $id, type: ANIME) {
           id
+          type
           idMal
           episodes
           averageScore
@@ -1297,6 +1298,7 @@ class AniListClient {
               relationType
               node {
                 id
+                type
                 idMal
                 episodes
                 averageScore
@@ -1479,11 +1481,8 @@ class AniListClient {
     }
   }
 
-  Future<AniListTrackingEntry?> trackingEntry(
-    String token,
-    int mediaId,
-    {bool force = false}
-  ) async {
+  Future<AniListTrackingEntry?> trackingEntry(String token, int mediaId,
+      {bool force = false}) async {
     final key = '$token:$mediaId';
     final persistedKey = 'trackingEntry:${token.hashCode}:$mediaId';
     final cached = _trackingEntryCache[key];
@@ -1609,8 +1608,8 @@ class AniListClient {
     final saved = AniListTrackingEntry.fromJson(
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
     );
-    _trackingEntryCache['$token:$mediaId'] =
-        _CacheEntry<AniListTrackingEntry?>(saved, DateTime.now().add(_trackingTtl));
+    _trackingEntryCache['$token:$mediaId'] = _CacheEntry<AniListTrackingEntry?>(
+        saved, DateTime.now().add(_trackingTtl));
     _writeQueryCache('trackingEntry:${token.hashCode}:$mediaId', {
       'hasEntry': true,
       'entry': {
@@ -1650,7 +1649,8 @@ class AniListClient {
     final deleted = data['DeleteMediaListEntry']?['deleted'] == true;
     if (deleted) {
       _trackingEntryCache['$token:$mediaId'] =
-          _CacheEntry<AniListTrackingEntry?>(null, DateTime.now().add(_trackingTtl));
+          _CacheEntry<AniListTrackingEntry?>(
+              null, DateTime.now().add(_trackingTtl));
       _writeQueryCache('trackingEntry:${token.hashCode}:$mediaId', {
         'hasEntry': false,
         'entry': null,

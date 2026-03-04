@@ -43,6 +43,13 @@ class _UnifiedDownloadsView extends ConsumerWidget {
         items.sort((a, b) => a.animeTitle.compareTo(b.animeTitle));
         final active = items.where((i) => i.status != 'done').toList();
         final saved = items.where((i) => i.status == 'done').toList();
+        final activeGroups = <String, List<DownloadItem>>{};
+        for (final item in active) {
+          activeGroups.putIfAbsent(item.animeTitle, () => []).add(item);
+        }
+        for (final group in activeGroups.values) {
+          group.sort((a, b) => a.episode.compareTo(b.episode));
+        }
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -59,10 +66,31 @@ class _UnifiedDownloadsView extends ConsumerWidget {
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
-              ...active.map(
-                (d) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _queueTile(context, ref, d),
+              ...activeGroups.entries.map(
+                (entry) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.key,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ...entry.value.map(
+                        (d) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _queueTile(context, ref, d),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 14),
@@ -86,13 +114,15 @@ class _UnifiedDownloadsView extends ConsumerWidget {
                           child: SizedBox(
                             width: 60,
                             height: 84,
-                            child: d.coverImageUrl == null || d.coverImageUrl!.isEmpty
+                            child: d.coverImageUrl == null ||
+                                    d.coverImageUrl!.isEmpty
                                 ? const ColoredBox(color: Color(0x22111111))
                                 : Image.network(
                                     d.coverImageUrl!,
                                     fit: BoxFit.cover,
                                     errorBuilder: (_, __, ___) =>
-                                        const ColoredBox(color: Color(0x22111111)),
+                                        const ColoredBox(
+                                            color: Color(0x22111111)),
                                   ),
                           ),
                         ),
@@ -105,12 +135,15 @@ class _UnifiedDownloadsView extends ConsumerWidget {
                                 d.animeTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontWeight: FontWeight.w800),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800),
                               ),
                               Text('Episode ${d.episode}'),
                               const SizedBox(height: 4),
                               Text(
-                                _formatBytes(d.totalBytes > 0 ? d.totalBytes : d.downloadedBytes),
+                                _formatBytes(d.totalBytes > 0
+                                    ? d.totalBytes
+                                    : d.downloadedBytes),
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: Color(0xFFA1A8BC),
@@ -495,8 +528,8 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
                   Expanded(
                     child: Text(
                       percent,
-                      style:
-                          const TextStyle(fontSize: 12, color: Color(0xFFA1A8BC)),
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFFA1A8BC)),
                     ),
                   ),
                   Expanded(
@@ -504,16 +537,16 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
                     child: Text(
                       '$downloaded / $total',
                       textAlign: TextAlign.center,
-                      style:
-                          const TextStyle(fontSize: 12, color: Color(0xFFA1A8BC)),
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFFA1A8BC)),
                     ),
                   ),
                   Expanded(
                     child: Text(
                       speed,
                       textAlign: TextAlign.end,
-                      style:
-                          const TextStyle(fontSize: 12, color: Color(0xFFA1A8BC)),
+                      style: const TextStyle(
+                          fontSize: 12, color: Color(0xFFA1A8BC)),
                     ),
                   ),
                 ],
@@ -525,7 +558,8 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
                     d.error!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Colors.redAccent),
+                    style:
+                        const TextStyle(fontSize: 11, color: Colors.redAccent),
                   ),
                 ),
               if (d.status == 'merging')
@@ -544,39 +578,82 @@ Widget _queueTile(BuildContext context, WidgetRef ref, DownloadItem d) {
           ),
         ),
         const SizedBox(width: 8),
-        if (d.status == 'downloading')
-          IconButton(
-            onPressed: () {
-              hapticTap();
-              ref
-                  .read(downloadControllerProvider.notifier)
-                  .cancel(d.mediaId, d.episode);
-            },
-            icon: const Icon(Icons.close),
-          )
-        else if (d.status == 'paused' || (d.status == 'error' && d.resumable))
-          IconButton(
-            onPressed: () {
-              hapticTap();
-              ref
-                  .read(downloadControllerProvider.notifier)
-                  .resume(d.mediaId, d.episode);
-            },
-            icon: const Icon(Icons.refresh_rounded),
-          )
-        else
-          IconButton(
-            onPressed: () {
-              hapticTap();
-              ref
-                  .read(downloadControllerProvider.notifier)
-                  .delete(d.mediaId, d.episode);
-            },
-            icon: const Icon(Icons.delete_outline),
-          ),
+        Column(
+          children: [
+            _QueueProgressRing(progress: progress),
+            const SizedBox(height: 6),
+            if (d.status == 'downloading')
+              IconButton(
+                onPressed: () {
+                  hapticTap();
+                  ref
+                      .read(downloadControllerProvider.notifier)
+                      .cancel(d.mediaId, d.episode);
+                },
+                icon: const Icon(Icons.close),
+              )
+            else if (d.status == 'paused' ||
+                (d.status == 'error' && d.resumable))
+              IconButton(
+                onPressed: () {
+                  hapticTap();
+                  ref
+                      .read(downloadControllerProvider.notifier)
+                      .resume(d.mediaId, d.episode);
+                },
+                icon: const Icon(Icons.refresh_rounded),
+              )
+            else
+              IconButton(
+                onPressed: () {
+                  hapticTap();
+                  ref
+                      .read(downloadControllerProvider.notifier)
+                      .delete(d.mediaId, d.episode);
+                },
+                icon: const Icon(Icons.delete_outline),
+              ),
+          ],
+        ),
       ],
     ),
   );
+}
+
+class _QueueProgressRing extends StatelessWidget {
+  const _QueueProgressRing({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = (progress.clamp(0.0, 1.0) * 100).round();
+    return SizedBox(
+      width: 42,
+      height: 42,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const CircularProgressIndicator(
+            value: 1,
+            strokeWidth: 3,
+            valueColor: AlwaysStoppedAnimation(Color(0x334A556B)),
+          ),
+          CircularProgressIndicator(
+            value: progress,
+            strokeWidth: 3,
+            valueColor: const AlwaysStoppedAnimation(Color(0xFF8B5CF6)),
+          ),
+          Center(
+            child: Text(
+              '$pct%',
+              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 Widget _pillIconButton({
