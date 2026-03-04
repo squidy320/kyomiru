@@ -19,6 +19,7 @@ import '../details/details_screen.dart';
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
 const Color _kDiscoveryBaseColor = Color(0xFF090B13);
+final discoverySearchFocusRequestProvider = StateProvider<int>((ref) => 0);
 
 Route<void> _detailsRoute(int mediaId) {
   return PageRouteBuilder<void>(
@@ -38,7 +39,7 @@ class DiscoveryScreen extends ConsumerStatefulWidget {
 class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     with AutomaticKeepAliveClientMixin {
   final TextEditingController _search = TextEditingController();
-  final PageController _heroController = PageController();
+  final FocusNode _searchFocus = FocusNode();
 
   Timer? _debounce;
   Timer? _heroTimer;
@@ -49,6 +50,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   List<AniListMedia> _searchResults = const [];
   bool _searching = false;
   int _heroIndex = 0;
+  int _lastFocusRequestTick = -1;
   Color _backgroundSeed = const Color(0xFF0A0D18);
   final Map<String, Color> _paletteCache = <String, Color>{};
 
@@ -67,8 +69,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   void dispose() {
     _debounce?.cancel();
     _heroTimer?.cancel();
-    _heroController.dispose();
     _search.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -129,13 +131,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     _heroTimer?.cancel();
     if (count <= 1) return;
     _heroTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (!mounted || !_heroController.hasClients) return;
+      if (!mounted) return;
       final next = (_heroIndex + 1) % count;
-      _heroController.animateToPage(
-        next,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOut,
-      );
+      setState(() => _heroIndex = next);
+      unawaited(_updateBackgroundForTrending(_cachedPayload?.trending ?? const [], next));
     });
   }
 
@@ -172,6 +171,16 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final focusRequestTick = ref.watch(discoverySearchFocusRequestProvider);
+    if (focusRequestTick != _lastFocusRequestTick) {
+      _lastFocusRequestTick = focusRequestTick;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_searchFocus.canRequestFocus) {
+          _searchFocus.requestFocus();
+        }
+      });
+    }
     final settings = ref.watch(appSettingsProvider);
     final showingSearch = _search.text.trim().isNotEmpty;
     final isWide = MediaQuery.sizeOf(context).width > 600;
@@ -182,12 +191,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final payload = dataSnap.data ?? _cachedPayload;
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
+        final heroPool = trending.take(5).toList();
+        final heroMedia = heroPool.isEmpty ? null : heroPool[_heroIndex % heroPool.length];
         if (isWide) {
           return _buildWideDiscovery(
             context: context,
             settings: settings,
             dataSnap: dataSnap,
             trending: trending,
+            heroMedia: heroMedia,
             sections: sections,
             showingSearch: showingSearch,
           );
@@ -215,6 +227,18 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             ),
           ),
         );
+        if (hasHero) {
+          topSlivers.add(
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
+              sliver: SliverToBoxAdapter(
+                child: _DiscoveryAnimatedHero(
+                  media: heroMedia,
+                ),
+              ),
+            ),
+          );
+        }
         topSlivers.add(
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
@@ -236,6 +260,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                     padding: const EdgeInsets.all(8),
                     child: TextField(
                       controller: _search,
+                      focusNode: _searchFocus,
                       onChanged: _onSearchChanged,
                       decoration: InputDecoration(
                         hintText: 'Search anime...',
@@ -258,24 +283,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             ),
           ),
         );
-        if (hasHero) {
-          topSlivers.add(
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
-              sliver: SliverToBoxAdapter(
-                child: _DiscoveryHeroCarousel(
-                  items: trending,
-                  controller: _heroController,
-                  currentIndex: _heroIndex,
-                  onPageChanged: (index) {
-                    setState(() => _heroIndex = index);
-                    unawaited(_updateBackgroundForTrending(trending, index));
-                  },
-                ),
-              ),
-            ),
-          );
-        }
 
         if (showingSearch) {
           if (_searching) {
@@ -428,10 +435,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     required AppSettings settings,
     required AsyncSnapshot<_DiscoveryPayload> dataSnap,
     required List<AniListMedia> trending,
+    required AniListMedia? heroMedia,
     required List<AniListDiscoverySection> sections,
     required bool showingSearch,
   }) {
-    final heroMedia = trending.isNotEmpty ? trending[_heroIndex % trending.length] : null;
     final gradientTop = _backgroundSeed.withValues(alpha: 0.26);
 
     return AnimatedContainer(
@@ -453,16 +460,36 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             SliverToBoxAdapter(
               child: _WideHeroBanner(
                 media: heroMedia,
-                searchController: _search,
-                onSearchChanged: _onSearchChanged,
-                onClearSearch: () {
-                  hapticTap();
-                  _search.clear();
-                  setState(() => _searchResults = const []);
-                },
                 onTapHero: heroMedia == null
                     ? null
                     : () => Navigator.of(context).push(_detailsRoute(heroMedia.id)),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                child: GlassContainer(
+                  borderRadius: 16,
+                  child: TextField(
+                    controller: _search,
+                    focusNode: _searchFocus,
+                    onChanged: _onSearchChanged,
+                    decoration: InputDecoration(
+                      hintText: 'Search anime...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _search.text.isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                hapticTap();
+                                _search.clear();
+                                setState(() => _searchResults = const []);
+                              },
+                              icon: const Icon(Icons.close),
+                            ),
+                    ),
+                  ),
+                ),
               ),
             ),
             if (showingSearch)
@@ -529,168 +556,105 @@ class _FixedExtentHeaderDelegate extends SliverPersistentHeaderDelegate {
   }
 }
 
-class _DiscoveryHeroCarousel extends StatelessWidget {
-  const _DiscoveryHeroCarousel({
-    required this.items,
-    required this.controller,
-    required this.currentIndex,
-    required this.onPageChanged,
-  });
+class _DiscoveryAnimatedHero extends StatelessWidget {
+  const _DiscoveryAnimatedHero({required this.media});
 
-  final List<AniListMedia> items;
-  final PageController controller;
-  final int currentIndex;
-  final ValueChanged<int> onPageChanged;
+  final AniListMedia? media;
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final isPhone = size.width < 600;
-    final bannerHeight = isPhone ? 285.0 : 340.0;
+    if (media == null) return const SizedBox.shrink();
+    final image = media!.bannerImage ?? media!.cover.best;
+    final genresText = media!.genres.take(2).join('  ');
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            height: bannerHeight,
-            child: PageView.builder(
-              controller: controller,
-              itemCount: items.length,
-              onPageChanged: onPageChanged,
-              itemBuilder: (context, index) {
-                final media = items[index];
-                final image = media.bannerImage ?? media.cover.best;
-                final genresText = media.genres.take(2).join('  ');
-                return GestureDetector(
-                  onTap: () {
-                    hapticTap();
-                    Navigator.of(context).push(_detailsRoute(media.id));
-                  },
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (image != null)
-                          KyomiruImageCache.image(
-                            image,
-                            fit: BoxFit.cover,
-                          )
-                        else
-                          const ColoredBox(color: Color(0x22111111)),
-                        const Positioned.fill(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Color(0x22090B13),
-                                  Color(0x8A090B13),
-                                  _kDiscoveryBaseColor,
-                                ],
-                                stops: [0.42, 0.68, 0.86, 1.0],
-                              ),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          left: 20,
-                          right: 20,
-                          bottom: 22,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                media.title.best,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: isPhone ? 24 : 34,
-                                  height: 1.05,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                media.description
-                                        ?.replaceAll(RegExp(r'<[^>]*>'), ' ')
-                                        .trim() ??
-                                    '',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.white70,
-                                  height: 1.25,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.star_rounded,
-                                    color: Colors.amber,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '${media.averageScore ?? 0}%',
-                                    style: const TextStyle(
-                                      color: Color(0xFFFFD54F),
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                  if (genresText.isNotEmpty) ...[
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Text(
-                                        genresText,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+      child: SizedBox(
+        height: 285,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 520),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: Stack(
+              key: ValueKey<int>(media!.id),
+              fit: StackFit.expand,
+              children: [
+                if (image != null)
+                  KyomiruImageCache.image(image, fit: BoxFit.cover)
+                else
+                  const ColoredBox(color: Color(0x22111111)),
+                const Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Color(0x22090B13),
+                          Color(0x8A090B13),
+                          _kDiscoveryBaseColor,
+                        ],
+                        stops: [0.42, 0.68, 0.86, 1.0],
+                      ),
                     ),
                   ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              items.length,
-              (i) => AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: i == currentIndex ? 16 : 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: i == currentIndex
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.32),
-                  borderRadius: BorderRadius.circular(999),
                 ),
-              ),
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 22,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        media!.title.best,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 24,
+                          height: 1.05,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${media!.averageScore ?? 0}%',
+                            style: const TextStyle(
+                              color: Color(0xFFFFD54F),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            ),
+                          ),
+                          if (genresText.isNotEmpty) ...[
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                genresText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -942,16 +906,10 @@ class _DiscoveryPayload {
 class _WideHeroBanner extends StatelessWidget {
   const _WideHeroBanner({
     required this.media,
-    required this.searchController,
-    required this.onSearchChanged,
-    required this.onClearSearch,
     this.onTapHero,
   });
 
   final AniListMedia? media;
-  final TextEditingController searchController;
-  final ValueChanged<String> onSearchChanged;
-  final VoidCallback onClearSearch;
   final VoidCallback? onTapHero;
 
   @override
@@ -997,26 +955,6 @@ class _WideHeroBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 520,
-                  child: GlassContainer(
-                    borderRadius: 16,
-                    child: TextField(
-                      controller: searchController,
-                      onChanged: onSearchChanged,
-                      decoration: InputDecoration(
-                        hintText: 'Search anime...',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: searchController.text.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: onClearSearch,
-                                icon: const Icon(Icons.close),
-                              ),
-                      ),
-                    ),
-                  ),
-                ),
                 const Spacer(),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 760),

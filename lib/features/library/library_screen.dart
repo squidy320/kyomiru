@@ -1,4 +1,6 @@
-ï»¿import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
@@ -235,12 +237,31 @@ class _LibraryDataView extends ConsumerWidget {
         final filtered = selected == 'All'
             ? sections
             : sections.where((s) => s.title == selected).toList();
+        final watching = sections
+            .where((s) =>
+                s.title.toLowerCase().contains('watch') ||
+                s.title.toLowerCase().contains('current'))
+            .expand((s) => s.items)
+            .toList();
+        final planning = sections
+            .where((s) => s.title.toLowerCase().contains('plan'))
+            .expand((s) => s.items)
+            .toList();
+        final heroItems = (watching.isNotEmpty ? watching : planning)
+            .map((e) => e.media)
+            .toList();
 
         return RefreshIndicator(
           onRefresh: onRefresh,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
             children: [
+              _LibraryAnimatedHero(
+                items: heroItems,
+                title: 'Library',
+                subtitle: 'Currently watching and synced lists',
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -262,26 +283,29 @@ class _LibraryDataView extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              const _ContinueWatchingShelf(),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 38,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: chips.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final chip = chips[index];
-                    final active = selected == chip;
-                    return _LibraryFilterChip(
-                      label: chip,
-                      active: active,
-                      isOledBlack: settings.isOledBlack,
-                      onTap: () => onSelect(chip),
-                    );
-                  },
+              GlassContainer(
+                borderRadius: 14,
+                child: SizedBox(
+                  height: 38,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: chips.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final chip = chips[index];
+                      final active = selected == chip;
+                      return _LibraryFilterChip(
+                        label: chip,
+                        active: active,
+                        isOledBlack: settings.isOledBlack,
+                        onTap: () => onSelect(chip),
+                      );
+                    },
+                  ),
                 ),
               ),
+              const SizedBox(height: 12),
+              const _ContinueWatchingShelf(),
               const SizedBox(height: 12),
               if (loading)
                 const _LibrarySkeletonBody()
@@ -343,6 +367,24 @@ class _LocalLibraryView extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
             children: [
+              _LibraryAnimatedHero(
+                items: entries
+                    .where((e) => e.status == 'CURRENT')
+                    .followedBy(entries.where((e) => e.status == 'PLANNING'))
+                    .map(
+                      (e) => AniListMedia(
+                        id: e.mediaId,
+                        title: AniListTitle(english: e.title),
+                        cover: AniListCover(large: e.coverImage),
+                        episodes:
+                            e.totalEpisodes <= 0 ? null : e.totalEpisodes,
+                      ),
+                    )
+                    .toList(),
+                title: 'Local Library',
+                subtitle: 'Stored on this device',
+              ),
+              const SizedBox(height: 12),
               Text('Local Library',
                   style: Theme.of(context).textTheme.displaySmall),
               const Text('Stored on this device',
@@ -364,22 +406,25 @@ class _LocalLibraryView extends ConsumerWidget {
                   child: const Text('Browse Discovery to add Anime'),
                 ),
               ] else ...[
-                SizedBox(
-                  height: 38,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: chips.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final chip = chips[index];
-                      final active = selected == chip;
-                      return _LibraryFilterChip(
-                        label: chip,
-                        active: active,
-                        isOledBlack: settings.isOledBlack,
-                        onTap: () => onSelect(chip),
-                      );
-                    },
+                GlassContainer(
+                  borderRadius: 14,
+                  child: SizedBox(
+                    height: 38,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: chips.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final chip = chips[index];
+                        final active = selected == chip;
+                        return _LibraryFilterChip(
+                          label: chip,
+                          active: active,
+                          isOledBlack: settings.isOledBlack,
+                          onTap: () => onSelect(chip),
+                        );
+                      },
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -494,6 +539,144 @@ class _LocalLibrarySection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LibraryAnimatedHero extends StatefulWidget {
+  const _LibraryAnimatedHero({
+    required this.items,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final List<AniListMedia> items;
+  final String title;
+  final String subtitle;
+
+  @override
+  State<_LibraryAnimatedHero> createState() => _LibraryAnimatedHeroState();
+}
+
+class _LibraryAnimatedHeroState extends State<_LibraryAnimatedHero> {
+  Timer? _timer;
+  int _index = 0;
+
+  @override
+  void didUpdateWidget(covariant _LibraryAnimatedHero oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items) {
+      _index = 0;
+      _restartTimer();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _restartTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _restartTimer() {
+    _timer?.cancel();
+    if (widget.items.length <= 1) return;
+    _timer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted || widget.items.isEmpty) return;
+      setState(() => _index = (_index + 1) % widget.items.length);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = widget.items.isEmpty ? null : widget.items[_index % widget.items.length];
+    final image = media?.bannerImage ?? media?.cover.best;
+    final genres = media?.genres.take(2).join('  ') ?? '';
+    return SizedBox(
+      height: 250,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 520),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: Stack(
+            key: ValueKey<int>(media?.id ?? -1),
+            fit: StackFit.expand,
+            children: [
+              if (image != null)
+                KyomiruImageCache.image(image, fit: BoxFit.cover)
+              else
+                const ColoredBox(color: Color(0x22111111)),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Color(0x33090B13),
+                      Color(0x96090B13),
+                      Color(0xFF090B13),
+                    ],
+                    stops: [0.0, 0.55, 0.78, 1.0],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.title,
+                        style: const TextStyle(
+                            fontSize: 28, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(widget.subtitle,
+                        style: const TextStyle(color: Color(0xFFA1A8BC))),
+                    if (media != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        media.title.best,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.w800),
+                      ),
+                      Row(
+                        children: [
+                          const Icon(Icons.star_rounded,
+                              color: Colors.amber, size: 16),
+                          const SizedBox(width: 4),
+                          Text('${media.averageScore ?? 0}%'),
+                          if (genres.isNotEmpty) ...[
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                genres,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white70),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1026,7 +1209,7 @@ class _ContinueWatchingCard extends ConsumerWidget {
                               ),
                               const Spacer(),
                               Text(
-                                '$percent% â€¢ ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} â€¢ ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' â€¢ Local' : ''}',
+                                '$percent% • ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} • ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' • Local' : ''}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -1200,5 +1383,6 @@ class _LibrarySkeletonBody extends StatelessWidget {
     );
   }
 }
+
 
 

@@ -2,13 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
-import '../../core/liquid_glass_preset.dart';
 import '../../services/download_manager.dart';
-import '../../state/app_settings_state.dart';
 import '../player/player_screen.dart';
 
 class DownloadsScreen extends ConsumerStatefulWidget {
@@ -19,123 +16,158 @@ class DownloadsScreen extends ConsumerStatefulWidget {
 }
 
 class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
-  bool _queueInitialized = false;
-  String? _selectedSeries;
-
-  List<DownloadItem> _itemsFromBox(Box box) {
-    final out = <DownloadItem>[];
-    for (final key in box.keys) {
-      final raw = box.get(key);
-      if (raw is Map) out.add(DownloadItem.fromJson(raw));
-    }
-    out.sort((a, b) => a.animeTitle.compareTo(b.animeTitle));
-    return out;
-  }
-
   @override
   Widget build(BuildContext context) {
     final downloadsBox = Hive.box('downloads');
-    final settings = ref.watch(appSettingsProvider);
-
     return SafeArea(
-      child: DefaultTabController(
-        length: 2,
-        initialIndex: 0,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: ValueListenableBuilder(
-                valueListenable: downloadsBox.listenable(),
-                builder: (context, _, __) {
-                  final items = _itemsFromBox(downloadsBox);
-                  final active = items.where((e) => e.status != 'done').length;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Downloads',
-                        style: Theme.of(context).textTheme.displaySmall,
-                      ),
-                      Text(
-                        '$active active',
-                        style: const TextStyle(color: Color(0xFFA1A8BC)),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: LiquidGlass.withOwnLayer(
-                settings:
-                    kyomiruLiquidGlassSettings(isOledBlack: settings.isOledBlack),
-                shape: const LiquidRoundedSuperellipse(borderRadius: 16),
-                child: TabBar(
-                  onTap: (index) {
-                    if (index == 1 && !_queueInitialized) {
-                      setState(() => _queueInitialized = true);
-                    }
-                    if (index == 0 && _selectedSeries != null) {
-                      setState(() => _selectedSeries = null);
-                    }
-                  },
-                  dividerColor: Colors.transparent,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: Colors.white.withValues(alpha: 0.16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary
-                            .withValues(alpha: 0.70),
-                        blurRadius: 22,
-                        spreadRadius: 1,
-                      ),
-                      BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.24),
-                        blurRadius: 10,
-                      ),
-                    ],
-                  ),
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
-                  tabs: const [
-                    Tab(text: 'Downloaded'),
-                    Tab(text: 'Queue'),
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              child: TabBarView(
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  _DownloadedTab(
-                    selectedSeries: _selectedSeries,
-                    onSelectSeries: (value) {
-                      hapticTap();
-                      setState(() => _selectedSeries = value);
-                    },
-                    onClearSeriesSelection: () =>
-                        setState(() => _selectedSeries = null),
-                  ),
-                  _queueInitialized
-                      ? const _QueueTab()
-                      : const SizedBox.shrink(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: _UnifiedDownloadsView(downloadsBox: downloadsBox),
     );
   }
 }
 
+class _UnifiedDownloadsView extends ConsumerWidget {
+  const _UnifiedDownloadsView({required this.downloadsBox});
+
+  final Box downloadsBox;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ValueListenableBuilder(
+      valueListenable: downloadsBox.listenable(),
+      builder: (context, _, __) {
+        final items = <DownloadItem>[];
+        for (final key in downloadsBox.keys) {
+          final raw = downloadsBox.get(key);
+          if (raw is Map) items.add(DownloadItem.fromJson(raw));
+        }
+        items.sort((a, b) => a.animeTitle.compareTo(b.animeTitle));
+        final active = items.where((i) => i.status != 'done').toList();
+        final saved = items.where((i) => i.status == 'done').toList();
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+          children: [
+            Text('Downloads', style: Theme.of(context).textTheme.displaySmall),
+            Text(
+              '${active.length} active • ${saved.length} saved',
+              style: const TextStyle(color: Color(0xFFA1A8BC)),
+            ),
+            const SizedBox(height: 12),
+            if (active.isNotEmpty) ...[
+              const Text(
+                'Queue',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              ...active.map(
+                (d) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _queueTile(context, ref, d),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+            const Text(
+              'Downloaded Episodes',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            if (saved.isEmpty)
+              const GlassCard(child: Text('No saved episodes yet.'))
+            else
+              ...saved.map(
+                (d) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GlassCard(
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: SizedBox(
+                            width: 60,
+                            height: 84,
+                            child: d.coverImageUrl == null || d.coverImageUrl!.isEmpty
+                                ? const ColoredBox(color: Color(0x22111111))
+                                : Image.network(
+                                    d.coverImageUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        const ColoredBox(color: Color(0x22111111)),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                d.animeTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              Text('Episode ${d.episode}'),
+                              const SizedBox(height: 4),
+                              Text(
+                                _formatBytes(d.totalBytes > 0 ? d.totalBytes : d.downloadedBytes),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFFA1A8BC),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _pillIconButton(
+                          icon: Icons.phone_iphone_rounded,
+                          onTap: () async {
+                            hapticTap();
+                            final localFile = await ref
+                                .read(downloadControllerProvider.notifier)
+                                .getLocalEpisodeByMedia(d.mediaId, d.episode);
+                            if (!context.mounted) return;
+                            final local = localFile?.path;
+                            final exists = local != null && local.isNotEmpty;
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => PlayerScreen(
+                                  mediaId: d.mediaId,
+                                  episodeNumber: d.episode,
+                                  episodeTitle:
+                                      '${d.animeTitle} - Episode ${d.episode}',
+                                  sourceUrl: exists ? local : d.sourceUrl,
+                                  headers: d.headers,
+                                  isLocal: exists,
+                                  mediaTitle: d.animeTitle,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _pillIconButton(
+                          icon: Icons.delete_outline_rounded,
+                          onTap: () async {
+                            HapticFeedback.mediumImpact();
+                            await ref
+                                .read(downloadControllerProvider.notifier)
+                                .delete(d.mediaId, d.episode);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ignore: unused_element
 class _DownloadedTab extends ConsumerWidget {
   const _DownloadedTab({
     required this.selectedSeries,
@@ -352,6 +384,7 @@ class _DownloadedTab extends ConsumerWidget {
   }
 }
 
+// ignore: unused_element
 class _QueueTab extends ConsumerWidget {
   const _QueueTab();
 

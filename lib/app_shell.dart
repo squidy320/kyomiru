@@ -18,7 +18,7 @@ import 'core/liquid_glass_preset.dart';
 import 'core/theme/app_theme.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
-import 'features/library/library_screen.dart';
+import 'features/shelf/entry.dart' as library_screen;
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
 import 'state/app_settings_state.dart';
@@ -104,11 +104,13 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
   bool _offlineMode = false;
+  _DockEdge _wideDockEdge = _DockEdge.left;
+  double _wideDockFactor = 0.34;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   ProviderSubscription<AuthState>? _authSub;
 
   static const _pages = <Widget>[
-    LibraryScreen(),
+    library_screen.LibraryScreen(),
     DiscoveryScreen(),
     NotificationsScreen(),
     DownloadsScreen(),
@@ -186,6 +188,102 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       if (value == 2) {
         _alertsSeenForCurrentUnread = true;
       }
+    });
+  }
+
+  void _openSearch() {
+    _onItemTapped(1);
+    ref.read(discoverySearchFocusRequestProvider.notifier).state++;
+  }
+
+  Rect _wideDockRect(Size size, EdgeInsets viewPadding) {
+    final vertical = _wideDockEdge == _DockEdge.left || _wideDockEdge == _DockEdge.right;
+    const verticalWidth = 74.0;
+    const verticalHeight = 312.0;
+    const horizontalHeight = 74.0;
+    const horizontalWidth = 358.0;
+    final dockW = vertical ? verticalWidth : horizontalWidth;
+    final dockH = vertical ? verticalHeight : horizontalHeight;
+    final leftBound = viewPadding.left + 12;
+    final topBound = viewPadding.top + 12;
+    final rightBound = size.width - viewPadding.right - dockW - 12;
+    final bottomBound = size.height - viewPadding.bottom - dockH - 12;
+    final xRange = (rightBound - leftBound).clamp(0, double.infinity);
+    final yRange = (bottomBound - topBound).clamp(0, double.infinity);
+
+    switch (_wideDockEdge) {
+      case _DockEdge.left:
+        return Rect.fromLTWH(
+          leftBound,
+          topBound + (yRange * _wideDockFactor),
+          dockW,
+          dockH,
+        );
+      case _DockEdge.right:
+        return Rect.fromLTWH(
+          rightBound,
+          topBound + (yRange * _wideDockFactor),
+          dockW,
+          dockH,
+        );
+      case _DockEdge.top:
+        return Rect.fromLTWH(
+          leftBound + (xRange * _wideDockFactor),
+          topBound,
+          dockW,
+          dockH,
+        );
+      case _DockEdge.bottom:
+        return Rect.fromLTWH(
+          leftBound + (xRange * _wideDockFactor),
+          bottomBound,
+          dockW,
+          dockH,
+        );
+    }
+  }
+
+  void _snapDockFromGlobal(
+    DraggableDetails details,
+    BuildContext context,
+    Size size,
+    EdgeInsets viewPadding,
+  ) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final dropLocal = box.globalToLocal(details.offset);
+    final dx = dropLocal.dx;
+    final dy = dropLocal.dy;
+    final distLeft = dx;
+    final distRight = size.width - dx;
+    final distTop = dy;
+    final distBottom = size.height - dy;
+    final minDist = [distLeft, distRight, distTop, distBottom]
+        .reduce((a, b) => a < b ? a : b);
+
+    _DockEdge edge;
+    if (minDist == distLeft) {
+      edge = _DockEdge.left;
+    } else if (minDist == distRight) {
+      edge = _DockEdge.right;
+    } else if (minDist == distTop) {
+      edge = _DockEdge.top;
+    } else {
+      edge = _DockEdge.bottom;
+    }
+
+    final vertical = edge == _DockEdge.left || edge == _DockEdge.right;
+    final factor = vertical
+        ? ((dy - viewPadding.top) /
+                (size.height - viewPadding.top - viewPadding.bottom - 312))
+            .clamp(0.0, 1.0)
+        : ((dx - viewPadding.left) /
+                (size.width - viewPadding.left - viewPadding.right - 358))
+            .clamp(0.0, 1.0);
+
+    setState(() {
+      _wideDockEdge = edge;
+      _wideDockFactor = factor.isFinite ? factor : 0.34;
     });
   }
 
@@ -328,23 +426,45 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                     index: safeIndex,
                     children: _pages,
                   ),
-                  Positioned(
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    child: SafeArea(
-                      right: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 22, 0, 22),
-                        child: _WideRailNav(
-                          currentIndex: safeIndex,
-                          onTap: _onItemTapped,
-                          liquidGlassEnabled: widget.liquidGlassEnabled,
-                          isOledBlack: settings.isOledBlack,
+                  Builder(builder: (dockContext) {
+                    final viewPadding = MediaQuery.viewPaddingOf(context);
+                    final size = Size(constraints.maxWidth, constraints.maxHeight);
+                    final rect = _wideDockRect(size, viewPadding);
+                    final dock = _MagneticWideNavDock(
+                      edge: _wideDockEdge,
+                      currentIndex: safeIndex,
+                      onSearchTap: _openSearch,
+                      onHomeTap: () => _onItemTapped(1),
+                      onLibraryTap: () => _onItemTapped(0),
+                      onNotificationsTap: () => _onItemTapped(2),
+                      onDownloadsTap: () => _onItemTapped(3),
+                      onSettingsTap: () => _onItemTapped(4),
+                      liquidGlassEnabled: widget.liquidGlassEnabled,
+                      isOledBlack: settings.isOledBlack,
+                    );
+                    return Positioned.fromRect(
+                      rect: rect,
+                      child: LongPressDraggable<int>(
+                        data: 1,
+                        feedback: SizedBox(
+                          width: rect.width,
+                          height: rect.height,
+                          child: Opacity(opacity: 0.92, child: dock),
                         ),
+                        onDragEnd: (details) => _snapDockFromGlobal(
+                          details,
+                          dockContext,
+                          size,
+                          viewPadding,
+                        ),
+                        childWhenDragging: Opacity(
+                          opacity: 0.18,
+                          child: dock,
+                        ),
+                        child: dock,
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                   offlineBadge,
                 ],
               ),
@@ -408,23 +528,37 @@ class _PillBottomBar extends StatelessWidget {
   }
 }
 
-class _WideRailNav extends StatelessWidget {
-  const _WideRailNav({
+enum _DockEdge { left, right, top, bottom }
+
+class _MagneticWideNavDock extends StatelessWidget {
+  const _MagneticWideNavDock({
+    required this.edge,
     required this.currentIndex,
-    required this.onTap,
+    required this.onSearchTap,
+    required this.onHomeTap,
+    required this.onLibraryTap,
+    required this.onNotificationsTap,
+    required this.onDownloadsTap,
+    required this.onSettingsTap,
     required this.liquidGlassEnabled,
     required this.isOledBlack,
   });
 
+  final _DockEdge edge;
   final int currentIndex;
-  final ValueChanged<int> onTap;
+  final VoidCallback onSearchTap;
+  final VoidCallback onHomeTap;
+  final VoidCallback onLibraryTap;
+  final VoidCallback onNotificationsTap;
+  final VoidCallback onDownloadsTap;
+  final VoidCallback onSettingsTap;
   final bool liquidGlassEnabled;
   final bool isOledBlack;
 
   @override
   Widget build(BuildContext context) {
+    final vertical = edge == _DockEdge.left || edge == _DockEdge.right;
     final body = Container(
-      width: 74,
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.34),
@@ -434,30 +568,44 @@ class _WideRailNav extends StatelessWidget {
           width: 0.5,
         ),
       ),
-      child: Column(
+      child: Flex(
+        direction: vertical ? Axis.vertical : Axis.horizontal,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _WideRailItem(
             icon: CupertinoIcons.search,
-            active: currentIndex == 1,
-            onTap: () => onTap(1),
+            active: false,
+            onTap: onSearchTap,
           ),
-          const SizedBox(height: 6),
+          SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.house_fill,
             active: currentIndex == 1,
-            onTap: () => onTap(1),
+            onTap: onHomeTap,
           ),
-          const SizedBox(height: 6),
+          SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.book_fill,
             active: currentIndex == 0,
-            onTap: () => onTap(0),
+            onTap: onLibraryTap,
           ),
-          const Spacer(),
+          SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
+          _WideRailItem(
+            icon: CupertinoIcons.bell_fill,
+            active: currentIndex == 2,
+            onTap: onNotificationsTap,
+          ),
+          SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
+          _WideRailItem(
+            icon: CupertinoIcons.arrow_down_circle_fill,
+            active: currentIndex == 3,
+            onTap: onDownloadsTap,
+          ),
+          SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.gear,
             active: currentIndex == 4,
-            onTap: () => onTap(4),
+            onTap: onSettingsTap,
           ),
         ],
       ),
@@ -771,3 +919,6 @@ class _NotificationsSkeleton extends StatelessWidget {
     );
   }
 }
+
+
+
