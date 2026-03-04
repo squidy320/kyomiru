@@ -329,6 +329,17 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     return title;
   }
 
+  String _cleanEpisodeTitle(String raw, int episodeNumber) {
+    final pattern = RegExp(
+      r'^(?:episode|ep)\s*0*' +
+          RegExp.escape(episodeNumber.toString()) +
+          r'\s*[:.\-–—]?\s*',
+      caseSensitive: false,
+    );
+    final cleaned = raw.replaceFirst(pattern, '').trim();
+    return cleaned.isEmpty ? 'Episode $episodeNumber' : cleaned;
+  }
+
   String? _episodeThumbnailUrl(AniListMedia media, int episodeNumber) {
     AniListStreamingEpisode? indexedFallback;
     var currentIndex = 0;
@@ -594,8 +605,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     List<SoraEpisode> episodes,
   ) async {
     if (_isBulkDownloading || episodes.isEmpty) return;
-    final range =
-        await _pickEpisodeRange(episodes.first.number, episodes.last.number);
+    final numbers = episodes.map((e) => e.number).toList()..sort();
+    final minEpisode = numbers.first;
+    final maxEpisode = numbers.last;
+    final range = await _pickEpisodeRange(minEpisode, maxEpisode);
     if (!mounted || range == null) return;
     final selectedEpisodes = episodes
         .where((ep) => ep.number >= range.start && ep.number <= range.end)
@@ -1348,8 +1361,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             episodeState: _episodeState,
             onRetryEpisodes: () => _retryEpisodesStreamed(episodeQuery),
             onPlayEpisode: (ep) => _playEpisode(media, ep),
+            onDownloadEpisode: (ep) => _downloadEpisodeWithPicker(media, ep),
             episodeTitleFor: (episodeNumber) =>
                 _episodeSpecificTitle(media, episodeNumber),
+            episodeThumbFor: (episodeNumber) =>
+                _episodeThumbnailUrl(media, episodeNumber),
             fallbackImage: media.bannerImage ?? media.cover.best,
           );
         }
@@ -1758,8 +1774,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                   _episodeThumbnailUrl(media, ep.number);
                               final fallbackThumb =
                                   media.cover.best ?? media.bannerImage;
-                              final episodeSubtitle =
-                                  _episodeSpecificTitle(media, ep.number);
+                              final episodeSubtitle = _cleanEpisodeTitle(
+                                _episodeSpecificTitle(media, ep.number),
+                                ep.number,
+                              );
 
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
@@ -1786,71 +1804,79 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               .withValues(alpha: 0.08),
                                         ),
                                       ),
-                                      child: Row(
+                                      child: Stack(
                                         children: [
-                                          SizedBox(
-                                            width: mobileThumbWidth,
-                                            height: mobileThumbHeight,
-                                            child: _EpisodeRowThumb(
-                                              mediaId: media.id,
-                                              episode: ep.number,
-                                              progress: pct,
-                                              networkThumbUrl: thumb,
-                                              fallbackUrl: fallbackThumb,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  'EP ${ep.number}',
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF8B5CF6),
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 12,
-                                                  ),
+                                          Row(
+                                            children: [
+                                              SizedBox(
+                                                width: mobileThumbWidth,
+                                                height: mobileThumbHeight,
+                                                child: _EpisodeRowThumb(
+                                                  mediaId: media.id,
+                                                  episode: ep.number,
+                                                  progress: pct,
+                                                  networkThumbUrl: thumb,
+                                                  fallbackUrl: fallbackThumb,
                                                 ),
-                                                const SizedBox(height: 1),
-                                                Row(
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
                                                   children: [
-                                                    Expanded(
-                                                      child: Text(
-                                                        episodeSubtitle,
-                                                        maxLines: 2,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: const TextStyle(
-                                                          fontSize: 14,
-                                                          fontWeight:
-                                                              FontWeight.w700,
+                                                    Row(
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            episodeSubtitle,
+                                                            maxLines: 2,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style:
+                                                                const TextStyle(
+                                                              fontSize: 14,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                          ),
                                                         ),
-                                                      ),
+                                                        _EpisodeLocalCheck(
+                                                          mediaId: media.id,
+                                                          episodeNumber:
+                                                              ep.number,
+                                                        ),
+                                                      ],
                                                     ),
-                                                    _EpisodeLocalCheck(
+                                                    _EpisodeDownloadStatusText(
                                                       mediaId: media.id,
                                                       episodeNumber: ep.number,
                                                     ),
                                                   ],
                                                 ),
-                                                _EpisodeDownloadStatusText(
-                                                  mediaId: media.id,
-                                                  episodeNumber: ep.number,
-                                                ),
-                                              ],
-                                            ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              ProgressRing(
+                                                percent: pct,
+                                                size: 46,
+                                              ),
+                                              const SizedBox(width: 2),
+                                            ],
                                           ),
-                                          const SizedBox(width: 6),
-                                          ProgressRing(percent: pct, size: 46),
-                                          const SizedBox(width: 6),
-                                          _EpisodeDownloadAction(
-                                            mediaId: media.id,
-                                            episodeNumber: ep.number,
-                                            onDownloadTap: () =>
-                                                _downloadEpisodeWithPicker(
-                                                    media, ep),
+                                          Positioned(
+                                            top: 0,
+                                            right: 0,
+                                            child: _EpisodeDownloadAction(
+                                              mediaId: media.id,
+                                              episodeNumber: ep.number,
+                                              onDownloadTap: () =>
+                                                  _downloadEpisodeWithPicker(
+                                                media,
+                                                ep,
+                                              ),
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -1927,10 +1953,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     fontSize: 18, fontWeight: FontWeight.w800),
                               ),
                               const SizedBox(height: 8),
-                              if (media.relations
-                                  .where((r) =>
-                                      (r.media.mediaType ?? 'ANIME') == 'ANIME')
-                                  .isEmpty)
+                              if (media.relations.isEmpty)
                                 const Text(
                                   'No relations available.',
                                   style: TextStyle(color: Color(0xFF9AA0B3)),
@@ -1940,20 +1963,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                   height: 180,
                                   child: ListView.separated(
                                     scrollDirection: Axis.horizontal,
-                                    itemCount: media.relations
-                                        .where((r) =>
-                                            (r.media.mediaType ?? 'ANIME') ==
-                                            'ANIME')
-                                        .length,
+                                    itemCount: media.relations.length,
                                     separatorBuilder: (_, __) =>
                                         const SizedBox(width: 10),
                                     itemBuilder: (context, index) {
-                                      final rels = media.relations
-                                          .where((r) =>
-                                              (r.media.mediaType ?? 'ANIME') ==
-                                              'ANIME')
-                                          .toList();
-                                      final rel = rels[index];
+                                      final rel = media.relations[index];
                                       final relImage = rel.media.cover.best ??
                                           rel.media.bannerImage;
                                       return SizedBox(
@@ -1961,13 +1975,37 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         child: InkWell(
                                           borderRadius:
                                               BorderRadius.circular(12),
-                                          onTap: () =>
+                                          onTap: () {
+                                            if ((rel.media.mediaType ??
+                                                    'ANIME') ==
+                                                'ANIME') {
                                               Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) => DetailsScreen(
-                                                  mediaId: rel.media.id),
-                                            ),
-                                          ),
+                                                MaterialPageRoute(
+                                                  builder: (_) => DetailsScreen(
+                                                      mediaId: rel.media.id),
+                                                ),
+                                              );
+                                              return;
+                                            }
+                                            showDialog<void>(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                title:
+                                                    Text(rel.media.title.best),
+                                                content: Text(
+                                                  '${rel.relationType.replaceAll('_', ' ').toLowerCase()} is not a playable anime entry.',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(context)
+                                                            .pop(),
+                                                    child: const Text('OK'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
                                           child: ClipRRect(
                                             borderRadius:
                                                 BorderRadius.circular(12),
@@ -2209,7 +2247,9 @@ class _WideDetailsScaffold extends StatelessWidget {
     required this.episodeState,
     required this.onRetryEpisodes,
     required this.onPlayEpisode,
+    required this.onDownloadEpisode,
     required this.episodeTitleFor,
+    required this.episodeThumbFor,
     this.fallbackImage,
   });
 
@@ -2227,18 +2267,17 @@ class _WideDetailsScaffold extends StatelessWidget {
   final ValueNotifier<AsyncValue<EpisodeLoadResult>> episodeState;
   final VoidCallback onRetryEpisodes;
   final ValueChanged<SoraEpisode> onPlayEpisode;
+  final ValueChanged<SoraEpisode> onDownloadEpisode;
   final String Function(int episodeNumber) episodeTitleFor;
+  final String? Function(int episodeNumber) episodeThumbFor;
   final String? fallbackImage;
 
   @override
   Widget build(BuildContext context) {
     final image = fallbackImage;
-    final playableRelations = media.relations
-        .where((r) => (r.media.mediaType ?? 'ANIME') == 'ANIME')
-        .toList();
     final relationItems = <(String label, int id)>[
       ('Current Series', media.id),
-      ...playableRelations.map((r) => (r.relationType, r.media.id)),
+      ...media.relations.map((r) => (r.relationType, r.media.id)),
     ];
     final unique = <int>{};
     final relations = relationItems.where((e) => unique.add(e.$2)).toList();
@@ -2280,7 +2319,7 @@ class _WideDetailsScaffold extends StatelessWidget {
           ),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(106, 24, 28, 20),
+              padding: const EdgeInsets.fromLTRB(24, 24, 28, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2289,7 +2328,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                     icon:
                         const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
                   ),
-                  const Spacer(),
+                  const SizedBox(height: 8),
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 760),
                     child: Column(
@@ -2381,7 +2420,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(height: 12),
                   if (relations.length > 1)
                     SizedBox(
                       height: 42,
@@ -2396,7 +2435,40 @@ class _WideDetailsScaffold extends StatelessWidget {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(999),
-                              onTap: () => onSelectRelation(item.$2),
+                              onTap: () {
+                                final rel = media.relations.firstWhere(
+                                  (r) => r.media.id == item.$2,
+                                  orElse: () => AniListRelation(
+                                    relationType: item.$1,
+                                    media: AniListMedia(
+                                      id: item.$2,
+                                      title: AniListTitle(english: 'Unknown'),
+                                      cover: AniListCover(),
+                                    ),
+                                  ),
+                                );
+                                if ((rel.media.mediaType ?? 'ANIME') ==
+                                    'ANIME') {
+                                  onSelectRelation(item.$2);
+                                  return;
+                                }
+                                showDialog<void>(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: Text(rel.media.title.best),
+                                    content: Text(
+                                      '${rel.relationType.replaceAll('_', ' ').toLowerCase()} is not playable in-app.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 14,
@@ -2469,7 +2541,20 @@ class _WideDetailsScaffold extends StatelessWidget {
                               const SizedBox(width: 10),
                           itemBuilder: (context, index) {
                             final ep = episodes[index];
-                            final episodeName = episodeTitleFor(ep.number);
+                            final episodeName = episodeTitleFor(ep.number)
+                                .replaceFirst(
+                                  RegExp(
+                                    r'^(?:episode|ep)\s*0*' +
+                                        RegExp.escape(ep.number.toString()) +
+                                        r'\s*[:.\-–—]?\s*',
+                                    caseSensitive: false,
+                                  ),
+                                  '',
+                                )
+                                .trim();
+                            final episodeThumb = episodeThumbFor(ep.number);
+                            final fallbackThumb =
+                                media.cover.best ?? media.bannerImage;
                             return SizedBox(
                               width: 240,
                               child: GestureDetector(
@@ -2489,11 +2574,13 @@ class _WideDetailsScaffold extends StatelessWidget {
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
-                                        if (media.cover.best != null)
-                                          KyomiruImageCache.image(
-                                            media.cover.best!,
-                                            fit: BoxFit.cover,
-                                          ),
+                                        _EpisodeRowThumb(
+                                          mediaId: media.id,
+                                          episode: ep.number,
+                                          progress: 0,
+                                          networkThumbUrl: episodeThumb,
+                                          fallbackUrl: fallbackThumb,
+                                        ),
                                         const DecoratedBox(
                                           decoration: BoxDecoration(
                                             gradient: LinearGradient(
@@ -2508,6 +2595,16 @@ class _WideDetailsScaffold extends StatelessWidget {
                                           ),
                                         ),
                                         Positioned(
+                                          top: 8,
+                                          right: 8,
+                                          child: _EpisodeDownloadAction(
+                                            mediaId: media.id,
+                                            episodeNumber: ep.number,
+                                            onDownloadTap: () async =>
+                                                onDownloadEpisode(ep),
+                                          ),
+                                        ),
+                                        Positioned(
                                           left: 10,
                                           right: 10,
                                           bottom: 10,
@@ -2517,23 +2614,15 @@ class _WideDetailsScaffold extends StatelessWidget {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Text(
-                                                'Episode ${ep.number}',
-                                                maxLines: 1,
+                                                episodeName.isEmpty
+                                                    ? 'Episode ${ep.number}'
+                                                    : episodeName,
+                                                maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                   fontWeight: FontWeight.w700,
-                                                  fontSize: 14,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                episodeName,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 12,
-                                                  color: Colors.white70,
+                                                  fontSize: 13,
+                                                  color: Colors.white,
                                                 ),
                                               ),
                                             ],
