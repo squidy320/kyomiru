@@ -265,6 +265,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<bool> _bindMediaKitController(
     _PlayerCandidate candidate, {
     required bool isLocal,
+    int? resumePositionMsOverride,
   }) async {
     try {
       await _disposeControllers();
@@ -324,7 +325,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
 
       final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-      var initialPositionMs = widget.resumePositionMs ?? saved?.positionMs ?? 0;
+      var initialPositionMs =
+          resumePositionMsOverride ?? widget.resumePositionMs ?? saved?.positionMs ?? 0;
       if (saved != null && saved.positionMs > initialPositionMs) {
         initialPositionMs = saved.positionMs;
       }
@@ -352,6 +354,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       AppLogger.w('Player', 'MediaKit init failed for ${candidate.url}',
           error: e, stackTrace: st);
       return false;
+    }
+  }
+
+  Future<void> _seekAfterSourceSwitch(int positionMs) async {
+    if (positionMs <= 0) return;
+    final player = _mediaKitPlayer;
+    if (player == null) return;
+    final target = Duration(milliseconds: positionMs);
+    for (var i = 0; i < 6; i++) {
+      try {
+        await player.seek(target);
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      final now = player.state.position.inMilliseconds;
+      if ((now - positionMs).abs() <= 1500) {
+        break;
+      }
     }
   }
 
@@ -584,7 +603,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         url: _sanitizeUrl(target.url),
         headers: target.headers,
       );
-      final ok = await _bindMediaKitController(candidate, isLocal: false);
+      final ok = await _bindMediaKitController(
+        candidate,
+        isLocal: false,
+        resumePositionMsOverride: currentMs,
+      );
       if (!ok || !mounted) return;
 
       _candidates = _buildCandidates(
@@ -602,7 +625,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       _activeCandidateIndex = matchedIndex < 0 ? 0 : matchedIndex;
 
-      await _mediaKitPlayer?.seek(Duration(milliseconds: currentMs));
+      await _seekAfterSourceSwitch(currentMs);
       if (!wasPlaying) {
         await _mediaKitPlayer?.pause();
         _isMediaKitPlaying = false;

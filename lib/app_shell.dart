@@ -19,11 +19,13 @@ import 'core/theme/app_theme.dart';
 import 'features/details/details_screen.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
+import 'features/player/player_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
 import 'services/anilist_client.dart';
 import 'state/app_settings_state.dart';
 import 'state/auth_state.dart';
+import 'state/watch_history_state.dart';
 
 class KyomiruApp extends ConsumerWidget {
   const KyomiruApp({super.key, required this.liquidGlassEnabled});
@@ -681,7 +683,6 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
   static const _cardHeight = 232.0;
   static const _wideCardWidth = 220.0;
   static const _wideCardHeight = 302.0;
-  final TextEditingController _searchController = TextEditingController();
   Timer? _heroTimer;
   int _heroIndex = 0;
   String _selected = 'All';
@@ -691,7 +692,6 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
   @override
   void dispose() {
     _heroTimer?.cancel();
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -744,7 +744,6 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
           return Center(child: Text('Failed loading library: ${snap.error}'));
         }
 
-        final user = snap.data![0] as AniListUser;
         final sections = snap.data![1] as List<AniListLibrarySection>;
         final watching = sections
             .where((s) =>
@@ -763,21 +762,10 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
             heroPool.isEmpty ? null : heroPool[_heroIndex % heroPool.length];
 
         final chips = <String>['All', ...sections.map((s) => s.title)];
-        final q = _searchController.text.trim().toLowerCase();
         final selectedSections = _selected == 'All'
             ? sections
             : sections.where((s) => s.title == _selected).toList();
-        final filtered = q.isEmpty
-            ? selectedSections
-            : selectedSections
-                .map((s) => AniListLibrarySection(
-                      title: s.title,
-                      items: s.items
-                          .where((i) => i.media.title.best.toLowerCase().contains(q))
-                          .toList(),
-                    ))
-                .where((s) => s.items.isNotEmpty)
-                .toList();
+        final filtered = selectedSections;
 
         final isWide = MediaQuery.sizeOf(context).width > 600;
         if (!isWide) {
@@ -799,33 +787,11 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
                 children: [
-                  _LibraryHero(media: heroMedia),
-                  const SizedBox(height: 10),
-                  GlassContainer(
-                    borderRadius: 14,
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: TextField(
-                        controller: _searchController,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          hintText: 'Search in library...',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searchController.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    setState(() {});
-                                  },
-                                  icon: const Icon(Icons.close),
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
+                _LibraryHero(media: heroMedia),
+                const SizedBox(height: 10),
+                const _LibraryContinueWatchingShelf(),
+                const SizedBox(height: 10),
+                SizedBox(
                     height: 36,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
@@ -837,23 +803,10 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                         onSelected: (_) => setState(() => _selected = chips[i]),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Text('Library',
-                          style: Theme.of(context).textTheme.displaySmall),
-                      const Spacer(),
-                      if (user.avatar != null)
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundImage: KyomiruImageCache.provider(user.avatar!),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  for (final section in filtered) ...[
-                    if (section.items.isNotEmpty) ...[
+                ),
+                const SizedBox(height: 12),
+                for (final section in filtered) ...[
+                  if (section.items.isNotEmpty) ...[
                       Text(
                         section.title,
                         style:
@@ -906,29 +859,7 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
-                    child: GlassContainer(
-                      borderRadius: 14,
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: TextField(
-                          controller: _searchController,
-                          onChanged: (_) => setState(() {}),
-                          decoration: InputDecoration(
-                            hintText: 'Search in library...',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchController.text.isEmpty
-                                ? null
-                                : IconButton(
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() {});
-                                    },
-                                    icon: const Icon(Icons.close),
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ),
+                    child: const _LibraryContinueWatchingShelf(),
                   ),
                 ),
                 SliverToBoxAdapter(
@@ -946,23 +877,6 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                           onSelected: (_) => setState(() => _selected = chips[i]),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
-                    child: Row(
-                      children: [
-                        Text('Library',
-                            style: Theme.of(context).textTheme.displaySmall),
-                        const Spacer(),
-                        if (user.avatar != null)
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundImage: KyomiruImageCache.provider(user.avatar!),
-                          ),
-                      ],
                     ),
                   ),
                 ),
@@ -1206,6 +1120,176 @@ class _LibraryPosterCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LibraryContinueWatchingShelf extends ConsumerWidget {
+  const _LibraryContinueWatchingShelf();
+
+  String _formatTimeLeft(int remainingMs) {
+    if (remainingMs <= 0) return 'Done';
+    final totalMinutes = (remainingMs / 60000).ceil();
+    if (totalMinutes < 1) return '<1 min left';
+    if (totalMinutes < 60) return '$totalMinutes min left';
+    final hours = totalMinutes ~/ 60;
+    final mins = totalMinutes % 60;
+    if (mins == 0) return '${hours}h left';
+    return '${hours}h ${mins}m left';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!Hive.isBoxOpen('watch_history')) return const SizedBox.shrink();
+    final box = Hive.box('watch_history');
+    return ValueListenableBuilder(
+      valueListenable: box.listenable(),
+      builder: (context, Box<dynamic> _, __) {
+        final entries = ref.read(watchHistoryStoreProvider).allEntries();
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Continue Watching',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 152,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  final cover = (entry.coverImageUrl ?? '').trim();
+                  final remainingMs = (entry.totalDurationMs - entry.lastPositionMs)
+                      .clamp(0, entry.totalDurationMs);
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        hapticTap();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PlayerScreen(
+                              mediaId: entry.mediaId,
+                              episodeNumber: entry.episodeNumber,
+                              episodeTitle: entry.episodeTitle,
+                              sourceUrl: entry.sourceUrl,
+                              mediaTitle: entry.mediaTitle,
+                              headers: entry.headers,
+                              isLocal: entry.isDownloaded,
+                              backgroundImageUrl: entry.coverImageUrl,
+                              resumePositionMs: entry.lastPositionMs,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: 252,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final progress = entry.progress.clamp(0.0, 1.0);
+                            final progressWidth = (constraints.maxWidth * progress)
+                                .clamp(0.0, constraints.maxWidth);
+                            return Stack(
+                              children: [
+                                Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: const BorderRadius.horizontal(
+                                        left: Radius.circular(16),
+                                      ),
+                                      child: SizedBox(
+                                        width: 92,
+                                        height: double.infinity,
+                                        child: cover.isNotEmpty
+                                            ? KyomiruImageCache.image(
+                                                cover,
+                                                fit: BoxFit.cover,
+                                                error: const ColoredBox(
+                                                    color: Color(0x22111111)),
+                                              )
+                                            : const ColoredBox(
+                                                color: Color(0x22111111),
+                                              ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              entry.mediaTitle,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Episode ${entry.episodeNumber}',
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              _formatTimeLeft(remainingMs),
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Container(height: 4, color: Colors.white24),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    height: 4,
+                                    width: progressWidth,
+                                    color: const Color(0xFF60A5FA),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
