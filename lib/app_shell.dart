@@ -427,10 +427,10 @@ class _TopPillNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <(String label, int tab)>[
-      ('Home', 1),
-      ('Schedule', 2),
-      ('Downloads', 3),
       ('Library', 0),
+      ('Home', 1),
+      ('Notifications', 2),
+      ('Downloads', 3),
     ];
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -464,11 +464,11 @@ class _TopPillNav extends StatelessWidget {
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(999),
-              onTap: () => onTap(1),
+              onTap: () => onTap(4),
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Icon(
-                  CupertinoIcons.search,
+                  CupertinoIcons.gear,
                   color: Colors.white,
                   size: 18,
                 ),
