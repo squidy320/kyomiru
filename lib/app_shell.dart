@@ -678,6 +678,8 @@ class _UnifiedLibraryTab extends ConsumerStatefulWidget {
 class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
   static const _cardWidth = 152.0;
   static const _cardHeight = 232.0;
+  static const _wideCardWidth = 220.0;
+  static const _wideCardHeight = 302.0;
   final TextEditingController _searchController = TextEditingController();
   Timer? _heroTimer;
   int _heroIndex = 0;
@@ -760,6 +762,105 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                 .where((s) => s.items.isNotEmpty)
                 .toList();
 
+        final isWide = MediaQuery.sizeOf(context).width > 600;
+        if (!isWide) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF090B13),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x4D121520), Color(0xFF090B13)],
+              ),
+            ),
+            child: RefreshIndicator(
+              onRefresh: () async => setState(() {}),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
+                children: [
+                  _LibraryHero(media: heroMedia),
+                  const SizedBox(height: 10),
+                  GlassContainer(
+                    borderRadius: 14,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          hintText: 'Search in library...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchController.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() {});
+                                  },
+                                  icon: const Icon(Icons.close),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 36,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: chips.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) => ChoiceChip(
+                        label: Text(chips[i]),
+                        selected: chips[i] == _selected,
+                        onSelected: (_) => setState(() => _selected = chips[i]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Text('Library',
+                          style: Theme.of(context).textTheme.displaySmall),
+                      const Spacer(),
+                      if (user.avatar != null)
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundImage: KyomiruImageCache.provider(user.avatar!),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  for (final section in filtered) ...[
+                    if (section.items.isNotEmpty) ...[
+                      Text(
+                        section.title,
+                        style:
+                            const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: _cardHeight,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: section.items.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          itemBuilder: (context, index) => _LibraryPosterCard(
+                            media: section.items[index].media,
+                            width: _cardWidth,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          );
+        }
+
+        final topInset = MediaQuery.viewPaddingOf(context).top;
         return Container(
           decoration: const BoxDecoration(
             color: Color(0xFF090B13),
@@ -771,131 +872,108 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
           ),
           child: RefreshIndicator(
             onRefresh: () async => setState(() {}),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
-              children: [
-                _LibraryHero(media: heroMedia),
-                const SizedBox(height: 10),
-                GlassContainer(
-                  borderRadius: 14,
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _LibraryWideHero(media: heroMedia, topInset: topInset),
+                ),
+                SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        hintText: 'Search in library...',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _searchController.text.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                                icon: const Icon(Icons.close),
-                              ),
+                    padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                    child: GlassContainer(
+                      borderRadius: 14,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: TextField(
+                          controller: _searchController,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: 'Search in library...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _searchController.text.isEmpty
+                                ? null
+                                : IconButton(
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() {});
+                                    },
+                                    icon: const Icon(Icons.close),
+                                  ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 36,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: chips.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, i) => ChoiceChip(
-                      label: Text(chips[i]),
-                      selected: chips[i] == _selected,
-                      onSelected: (_) => setState(() => _selected = chips[i]),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Text('Library', style: Theme.of(context).textTheme.displaySmall),
-                    const Spacer(),
-                    if (user.avatar != null)
-                      CircleAvatar(
-                        radius: 16,
-                        backgroundImage: KyomiruImageCache.provider(user.avatar!),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                for (final section in filtered) ...[
-                  if (section.items.isNotEmpty) ...[
-                    Text(
-                      section.title,
-                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: _cardHeight,
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(108, 10, 20, 0),
+                    child: SizedBox(
+                      height: 36,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
-                        itemCount: section.items.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 10),
-                        itemBuilder: (context, index) {
-                          final media = section.items[index].media;
-                          return SizedBox(
-                            width: _cardWidth,
-                            child: GestureDetector(
-                              onTap: () => Navigator.of(context).push(
-                                PageRouteBuilder<void>(
-                                  pageBuilder: (_, __, ___) =>
-                                      DetailsScreen(mediaId: media.id),
-                                  transitionDuration: Duration.zero,
-                                  reverseTransitionDuration: Duration.zero,
-                                ),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(18),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    if (media.cover.best != null)
-                                      KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
-                                    else
-                                      const ColoredBox(color: Color(0x22111111)),
-                                    const DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [Colors.transparent, Color(0xE6000000)],
-                                          stops: [0.54, 1],
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: 8,
-                                      right: 8,
-                                      bottom: 8,
-                                      child: Text(
-                                        media.title.best,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
+                        itemCount: chips.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, i) => ChoiceChip(
+                          label: Text(chips[i]),
+                          selected: chips[i] == _selected,
+                          onSelected: (_) => setState(() => _selected = chips[i]),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 14),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                    child: Row(
+                      children: [
+                        Text('Library',
+                            style: Theme.of(context).textTheme.displaySmall),
+                        const Spacer(),
+                        if (user.avatar != null)
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundImage: KyomiruImageCache.provider(user.avatar!),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                for (final section in filtered)
+                  if (section.items.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(108, 18, 20, 0),
+                        child: Text(
+                          section.title,
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                        child: SizedBox(
+                          height: _wideCardHeight,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: section.items.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: 14),
+                            itemBuilder: (context, index) => _LibraryPosterCard(
+                              media: section.items[index].media,
+                              width: _wideCardWidth,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
-                ],
+                const SliverToBoxAdapter(child: SizedBox(height: 120)),
               ],
             ),
           ),
@@ -964,6 +1042,143 @@ class _LibraryHero extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryWideHero extends StatelessWidget {
+  const _LibraryWideHero({required this.media, required this.topInset});
+
+  final AniListMedia? media;
+  final double topInset;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = media?.bannerImage ?? media?.cover.best;
+    return SizedBox(
+      height: 470,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (image != null)
+            KyomiruImageCache.image(image, fit: BoxFit.cover)
+          else
+            const ColoredBox(color: Color(0x22111111)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x22000000),
+                  Color(0x77090B13),
+                  Color(0xDD090B13),
+                  Color(0xFF090B13),
+                ],
+                stops: [0.0, 0.56, 0.82, 1.0],
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(108, topInset + 20, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Spacer(),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Library',
+                        style: TextStyle(
+                          fontSize: 52,
+                          fontWeight: FontWeight.w800,
+                          height: 0.95,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        media?.title.best ?? 'Your AniList library',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LibraryPosterCard extends StatelessWidget {
+  const _LibraryPosterCard({
+    required this.media,
+    required this.width,
+  });
+
+  final AniListMedia media;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          PageRouteBuilder<void>(
+            pageBuilder: (_, __, ___) => DetailsScreen(mediaId: media.id),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (media.cover.best != null)
+                KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
+              else
+                const ColoredBox(color: Color(0x22111111)),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xE6000000)],
+                    stops: [0.54, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: Text(
+                  media.title.best,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
