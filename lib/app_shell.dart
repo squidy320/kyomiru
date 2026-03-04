@@ -330,20 +330,17 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                   ),
                   Positioned(
                     top: 0,
+                    bottom: 0,
                     left: 0,
-                    right: 0,
                     child: SafeArea(
-                      bottom: false,
+                      right: false,
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: _TopPillNav(
-                            currentIndex: safeIndex,
-                            onTap: _onItemTapped,
-                            liquidGlassEnabled: widget.liquidGlassEnabled,
-                            isOledBlack: settings.isOledBlack,
-                          ),
+                        padding: const EdgeInsets.fromLTRB(14, 22, 0, 22),
+                        child: _WideRailNav(
+                          currentIndex: safeIndex,
+                          onTap: _onItemTapped,
+                          liquidGlassEnabled: widget.liquidGlassEnabled,
+                          isOledBlack: settings.isOledBlack,
                         ),
                       ),
                     ),
@@ -411,8 +408,8 @@ class _PillBottomBar extends StatelessWidget {
   }
 }
 
-class _TopPillNav extends StatelessWidget {
-  const _TopPillNav({
+class _WideRailNav extends StatelessWidget {
+  const _WideRailNav({
     required this.currentIndex,
     required this.onTap,
     required this.liquidGlassEnabled,
@@ -426,54 +423,41 @@ class _TopPillNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = <(String label, int tab)>[
-      ('Library', 0),
-      ('Home', 1),
-      ('Notifications', 2),
-      ('Downloads', 3),
-    ];
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final navBody = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+    final body = Container(
+      width: 74,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: isDark
-            ? Colors.black.withValues(alpha: 0.40)
-            : Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(999),
+        color: Colors.black.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(28),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.20),
+          color: Colors.white.withValues(alpha: 0.18),
           width: 0.5,
         ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
         children: [
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3),
-              child: _TopPillNavButton(
-                label: item.$1,
-                active: currentIndex == item.$2,
-                onTap: () => onTap(item.$2),
-              ),
-            ),
-          const SizedBox(width: 2),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () => onTap(4),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Icon(
-                  CupertinoIcons.gear,
-                  color: Colors.white,
-                  size: 18,
-                ),
-              ),
-            ),
+          _WideRailItem(
+            icon: CupertinoIcons.search,
+            active: currentIndex == 1,
+            onTap: () => onTap(1),
+          ),
+          const SizedBox(height: 6),
+          _WideRailItem(
+            icon: CupertinoIcons.house_fill,
+            active: currentIndex == 1,
+            onTap: () => onTap(1),
+          ),
+          const SizedBox(height: 6),
+          _WideRailItem(
+            icon: CupertinoIcons.book_fill,
+            active: currentIndex == 0,
+            onTap: () => onTap(0),
+          ),
+          const Spacer(),
+          _WideRailItem(
+            icon: CupertinoIcons.gear,
+            active: currentIndex == 4,
+            onTap: () => onTap(4),
           ),
         ],
       ),
@@ -482,28 +466,29 @@ class _TopPillNav extends StatelessWidget {
     if (liquidGlassEnabled) {
       return LiquidGlass.withOwnLayer(
         settings: kyomiruLiquidGlassSettings(isOledBlack: isOledBlack),
-        shape: const LiquidRoundedSuperellipse(borderRadius: 999),
-        child: navBody,
+        shape: const LiquidRoundedSuperellipse(borderRadius: 28),
+        child: body,
       );
     }
+
     return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(28),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: navBody,
+        child: body,
       ),
     );
   }
 }
 
-class _TopPillNavButton extends StatelessWidget {
-  const _TopPillNavButton({
-    required this.label,
+class _WideRailItem extends StatelessWidget {
+  const _WideRailItem({
+    required this.icon,
     required this.active,
     required this.onTap,
   });
 
-  final String label;
+  final IconData icon;
   final bool active;
   final VoidCallback onTap;
 
@@ -512,25 +497,22 @@ class _TopPillNavButton extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          height: 48,
+          width: 48,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            color: active
-                ? Colors.white.withValues(alpha: 0.16)
-                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            color:
+                active ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: active ? Colors.white : Colors.white70,
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-            ),
+          child: Icon(
+            icon,
+            size: 23,
+            color: active ? Colors.white : Colors.white70,
           ),
         ),
       ),

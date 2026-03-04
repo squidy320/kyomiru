@@ -42,6 +42,7 @@ class DetailsScreen extends ConsumerStatefulWidget {
 }
 
 class _DetailsScreenState extends ConsumerState<DetailsScreen> {
+  int? _activeMediaId;
   SoraAnimeMatch? _manualMatch;
   int? _prefetchedForMediaId;
   bool _isBulkDownloading = false;
@@ -70,6 +71,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   EpisodeQuery? _episodeLoadQuery;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
+  int get _currentMediaId => _activeMediaId ?? widget.mediaId;
 
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
     setState(() {
@@ -131,22 +133,38 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final client = ref.read(anilistClientProvider);
     try {
       final media = await client
-          .mediaDetails(widget.mediaId)
+          .mediaDetails(_currentMediaId)
           .timeout(const Duration(seconds: 20));
       AppLogger.i(
         'Details',
-        'mediaDetails loaded mediaId=${widget.mediaId} in ${sw.elapsedMilliseconds}ms',
+        'mediaDetails loaded mediaId=$_currentMediaId in ${sw.elapsedMilliseconds}ms',
       );
       return media;
     } catch (e, st) {
       AppLogger.e(
         'Details',
-        'mediaDetails failed mediaId=${widget.mediaId}',
+        'mediaDetails failed mediaId=$_currentMediaId',
         error: e,
         stackTrace: st,
       );
       rethrow;
     }
+  }
+
+  void _switchWideMedia(int mediaId) {
+    if (mediaId == _currentMediaId) return;
+    setState(() {
+      _activeMediaId = mediaId;
+      _manualMatch = _readSavedMatch(mediaId);
+      _prefetchedForMediaId = null;
+      _visibleEpisodeCount = 24;
+      _sourceLoadError = null;
+      _lastFailedEpisode = null;
+      _episodeLoadQuery = null;
+      _episodeState.value = const AsyncLoading();
+      _lastPaletteRequestImage = null;
+      _mediaDetailsFuture = _loadMediaDetails();
+    });
   }
 
   AniListMedia? _readCachedMediaPreview(int mediaId) {
@@ -1209,6 +1227,29 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         final bgBase = uiSettings.enableDynamicColors
             ? _detailBgSeed.withValues(alpha: 0.30)
             : Colors.black;
+        final isWide = MediaQuery.sizeOf(context).width > 600;
+        if (isWide) {
+          return _WideDetailsScaffold(
+            media: media,
+            description: description,
+            inAnyList: inAnyList,
+            trackingResolved: trackingResolved,
+            token: auth.token,
+            onPlay: () => _playSmartEpisode(media, episodeQuery, progressStore),
+            onBookmark: () => _handleBookmarkTap(
+              media,
+              inAnyList: inAnyList,
+              trackingResolved: trackingResolved,
+              token: auth.token,
+            ),
+            onBack: () => Navigator.of(context).maybePop(),
+            onSelectRelation: _switchWideMedia,
+            episodeState: _episodeState,
+            onRetryEpisodes: () => _retryEpisodesStreamed(episodeQuery),
+            onPlayEpisode: (ep) => _playEpisode(media, ep),
+            fallbackImage: media.bannerImage ?? media.cover.best,
+          );
+        }
         return Scaffold(
           body: Container(
             decoration: BoxDecoration(
@@ -1973,6 +2014,319 @@ class _LiteCard extends StatelessWidget {
     );
   }
 
+}
+
+class _WideDetailsScaffold extends StatelessWidget {
+  const _WideDetailsScaffold({
+    required this.media,
+    required this.description,
+    required this.inAnyList,
+    required this.trackingResolved,
+    required this.token,
+    required this.onPlay,
+    required this.onBookmark,
+    required this.onBack,
+    required this.onSelectRelation,
+    required this.episodeState,
+    required this.onRetryEpisodes,
+    required this.onPlayEpisode,
+    this.fallbackImage,
+  });
+
+  final AniListMedia media;
+  final String description;
+  final bool inAnyList;
+  final bool trackingResolved;
+  final String? token;
+  final VoidCallback onPlay;
+  final VoidCallback onBookmark;
+  final VoidCallback onBack;
+  final ValueChanged<int> onSelectRelation;
+  final ValueNotifier<AsyncValue<EpisodeLoadResult>> episodeState;
+  final VoidCallback onRetryEpisodes;
+  final ValueChanged<SoraEpisode> onPlayEpisode;
+  final String? fallbackImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = fallbackImage;
+    final relationItems = <(String label, int id)>[
+      ('Current Series', media.id),
+      ...media.relations.map((r) => (r.relationType, r.media.id)),
+    ];
+    final unique = <int>{};
+    final relations = relationItems.where((e) => unique.add(e.$2)).toList();
+    final studio =
+        media.studios.isEmpty ? 'Unknown Studio' : media.studios.first;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            child: Container(
+              key: ValueKey<int>(media.id),
+              decoration: BoxDecoration(
+                image: image == null
+                    ? null
+                    : DecorationImage(
+                        image: KyomiruImageCache.provider(image),
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+          ),
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x33000000),
+                  Color(0xB0000000),
+                  Color(0xEE090B13),
+                ],
+                stops: [0.0, 0.58, 1.0],
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(106, 24, 28, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  IconButton(
+                    onPressed: onBack,
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                  ),
+                  const Spacer(),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          media.title.best,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 56,
+                            fontWeight: FontWeight.w800,
+                            height: 0.95,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '${media.episodes ?? '-'} EPS  •  $studio  •  ${media.averageScore ?? 0}%',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          description.isEmpty ? 'No description.' : description,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 15,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            GlassButton(
+                              onPressed: onPlay,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 2,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.play_arrow_rounded, size: 22),
+                                    SizedBox(width: 6),
+                                    Text('Play'),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            GlassButton(
+                              onPressed: onBookmark,
+                              child: Icon(
+                                inAnyList
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_border_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  if (relations.length > 1)
+                    SizedBox(
+                      height: 42,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: relations.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final item = relations[index];
+                          final active = item.$2 == media.id;
+                          return Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(999),
+                              onTap: () => onSelectRelation(item.$2),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: active
+                                      ? Colors.white.withValues(alpha: 0.22)
+                                      : Colors.black.withValues(alpha: 0.22),
+                                  border: Border.all(
+                                    color: active
+                                        ? Colors.white.withValues(alpha: 0.9)
+                                        : Colors.white.withValues(alpha: 0.20),
+                                    width: active ? 1.0 : 0.5,
+                                  ),
+                                ),
+                                child: Text(
+                                  item.$1,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color:
+                                        active ? Colors.white : Colors.white70,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  ValueListenableBuilder<AsyncValue<EpisodeLoadResult>>(
+                    valueListenable: episodeState,
+                    builder: (context, asyncEpisodes, _) {
+                      if (asyncEpisodes.isLoading) {
+                        return const SizedBox(
+                          height: 138,
+                          child: _EpisodeListLoadingSkeleton(),
+                        );
+                      }
+                      if (asyncEpisodes.hasError) {
+                        return GlassCard(
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text('Server busy loading episodes.'),
+                              ),
+                              FilledButton.tonal(
+                                onPressed: onRetryEpisodes,
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      final episodes = asyncEpisodes.valueOrNull?.episodes ?? const [];
+                      if (episodes.isEmpty) {
+                        return const GlassCard(
+                          child: Text('No episodes found for this source.'),
+                        );
+                      }
+                      return SizedBox(
+                        height: 136,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: episodes.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          itemBuilder: (context, index) {
+                            final ep = episodes[index];
+                            return SizedBox(
+                              width: 240,
+                              child: GestureDetector(
+                                onTap: () => onPlayEpisode(ep),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.30),
+                                      border: Border.all(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.16),
+                                      ),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        if (media.cover.best != null)
+                                          KyomiruImageCache.image(
+                                            media.cover.best!,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        const DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                Colors.transparent,
+                                                Color(0xCC000000),
+                                              ],
+                                              stops: [0.58, 1],
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          left: 10,
+                                          right: 10,
+                                          bottom: 10,
+                                          child: Text(
+                                            'Episode ${ep.number}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TrackingPane extends ConsumerStatefulWidget {

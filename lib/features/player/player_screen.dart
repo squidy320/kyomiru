@@ -641,11 +641,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         final current = await ref
             .read(localLibraryStoreProvider)
             .entryForMedia(widget.mediaId);
-        final nextProgress = (current?.episodesWatched ?? 0) + 1;
+        final nextProgress =
+            widget.episodeNumber > (current?.episodesWatched ?? 0)
+                ? widget.episodeNumber
+                : (current?.episodesWatched ?? 0);
+        final totalEpisodes = current?.totalEpisodes ?? 0;
+        final isFinalEpisode =
+            totalEpisodes > 0 && nextProgress >= totalEpisodes;
+        final nextStatus = isFinalEpisode ? 'COMPLETED' : 'CURRENT';
         await ref.read(localLibraryStoreProvider).upsertByMediaId(
               widget.mediaId,
               title: widget.mediaTitle,
-              status: current?.status ?? 'CURRENT',
+              status: nextStatus,
               progress: nextProgress,
               score: current?.userScore ?? 0,
             );
@@ -671,11 +678,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final client = ref.read(anilistClientProvider);
     try {
       final current = await client.trackingEntry(token, widget.mediaId);
-      final nextProgress = (current?.progress ?? 0) + 1;
+      final nextProgress = widget.episodeNumber > (current?.progress ?? 0)
+          ? widget.episodeNumber
+          : (current?.progress ?? 0);
+      final availability = await client.episodeAvailability(token, widget.mediaId);
+      final isReleasing =
+          (availability?.status.toUpperCase() ?? '') == 'RELEASING';
+      final totalEpisodes = availability?.episodes ?? 0;
+      final isFinalEpisode =
+          !isReleasing && totalEpisodes > 0 && nextProgress >= totalEpisodes;
+      final nextStatus = isFinalEpisode ? 'COMPLETED' : 'CURRENT';
       await client.saveTrackingEntry(
         token: token,
         mediaId: widget.mediaId,
-        status: current?.status ?? 'CURRENT',
+        status: nextStatus,
         progress: nextProgress,
         score: current?.score ?? 0,
       );

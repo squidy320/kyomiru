@@ -174,6 +174,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     super.build(context);
     final settings = ref.watch(appSettingsProvider);
     final showingSearch = _search.text.trim().isNotEmpty;
+    final isWide = MediaQuery.sizeOf(context).width > 600;
 
     return FutureBuilder<_DiscoveryPayload>(
       future: _discoveryFuture,
@@ -181,6 +182,16 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         final payload = dataSnap.data ?? _cachedPayload;
         final trending = payload?.trending ?? const <AniListMedia>[];
         final sections = payload?.sections ?? const <AniListDiscoverySection>[];
+        if (isWide) {
+          return _buildWideDiscovery(
+            context: context,
+            settings: settings,
+            dataSnap: dataSnap,
+            trending: trending,
+            sections: sections,
+            showingSearch: showingSearch,
+          );
+        }
         final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
         final hasHero = !showingSearch && trending.isNotEmpty;
         final topInset = MediaQuery.viewPaddingOf(context).top;
@@ -409,6 +420,79 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildWideDiscovery({
+    required BuildContext context,
+    required AppSettings settings,
+    required AsyncSnapshot<_DiscoveryPayload> dataSnap,
+    required List<AniListMedia> trending,
+    required List<AniListDiscoverySection> sections,
+    required bool showingSearch,
+  }) {
+    final heroMedia = trending.isNotEmpty ? trending[_heroIndex % trending.length] : null;
+    final gradientTop = _backgroundSeed.withValues(alpha: 0.26);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: _kDiscoveryBaseColor,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [gradientTop, _kDiscoveryBaseColor],
+        ),
+      ),
+      child: RefreshIndicator(
+        onRefresh: _refresh,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
+              child: _WideHeroBanner(
+                media: heroMedia,
+                searchController: _search,
+                onSearchChanged: _onSearchChanged,
+                onClearSearch: () {
+                  hapticTap();
+                  _search.clear();
+                  setState(() => _searchResults = const []);
+                },
+                onTapHero: heroMedia == null
+                    ? null
+                    : () => Navigator.of(context).push(_detailsRoute(heroMedia.id)),
+              ),
+            ),
+            if (showingSearch)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(108, 18, 20, 0),
+                  child: _searching
+                      ? const _DiscoverySkeleton()
+                      : _HorizontalSection(
+                          title: 'Search Results',
+                          items: _searchResults,
+                        ),
+                ),
+              )
+            else ...[
+              for (final section in sections.where((s) => s.items.isNotEmpty))
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(108, 18, 20, 0),
+                    child: _WideCarouselSection(
+                      title: section.title,
+                      items: section.items,
+                    ),
+                  ),
+                ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 120)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -853,4 +937,175 @@ class _DiscoveryPayload {
 
   final List<AniListMedia> trending;
   final List<AniListDiscoverySection> sections;
+}
+
+class _WideHeroBanner extends StatelessWidget {
+  const _WideHeroBanner({
+    required this.media,
+    required this.searchController,
+    required this.onSearchChanged,
+    required this.onClearSearch,
+    this.onTapHero,
+  });
+
+  final AniListMedia? media;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
+  final VoidCallback? onTapHero;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = media?.bannerImage ?? media?.cover.best;
+    final topInset = MediaQuery.viewPaddingOf(context).top;
+    final synopsis = (media?.description ?? '')
+        .replaceAll(RegExp(r'<[^>]*>'), ' ')
+        .trim();
+    final studio = media?.studios.isNotEmpty == true
+        ? media!.studios.first
+        : 'Unknown Studio';
+
+    return SizedBox(
+      height: 470,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (image != null && image.isNotEmpty)
+            GestureDetector(
+              onTap: onTapHero,
+              child: KyomiruImageCache.image(image, fit: BoxFit.cover),
+            )
+          else
+            const ColoredBox(color: Color(0x22111111)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x22000000),
+                  Color(0x77090B13),
+                  Color(0xDD090B13),
+                  _kDiscoveryBaseColor,
+                ],
+                stops: [0.0, 0.56, 0.82, 1.0],
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(108, topInset + 20, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 520,
+                  child: GlassContainer(
+                    borderRadius: 16,
+                    child: TextField(
+                      controller: searchController,
+                      onChanged: onSearchChanged,
+                      decoration: InputDecoration(
+                        hintText: 'Search anime...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: onClearSearch,
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        media?.title.best ?? 'Discovery',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 52,
+                          fontWeight: FontWeight.w800,
+                          height: 0.95,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '${media?.episodes ?? '-'} EPS  •  $studio  •  ${media?.averageScore ?? 0}%',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        synopsis.isEmpty ? 'Browse trending and top rated anime.' : synopsis,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: Colors.white70,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WideCarouselSection extends StatelessWidget {
+  const _WideCarouselSection({
+    required this.title,
+    required this.items,
+  });
+
+  final String title;
+  final List<AniListMedia> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 302,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return SizedBox(
+                width: 220,
+                child: _HoverPosterTile(
+                  onTap: () {
+                    hapticTap();
+                    Navigator.of(context).push(_detailsRoute(item.id));
+                  },
+                  child: _AnimePosterCard(media: item),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
 }
