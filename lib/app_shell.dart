@@ -679,8 +679,6 @@ class _UnifiedLibraryTab extends ConsumerStatefulWidget {
 }
 
 class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
-  static const _cardWidth = 152.0;
-  static const _cardHeight = 232.0;
   static const _wideCardWidth = 220.0;
   static const _wideCardHeight = 302.0;
   Timer? _heroTimer;
@@ -717,6 +715,21 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
     if (_libraryFuture != null && _libraryFutureToken == token) return;
     _libraryFutureToken = token;
     _libraryFuture = _loadLibraryData(client, token);
+  }
+
+  double _phoneHeroHeight(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return (w * 0.62).clamp(235.0, 320.0);
+  }
+
+  double _phoneCardWidth(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return (w * 0.38).clamp(138.0, 172.0);
+  }
+
+  double _phoneCardHeight(BuildContext context) {
+    final cw = _phoneCardWidth(context);
+    return (cw * 1.53).clamp(208.0, 262.0);
   }
 
   @override
@@ -769,6 +782,9 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
 
         final isWide = MediaQuery.sizeOf(context).width > 600;
         if (!isWide) {
+          final phoneCardW = _phoneCardWidth(context);
+          final phoneCardH = _phoneCardHeight(context);
+          final heroHeight = _phoneHeroHeight(context);
           return Container(
             decoration: const BoxDecoration(
               color: Color(0xFF090B13),
@@ -787,7 +803,7 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
                 children: [
-                _LibraryHero(media: heroMedia),
+                _LibraryHero(media: heroMedia, height: heroHeight),
                 const SizedBox(height: 10),
                 const _LibraryContinueWatchingShelf(),
                 const SizedBox(height: 10),
@@ -814,14 +830,14 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                       ),
                       const SizedBox(height: 8),
                       SizedBox(
-                        height: _cardHeight,
+                        height: phoneCardH,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: section.items.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 10),
                           itemBuilder: (context, index) => _LibraryPosterCard(
                             media: section.items[index].media,
-                            width: _cardWidth,
+                            width: phoneCardW,
                           ),
                         ),
                       ),
@@ -923,15 +939,19 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
 }
 
 class _LibraryHero extends StatelessWidget {
-  const _LibraryHero({required this.media});
+  const _LibraryHero({
+    required this.media,
+    required this.height,
+  });
 
   final AniListMedia? media;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final image = media?.bannerImage ?? media?.cover.best;
     return SizedBox(
-      height: 285,
+      height: height,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: Stack(

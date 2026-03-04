@@ -23,6 +23,21 @@ const double _kCardHeight = 232;
 const Color _kDiscoveryBaseColor = Color(0xFF090B13);
 final discoverySearchFocusRequestProvider = StateProvider<int>((ref) => 0);
 
+double _phoneHeroHeight(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  return (w * 0.62).clamp(235.0, 320.0);
+}
+
+double _phoneCardWidth(BuildContext context) {
+  final w = MediaQuery.sizeOf(context).width;
+  return (w * 0.38).clamp(138.0, 172.0);
+}
+
+double _phoneCardHeight(BuildContext context) {
+  final cw = _phoneCardWidth(context);
+  return (cw * 1.53).clamp(208.0, 262.0);
+}
+
 Route<void> _detailsRoute(int mediaId) {
   return PageRouteBuilder<void>(
     pageBuilder: (_, __, ___) => DetailsScreen(mediaId: mediaId),
@@ -175,6 +190,9 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         const gradientTop = Color(0x4D121520);
         final hasHero = !showingSearch && trending.isNotEmpty;
         final topInset = MediaQuery.viewPaddingOf(context).top;
+        final phoneCardW = _phoneCardWidth(context);
+        final phoneCardH = _phoneCardHeight(context);
+        final heroHeight = _phoneHeroHeight(context);
         final topSlivers = <Widget>[];
         topSlivers.add(
           SliverPadding(
@@ -202,6 +220,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               sliver: SliverToBoxAdapter(
                 child: _DiscoveryAnimatedHero(
                   media: heroMedia,
+                  height: heroHeight,
                 ),
               ),
             ),
@@ -283,6 +302,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                   child: _HorizontalSection(
                     title: 'Search Results',
                     items: _searchResults,
+                    cardWidth: phoneCardW,
+                    cardHeight: phoneCardH,
                   ),
                 ),
               ),
@@ -336,7 +357,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                 padding: const EdgeInsets.fromLTRB(0, 0, 14, 14),
                 sliver: SliverToBoxAdapter(
                   child: SizedBox(
-                    height: _kCardHeight,
+                    height: phoneCardH,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: section.items.length,
@@ -344,7 +365,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                       itemBuilder: (context, index) {
                         final item = section.items[index];
                         return SizedBox(
-                          width: _kCardWidth,
+                          width: phoneCardW,
                           child: _HoverPosterTile(
                             onTap: () {
                               hapticTap();
@@ -531,9 +552,13 @@ class _FixedExtentHeaderDelegate extends SliverPersistentHeaderDelegate {
 }
 
 class _DiscoveryAnimatedHero extends StatelessWidget {
-  const _DiscoveryAnimatedHero({required this.media});
+  const _DiscoveryAnimatedHero({
+    required this.media,
+    required this.height,
+  });
 
   final AniListMedia? media;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -543,7 +568,7 @@ class _DiscoveryAnimatedHero extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
       child: SizedBox(
-        height: 285,
+        height: height,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(28),
           child: AnimatedSwitcher(
@@ -635,10 +660,17 @@ class _DiscoveryAnimatedHero extends StatelessWidget {
 }
 
 class _HorizontalSection extends StatelessWidget {
-  const _HorizontalSection({required this.title, required this.items});
+  const _HorizontalSection({
+    required this.title,
+    required this.items,
+    this.cardWidth = _kCardWidth,
+    this.cardHeight = _kCardHeight,
+  });
 
   final String title;
   final List<AniListMedia> items;
+  final double cardWidth;
+  final double cardHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -651,7 +683,7 @@ class _HorizontalSection extends StatelessWidget {
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         SizedBox(
-          height: _kCardHeight,
+          height: cardHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: items.length,
@@ -659,7 +691,7 @@ class _HorizontalSection extends StatelessWidget {
             itemBuilder: (context, index) {
               final item = items[index];
               return SizedBox(
-                width: _kCardWidth,
+                width: cardWidth,
                 child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
