@@ -16,6 +16,7 @@ import 'core/haptics.dart';
 import 'core/image_cache.dart';
 import 'core/liquid_glass_preset.dart';
 import 'core/theme/app_theme.dart';
+import 'features/details/details_screen.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -109,7 +110,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   ProviderSubscription<AuthState>? _authSub;
 
   static const _pages = <Widget>[
-    DiscoveryScreen(),
+    _UnifiedLibraryTab(),
     DiscoveryScreen(),
     NotificationsScreen(),
     DownloadsScreen(),
@@ -661,6 +662,308 @@ class _WideRailItem extends StatelessWidget {
             size: 23,
             color: active ? Colors.white : Colors.white70,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UnifiedLibraryTab extends ConsumerStatefulWidget {
+  const _UnifiedLibraryTab();
+
+  @override
+  ConsumerState<_UnifiedLibraryTab> createState() => _UnifiedLibraryTabState();
+}
+
+class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
+  static const _cardWidth = 152.0;
+  static const _cardHeight = 232.0;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _heroTimer;
+  int _heroIndex = 0;
+  String _selected = 'All';
+
+  @override
+  void dispose() {
+    _heroTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _startHeroTimer(int count) {
+    _heroTimer?.cancel();
+    if (count <= 1) return;
+    _heroTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted) return;
+      setState(() => _heroIndex = (_heroIndex + 1) % count);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
+    if (auth.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (auth.token == null || auth.token!.isEmpty) {
+      return const SafeArea(
+        child: Center(child: Text('Connect AniList to load your library.')),
+      );
+    }
+
+    final token = auth.token!;
+    final client = ref.watch(anilistClientProvider);
+    return FutureBuilder<List<dynamic>>(
+      future: client
+          .me(token)
+          .then((u) async => [u, await client.librarySections(token, userId: u.id)]),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snap.hasError || snap.data == null) {
+          return Center(child: Text('Failed loading library: ${snap.error}'));
+        }
+
+        final user = snap.data![0] as AniListUser;
+        final sections = snap.data![1] as List<AniListLibrarySection>;
+        final watching = sections
+            .where((s) =>
+                s.title.toLowerCase().contains('watch') ||
+                s.title.toLowerCase().contains('current'))
+            .expand((s) => s.items)
+            .toList();
+        final planning = sections
+            .where((s) => s.title.toLowerCase().contains('plan'))
+            .expand((s) => s.items)
+            .toList();
+        final heroPool =
+            (watching.isNotEmpty ? watching : planning).map((e) => e.media).toList();
+        _startHeroTimer(heroPool.length);
+        final heroMedia =
+            heroPool.isEmpty ? null : heroPool[_heroIndex % heroPool.length];
+
+        final chips = <String>['All', ...sections.map((s) => s.title)];
+        final q = _searchController.text.trim().toLowerCase();
+        final selectedSections = _selected == 'All'
+            ? sections
+            : sections.where((s) => s.title == _selected).toList();
+        final filtered = q.isEmpty
+            ? selectedSections
+            : selectedSections
+                .map((s) => AniListLibrarySection(
+                      title: s.title,
+                      items: s.items
+                          .where((i) => i.media.title.best.toLowerCase().contains(q))
+                          .toList(),
+                    ))
+                .where((s) => s.items.isNotEmpty)
+                .toList();
+
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF090B13),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x4D121520), Color(0xFF090B13)],
+            ),
+          ),
+          child: RefreshIndicator(
+            onRefresh: () async => setState(() {}),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
+              children: [
+                _LibraryHero(media: heroMedia),
+                const SizedBox(height: 10),
+                GlassContainer(
+                  borderRadius: 14,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search in library...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {});
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 36,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: chips.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, i) => ChoiceChip(
+                      label: Text(chips[i]),
+                      selected: chips[i] == _selected,
+                      onSelected: (_) => setState(() => _selected = chips[i]),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Text('Library', style: Theme.of(context).textTheme.displaySmall),
+                    const Spacer(),
+                    if (user.avatar != null)
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundImage: KyomiruImageCache.provider(user.avatar!),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                for (final section in filtered) ...[
+                  if (section.items.isNotEmpty) ...[
+                    Text(
+                      section.title,
+                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: _cardHeight,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: section.items.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, index) {
+                          final media = section.items[index].media;
+                          return SizedBox(
+                            width: _cardWidth,
+                            child: GestureDetector(
+                              onTap: () => Navigator.of(context).push(
+                                PageRouteBuilder<void>(
+                                  pageBuilder: (_, __, ___) =>
+                                      DetailsScreen(mediaId: media.id),
+                                  transitionDuration: Duration.zero,
+                                  reverseTransitionDuration: Duration.zero,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    if (media.cover.best != null)
+                                      KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
+                                    else
+                                      const ColoredBox(color: Color(0x22111111)),
+                                    const DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [Colors.transparent, Color(0xE6000000)],
+                                          stops: [0.54, 1],
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      left: 8,
+                                      right: 8,
+                                      bottom: 8,
+                                      child: Text(
+                                        media.title.best,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LibraryHero extends StatelessWidget {
+  const _LibraryHero({required this.media});
+
+  final AniListMedia? media;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = media?.bannerImage ?? media?.cover.best;
+    return SizedBox(
+      height: 285,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (image != null)
+              KyomiruImageCache.image(image, fit: BoxFit.cover)
+            else
+              const ColoredBox(color: Color(0x22111111)),
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Color(0x22090B13),
+                      Color(0x8A090B13),
+                      Color(0xFF090B13),
+                    ],
+                    stops: [0.42, 0.68, 0.86, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 22,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Library',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 6),
+                  if (media != null)
+                    Text(
+                      media!.title.best,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
