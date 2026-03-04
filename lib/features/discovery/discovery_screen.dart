@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
-import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
@@ -12,6 +12,8 @@ import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
 import '../../core/liquid_glass_preset.dart';
 import '../../models/anilist_models.dart';
+import '../../state/watch_history_state.dart';
+import '../player/player_screen.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../details/details_screen.dart';
@@ -51,8 +53,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   bool _searching = false;
   int _heroIndex = 0;
   int _lastFocusRequestTick = -1;
-  Color _backgroundSeed = const Color(0xFF0A0D18);
-  final Map<String, Color> _paletteCache = <String, Color>{};
 
   @override
   void initState() {
@@ -93,38 +93,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     );
     _cachedPayload = payload;
     _startHeroTimer(payload.trending.length);
-    unawaited(_updateBackgroundForTrending(payload.trending, 0));
     return payload;
-  }
-
-  Future<void> _updateBackgroundForTrending(
-      List<AniListMedia> trending, int index) async {
-    if (trending.isEmpty || index < 0 || index >= trending.length) return;
-    final media = trending[index];
-    final image = media.bannerImage ?? media.cover.best;
-    if (image == null || image.isEmpty) return;
-
-    final cached = _paletteCache[image];
-    if (cached != null) {
-      if (!mounted) return;
-      setState(() => _backgroundSeed = cached);
-      return;
-    }
-
-    try {
-      final palette = await PaletteGenerator.fromImageProvider(
-        KyomiruImageCache.provider(image),
-        size: const Size(120, 120),
-        maximumColorCount: 12,
-      );
-      final picked = palette.dominantColor?.color ??
-          palette.vibrantColor?.color ??
-          palette.mutedColor?.color;
-      if (picked == null) return;
-      _paletteCache[image] = picked;
-      if (!mounted) return;
-      setState(() => _backgroundSeed = picked);
-    } catch (_) {}
   }
 
   void _startHeroTimer(int count) {
@@ -134,7 +103,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
       if (!mounted) return;
       final next = (_heroIndex + 1) % count;
       setState(() => _heroIndex = next);
-      unawaited(_updateBackgroundForTrending(_cachedPayload?.trending ?? const [], next));
     });
   }
 
@@ -204,7 +172,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             showingSearch: showingSearch,
           );
         }
-        final gradientTop = _backgroundSeed.withValues(alpha: 0.30);
+        const gradientTop = Color(0x4D121520);
         final hasHero = !showingSearch && trending.isNotEmpty;
         final topInset = MediaQuery.viewPaddingOf(context).top;
         final topSlivers = <Widget>[];
@@ -283,6 +251,12 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             ),
           ),
         );
+        topSlivers.add(
+          const SliverPadding(
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 0),
+            sliver: SliverToBoxAdapter(child: _DiscoveryContinueWatchingShelf()),
+          ),
+        );
 
         if (showingSearch) {
           if (_searching) {
@@ -359,7 +333,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                padding: const EdgeInsets.fromLTRB(0, 0, 14, 14),
                 sliver: SliverToBoxAdapter(
                   child: SizedBox(
                     height: _kCardHeight,
@@ -439,7 +413,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     required List<AniListDiscoverySection> sections,
     required bool showingSearch,
   }) {
-    final gradientTop = _backgroundSeed.withValues(alpha: 0.26);
+    const gradientTop = Color(0x47121520);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 380),
@@ -1044,6 +1018,177 @@ class _WideCarouselSection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DiscoveryContinueWatchingShelf extends ConsumerWidget {
+  const _DiscoveryContinueWatchingShelf();
+
+  String _formatTimeLeft(int remainingMs) {
+    if (remainingMs <= 0) return 'Done';
+    final totalMinutes = (remainingMs / 60000).ceil();
+    if (totalMinutes < 1) return '<1 min left';
+    if (totalMinutes < 60) return '$totalMinutes min left';
+    final hours = totalMinutes ~/ 60;
+    final mins = totalMinutes % 60;
+    if (mins == 0) return '${hours}h left';
+    return '${hours}h ${mins}m left';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final box = Hive.box('watch_history');
+    return ValueListenableBuilder(
+      valueListenable: box.listenable(),
+      builder: (context, Box<dynamic> _, __) {
+        final entries = ref.read(watchHistoryStoreProvider).allEntries();
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Continue Watching',
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 152,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  final remainingMs = (entry.totalDurationMs - entry.lastPositionMs)
+                      .clamp(0, entry.totalDurationMs);
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        hapticTap();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PlayerScreen(
+                              mediaId: entry.mediaId,
+                              episodeNumber: entry.episodeNumber,
+                              episodeTitle: entry.episodeTitle,
+                              sourceUrl: entry.sourceUrl,
+                              mediaTitle: entry.mediaTitle,
+                              headers: entry.headers,
+                              isLocal: entry.isDownloaded,
+                              backgroundImageUrl: entry.coverImageUrl,
+                              resumePositionMs: entry.lastPositionMs,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: 252,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final progress = entry.progress.clamp(0.0, 1.0);
+                            final progressWidth =
+                                (constraints.maxWidth * progress).clamp(0.0, constraints.maxWidth);
+                            final cover = entry.coverImageUrl;
+                            return Stack(
+                              children: [
+                                Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: const BorderRadius.horizontal(
+                                        left: Radius.circular(16),
+                                      ),
+                                      child: SizedBox(
+                                        width: 92,
+                                        height: double.infinity,
+                                        child: cover != null && cover.isNotEmpty
+                                            ? KyomiruImageCache.image(
+                                                cover,
+                                                fit: BoxFit.cover,
+                                                error: const ColoredBox(
+                                                    color: Color(0x22111111)),
+                                              )
+                                            : const ColoredBox(
+                                                color: Color(0x22111111),
+                                              ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            10, 10, 10, 10),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              entry.mediaTitle,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Episode ${entry.episodeNumber}',
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              _formatTimeLeft(remainingMs),
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    height: 4,
+                                    color: Colors.white24,
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    height: 4,
+                                    width: progressWidth,
+                                    color: const Color(0xFF60A5FA),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

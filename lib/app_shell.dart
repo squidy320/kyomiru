@@ -18,7 +18,6 @@ import 'core/liquid_glass_preset.dart';
 import 'core/theme/app_theme.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
-import 'features/shelf/entry.dart' as library_screen;
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
 import 'state/app_settings_state.dart';
@@ -110,7 +109,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   ProviderSubscription<AuthState>? _authSub;
 
   static const _pages = <Widget>[
-    library_screen.LibraryScreen(),
+    DiscoveryScreen(),
     DiscoveryScreen(),
     NotificationsScreen(),
     DownloadsScreen(),
@@ -199,7 +198,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   Rect _wideDockRect(Size size, EdgeInsets viewPadding) {
     final vertical = _wideDockEdge == _DockEdge.left || _wideDockEdge == _DockEdge.right;
     const verticalWidth = 74.0;
-    const verticalHeight = 312.0;
+    const verticalHeight = 368.0;
     const horizontalHeight = 74.0;
     const horizontalWidth = 358.0;
     final dockW = vertical ? verticalWidth : horizontalWidth;
@@ -275,7 +274,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     final vertical = edge == _DockEdge.left || edge == _DockEdge.right;
     final factor = vertical
         ? ((dy - viewPadding.top) /
-                (size.height - viewPadding.top - viewPadding.bottom - 312))
+                (size.height - viewPadding.top - viewPadding.bottom - 368))
             .clamp(0.0, 1.0)
         : ((dx - viewPadding.left) /
                 (size.width - viewPadding.left - viewPadding.right - 358))

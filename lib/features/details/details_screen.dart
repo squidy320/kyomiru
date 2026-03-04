@@ -975,6 +975,80 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     }
   }
 
+  Future<void> _downloadEpisodeWithPicker(
+    AniListMedia media,
+    SoraEpisode ep,
+  ) async {
+    final sources = await _loadSourcesWithOverlay(media, ep);
+    if (sources.isEmpty) return;
+    final settings = ref.read(appSettingsProvider);
+    final selected = settings.chooseStreamEveryTime
+        ? await _showSourcePicker(sources)
+        : _pickDownloadSource(sources, settings);
+    if (selected == null) return;
+    _lockSessionSource(selected);
+    await ref.read(downloadControllerProvider.notifier).downloadHlsEpisode(
+          mediaId: media.id,
+          episode: ep.number,
+          animeTitle: media.title.best,
+          coverImageUrl: media.cover.best,
+          episodeThumbnailUrl: _episodeThumbnailUrl(
+            media,
+            ep.number,
+          ),
+          source: selected,
+        );
+  }
+
+  Future<void> _showEpisodeLongPressActions(
+    AniListMedia media,
+    SoraEpisode ep,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: GlassContainer(
+            borderRadius: 18,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.download_rounded),
+                  title: Text('Download Episode ${ep.number}'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    unawaited(_downloadEpisodeWithPicker(media, ep));
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleManualMatchTap(AniListMedia media) async {
+    final manual = await _openManualMatchPicker(media);
+    if (!mounted || manual == null) return;
+    _refreshPahe(media, manual: manual);
+  }
+
+  Future<void> _handleDownloadAllTap(AniListMedia media) async {
+    final episodes = _episodeState.value.valueOrNull?.episodes ?? const <SoraEpisode>[];
+    if (episodes.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Episodes are still loading.')),
+      );
+      return;
+    }
+    await _downloadAllEpisodes(media, episodes);
+  }
+
   Future<void> _retryLastFailedSource(AniListMedia media) async {
     final ep = _lastFailedEpisode;
     if (ep == null || _sourceRequestInFlight) return;
@@ -1242,6 +1316,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               trackingResolved: trackingResolved,
               token: auth.token,
             ),
+            onManualMatch: () => _handleManualMatchTap(media),
+            onDownloadAll: () => _handleDownloadAllTap(media),
             onBack: () => Navigator.of(context).maybePop(),
             onSelectRelation: _switchWideMedia,
             episodeState: _episodeState,
@@ -1288,6 +1364,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         trackingResolved: trackingResolved,
                         token: auth.token,
                       ),
+                      onManualMatch: () => _handleManualMatchTap(media),
+                      onDownloadAll: () => _handleDownloadAllTap(media),
                     ),
                   ),
                 ),
@@ -1689,6 +1767,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     onTap: _sourceRequestInFlight
                                         ? null
                                         : () => _playEpisode(media, ep),
+                                    onLongPress: () =>
+                                        _showEpisodeLongPressActions(media, ep),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 10,
@@ -1764,44 +1844,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                           _EpisodeDownloadAction(
                                             mediaId: media.id,
                                             episodeNumber: ep.number,
-                                            onDownloadTap: () async {
-                                              final sources =
-                                                  await _loadSourcesWithOverlay(
-                                                media,
-                                                ep,
-                                              );
-                                              if (sources.isEmpty) return;
-                                              final settings =
-                                                  ref.read(appSettingsProvider);
-                                              final selected =
-                                                  settings.chooseStreamEveryTime
-                                                      ? await _showSourcePicker(
-                                                          sources)
-                                                      : _pickDownloadSource(
-                                                          sources,
-                                                          settings,
-                                                        );
-                                              if (selected == null) return;
-                                              _lockSessionSource(selected);
-                                              await ref
-                                                  .read(
-                                                      downloadControllerProvider
-                                                          .notifier)
-                                                  .downloadHlsEpisode(
-                                                    mediaId: media.id,
-                                                    episode: ep.number,
-                                                    animeTitle:
-                                                        media.title.best,
-                                                    coverImageUrl:
-                                                        media.cover.best,
-                                                    episodeThumbnailUrl:
-                                                        _episodeThumbnailUrl(
-                                                      media,
-                                                      ep.number,
-                                                    ),
-                                                    source: selected,
-                                                  );
-                                            },
+                                            onDownloadTap: () =>
+                                                _downloadEpisodeWithPicker(
+                                                    media, ep),
                                           ),
                                         ],
                                       ),
@@ -2025,6 +2070,8 @@ class _WideDetailsScaffold extends StatelessWidget {
     required this.token,
     required this.onPlay,
     required this.onBookmark,
+    required this.onManualMatch,
+    required this.onDownloadAll,
     required this.onBack,
     required this.onSelectRelation,
     required this.episodeState,
@@ -2040,6 +2087,8 @@ class _WideDetailsScaffold extends StatelessWidget {
   final String? token;
   final VoidCallback onPlay;
   final VoidCallback onBookmark;
+  final VoidCallback onManualMatch;
+  final VoidCallback onDownloadAll;
   final VoidCallback onBack;
   final ValueChanged<int> onSelectRelation;
   final ValueNotifier<AsyncValue<EpisodeLoadResult>> episodeState;
@@ -2165,6 +2214,31 @@ class _WideDetailsScaffold extends StatelessWidget {
                                 inAnyList
                                     ? Icons.bookmark_rounded
                                     : Icons.bookmark_border_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            GlassButton(
+                              onPressed: onManualMatch,
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.link_rounded, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('Manual Match'),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            GlassButton(
+                              onPressed: onDownloadAll,
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.download_for_offline_outlined,
+                                      size: 18),
+                                  SizedBox(width: 6),
+                                  Text('Download All'),
+                                ],
                               ),
                             ),
                           ],
@@ -2774,12 +2848,16 @@ class _BadlandsHero extends StatelessWidget {
     required this.inAnyList,
     required this.onPlay,
     required this.onBookmark,
+    required this.onManualMatch,
+    required this.onDownloadAll,
   });
 
   final AniListMedia media;
   final bool inAnyList;
   final VoidCallback onPlay;
   final VoidCallback onBookmark;
+  final VoidCallback onManualMatch;
+  final VoidCallback onDownloadAll;
 
   @override
   Widget build(BuildContext context) {
@@ -2840,7 +2918,9 @@ class _BadlandsHero extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
                 children: [
                   ElevatedButton.icon(
                     onPressed: onPlay,
@@ -2885,6 +2965,34 @@ class _BadlandsHero extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onManualMatch,
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.22),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      minimumSize: const Size(156, 46),
+                    ),
+                    icon: const Icon(Icons.link_rounded, size: 19),
+                    label: const Text('Manual Match'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onDownloadAll,
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.22),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      minimumSize: const Size(148, 46),
+                    ),
+                    icon: const Icon(Icons.download_for_offline_outlined, size: 19),
+                    label: const Text('Download All'),
                   ),
                 ],
               ),
