@@ -80,12 +80,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   double _phoneEpisodeThumbWidth(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    return (w * 0.27).clamp(96.0, 126.0);
+    return (w * 0.31).clamp(110.0, 138.0);
   }
 
   double _phoneEpisodeThumbHeight(BuildContext context) {
     final tw = _phoneEpisodeThumbWidth(context);
-    return (tw * 0.62).clamp(60.0, 78.0);
+    return (tw * 0.58).clamp(64.0, 82.0);
   }
 
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
@@ -1384,8 +1384,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                         trackingResolved: trackingResolved,
                         token: auth.token,
                       ),
-                      onManualMatch: () => _handleManualMatchTap(media),
-                      onDownloadAll: () => _handleDownloadAllTap(media),
                     ),
                   ),
                 ),
@@ -1534,185 +1532,154 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           children: [
                             glassReady
                                 ? GlassCard(
-                                    child: Row(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        const Icon(Icons.link),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              const Text('AnimePahe',
-                                                  style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w800)),
-                                              Text(
-                                                _manualMatch == null
-                                                    ? 'Using automatic matching'
-                                                    : 'Using manual matching',
-                                                style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color: Color(0xFF9AA0B3)),
-                                              ),
-                                              Text(
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.link),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
                                                 data.match!.title,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
                                               ),
-                                            ],
-                                          ),
+                                            ),
+                                          ],
                                         ),
-                                        FilledButton.tonal(
-                                          onPressed: () async {
-                                            final manual =
-                                                await _openManualMatchPicker(
-                                                    media);
-                                            if (manual != null) {
-                                              _refreshPahe(media, manual: manual);
-                                            }
-                                          },
-                                          child: const Text('Manual'),
-                                        ),
-                                        IconButton(
-                                          onPressed: () => _refreshPahe(media),
-                                          icon: const Icon(Icons.refresh),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            const _InlineActionPill(
+                                              icon: Icons.hub_rounded,
+                                              label: 'AnimePahe',
+                                              onTap: null,
+                                            ),
+                                            _InlineActionPill(
+                                              icon: Icons.tune_rounded,
+                                              label: _manualMatch == null
+                                                  ? 'Auto'
+                                                  : 'Manual',
+                                              onTap: null,
+                                            ),
+                                            _InlineActionPill(
+                                              icon: Icons.link_rounded,
+                                              label: 'Manual',
+                                              onTap: () async {
+                                                final manual =
+                                                    await _openManualMatchPicker(
+                                                        media);
+                                                if (manual != null) {
+                                                  _refreshPahe(media,
+                                                      manual: manual);
+                                                }
+                                              },
+                                            ),
+                                            _InlineActionPill(
+                                              icon: Icons.refresh_rounded,
+                                              label: 'Refresh',
+                                              onTap: () => _refreshPahe(media),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
                                   )
                                 : _LiteCard(
-                                    child: Row(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        const Icon(Icons.link),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              const Text('AnimePahe',
-                                                  style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w800)),
-                                              Text(
-                                                _manualMatch == null
-                                                    ? 'Using automatic matching'
-                                                    : 'Using manual matching',
-                                                style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color: Color(0xFF9AA0B3)),
-                                              ),
-                                              Text(
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.link),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
                                                 data.match!.title,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
                                               ),
-                                            ],
-                                          ),
+                                            ),
+                                          ],
                                         ),
-                                        FilledButton.tonal(
-                                          onPressed: () async {
-                                            final manual =
-                                                await _openManualMatchPicker(
-                                                    media);
-                                            if (manual != null) {
-                                              _refreshPahe(media, manual: manual);
-                                            }
-                                          },
-                                          child: const Text('Manual'),
-                                        ),
-                                        IconButton(
-                                          onPressed: () => _refreshPahe(media),
-                                          icon: const Icon(Icons.refresh),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            const _InlineActionPill(
+                                              icon: Icons.hub_rounded,
+                                              label: 'AnimePahe',
+                                              onTap: null,
+                                            ),
+                                            _InlineActionPill(
+                                              icon: Icons.tune_rounded,
+                                              label: _manualMatch == null
+                                                  ? 'Auto'
+                                                  : 'Manual',
+                                              onTap: null,
+                                            ),
+                                            _InlineActionPill(
+                                              icon: Icons.link_rounded,
+                                              label: 'Manual',
+                                              onTap: () async {
+                                                final manual =
+                                                    await _openManualMatchPicker(
+                                                        media);
+                                                if (manual != null) {
+                                                  _refreshPahe(media,
+                                                      manual: manual);
+                                                }
+                                              },
+                                            ),
+                                            _InlineActionPill(
+                                              icon: Icons.refresh_rounded,
+                                              label: 'Refresh',
+                                              onTap: () => _refreshPahe(media),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
                                   ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             Row(
                               children: [
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.fromLTRB(
-                                        14, 10, 10, 10),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                        colors: [
-                                          Colors.white.withValues(alpha: 0.04),
-                                          Colors.black.withValues(alpha: 0.20),
-                                        ],
-                                      ),
-                                      border: Border.all(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.08),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Text(
-                                          'Episodes',
-                                          style: TextStyle(
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        if (_isBulkDownloading)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.08),
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                              border: Border.all(
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.12),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const SizedBox(
-                                                  width: 16,
-                                                  height: 16,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Text(
-                                                    'Downloading $_bulkDone/$_bulkTotal'),
-                                              ],
-                                            ),
-                                          )
-                                        else
-                                          GlassButton(
-                                            onPressed: () =>
-                                                _downloadAllEpisodes(
-                                                    media, episodes),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons
-                                                    .download_for_offline_outlined),
-                                                SizedBox(width: 6),
-                                                Text('Download All'),
-                                              ],
-                                            ),
-                                          ),
-                                      ],
-                                    ),
+                                const Text(
+                                  'Episodes',
+                                  style: TextStyle(
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
+                                const Spacer(),
+                                if (_isBulkDownloading)
+                                  _InlineActionPill(
+                                    icon: Icons.downloading_rounded,
+                                    label: '$_bulkDone/$_bulkTotal',
+                                    onTap: null,
+                                    showProgress: true,
+                                  )
+                                else
+                                  _InlineActionPill(
+                                    icon: Icons.download_for_offline_outlined,
+                                    label: 'Download All',
+                                    onTap: () => _downloadAllEpisodes(
+                                      media,
+                                      episodes,
+                                    ),
+                                  ),
                               ],
                             ),
                             const SizedBox(height: 10),
@@ -1780,7 +1747,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                   _episodeSpecificTitle(media, ep.number);
 
                               return Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.only(bottom: 6),
                                 child: RepaintBoundary(
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.opaque,
@@ -1791,8 +1758,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                         _showEpisodeLongPressActions(media, ep),
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 8,
+                                        horizontal: 8,
+                                        vertical: 6,
                                       ),
                                       decoration: BoxDecoration(
                                         color: uiSettings.isOledBlack
@@ -1817,19 +1784,21 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               fallbackUrl: fallbackThumb,
                                             ),
                                           ),
-                                          const SizedBox(width: 10),
+                                          const SizedBox(width: 8),
                                           Expanded(
                                             child: Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                Text('EP ${ep.number}',
-                                                    style: const TextStyle(
-                                                        color:
-                                                            Color(0xFF8B5CF6),
-                                                        fontWeight:
-                                                            FontWeight.w700)),
-                                                const SizedBox(height: 2),
+                                                Text(
+                                                  'EP ${ep.number}',
+                                                  style: const TextStyle(
+                                                    color: Color(0xFF8B5CF6),
+                                                    fontWeight: FontWeight.w700,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 1),
                                                 Row(
                                                   children: [
                                                     Expanded(
@@ -1839,10 +1808,10 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                         overflow: TextOverflow
                                                             .ellipsis,
                                                         style: const TextStyle(
-                                                            fontSize: 15,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w700),
+                                                          fontSize: 14,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
                                                       ),
                                                     ),
                                                     _EpisodeLocalCheck(
@@ -1858,9 +1827,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                               ],
                                             ),
                                           ),
-                                          const SizedBox(width: 8),
-                                          ProgressRing(percent: pct, size: 52),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: 6),
+                                          ProgressRing(percent: pct, size: 46),
+                                          const SizedBox(width: 6),
                                           _EpisodeDownloadAction(
                                             mediaId: media.id,
                                             episodeNumber: ep.number,
@@ -2079,6 +2048,67 @@ class _LiteCard extends StatelessWidget {
     );
   }
 
+}
+
+class _InlineActionPill extends StatelessWidget {
+  const _InlineActionPill({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.showProgress = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool showProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: disabled
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.white.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+              width: 0.5,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showProgress)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(icon, size: 16, color: Colors.white70),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _WideDetailsScaffold extends StatelessWidget {
@@ -2889,16 +2919,12 @@ class _BadlandsHero extends StatelessWidget {
     required this.inAnyList,
     required this.onPlay,
     required this.onBookmark,
-    required this.onManualMatch,
-    required this.onDownloadAll,
   });
 
   final AniListMedia media;
   final bool inAnyList;
   final VoidCallback onPlay;
   final VoidCallback onBookmark;
-  final VoidCallback onManualMatch;
-  final VoidCallback onDownloadAll;
 
   @override
   Widget build(BuildContext context) {
@@ -2924,10 +2950,10 @@ class _BadlandsHero extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withValues(alpha: 0.55),
+                  Colors.black.withValues(alpha: 0.72),
                   const Color(0xFF090B13),
                 ],
-                stops: const [0.45, 0.78, 1.0],
+                stops: const [0.38, 0.74, 1.0],
               ),
             ),
           ),
@@ -2959,9 +2985,7 @@ class _BadlandsHero extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
+              Row(
                 children: [
                   ElevatedButton.icon(
                     onPressed: onPlay,
@@ -3006,34 +3030,6 @@ class _BadlandsHero extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onManualMatch,
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.22),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      minimumSize: const Size(156, 46),
-                    ),
-                    icon: const Icon(Icons.link_rounded, size: 19),
-                    label: const Text('Manual Match'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onDownloadAll,
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.22),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      minimumSize: const Size(148, 46),
-                    ),
-                    icon: const Icon(Icons.download_for_offline_outlined, size: 19),
-                    label: const Text('Download All'),
                   ),
                 ],
               ),
