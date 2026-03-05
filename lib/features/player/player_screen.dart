@@ -154,6 +154,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void initState() {
     super.initState();
+    AppLogger.i('PlayerPiP', 'init platform=${Platform.operatingSystem}');
     final settings = ref.read(appSettingsProvider);
     _selectedQuality = settings.defaultQuality;
     _selectedSubtitle = settings.defaultAudio;
@@ -188,6 +189,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       unawaited(_persistProgress());
       if (playing && !_iosPipActive) {
+        AppLogger.i(
+          'PlayerPiP',
+          'auto-enter attempt state=$state platform=${Platform.operatingSystem}',
+        );
         unawaited(togglePiP());
       }
     }
@@ -203,6 +208,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         supported =
             await _iosPipChannel.invokeMethod<bool>('isAvailable') ?? false;
       }
+      AppLogger.i(
+        'PlayerPiP',
+        'availability platform=${Platform.operatingSystem} supported=$supported',
+      );
       if (!mounted) return;
       setState(() => _pipSupported = supported);
       if (supported && Platform.isAndroid) {
@@ -214,6 +223,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } catch (_) {
       if (!mounted) return;
       setState(() => _pipSupported = false);
+      AppLogger.w(
+        'PlayerPiP',
+        'availability check failed platform=${Platform.operatingSystem}',
+      );
     }
   }
 
@@ -1197,34 +1210,68 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _enterPip() async {
-    if (!_enablePip || !_pipSupported) return;
+    if (!_enablePip) return;
+    if (Platform.isAndroid && !_pipSupported) return;
     try {
       if (Platform.isAndroid) {
+        AppLogger.i('PlayerPiP', 'enter requested android');
         await _simplePip.enterPipMode(
           seamlessResize: true,
         );
+        AppLogger.i('PlayerPiP', 'enter dispatched android');
         return;
       }
       if (Platform.isIOS) {
+        final supported =
+            await _iosPipChannel.invokeMethod<bool>('isAvailable') ?? false;
+        if (!supported) {
+          _pipSupported = false;
+          if (mounted) setState(() {});
+          AppLogger.w('PlayerPiP', 'enter blocked ios unsupported');
+          return;
+        }
+        if (!_pipSupported) {
+          _pipSupported = true;
+          if (mounted) setState(() {});
+        }
         final url = _activePlaybackUrl();
-        if (url == null || url.trim().isEmpty) return;
+        if (url == null || url.trim().isEmpty) {
+          AppLogger.w('PlayerPiP', 'enter blocked ios missing active url');
+          return;
+        }
+        AppLogger.i(
+          'PlayerPiP',
+          'enter requested ios url=${url.length > 80 ? '${url.substring(0, 80)}...' : url}',
+        );
         final started = await _iosPipChannel.invokeMethod<bool>('enterPip', {
           'url': url.trim(),
           'headers': _activePlaybackHeaders(),
           'positionMs': (_currentSec * 1000).round(),
           'speed': _selectedPlaybackSpeed,
         });
+        AppLogger.i('PlayerPiP', 'enter result ios started=$started');
         if (started == true) {
           await _mediaKitPlayer?.pause();
           _isMediaKitPlaying = false;
           _iosPipActive = true;
         }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      AppLogger.w('PlayerPiP', 'enter failed', error: e, stackTrace: st);
+    }
   }
 
   Future<void> _handleIosPipCallback(MethodCall call) async {
     if (!mounted) return;
+    if (call.method == 'onPipError') {
+      String message = 'unknown';
+      final args = call.arguments;
+      if (args is Map && args['message'] != null) {
+        message = '${args['message']}';
+      }
+      AppLogger.w('PlayerPiP', 'ios native error: $message');
+      return;
+    }
     if (call.method != 'onPipStopped') return;
     _iosPipActive = false;
     final args = call.arguments;
@@ -1233,6 +1280,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final raw = args['positionMs'];
       if (raw is num) positionMs = raw.round();
     }
+    AppLogger.i('PlayerPiP', 'ios pip stopped positionMs=$positionMs');
     final mk = _mediaKitPlayer;
     if (mk == null) return;
     try {
@@ -1247,7 +1295,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         if (mounted) setState(() {});
         _registerInteraction();
       }
-    } catch (_) {}
+    } catch (e, st) {
+      AppLogger.w('PlayerPiP', 'ios resume after pip failed',
+          error: e, stackTrace: st);
+    }
   }
 
   Future<void> togglePiP() async {
@@ -1958,7 +2009,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                     ),
                                   ),
                                 ),
-                                if (_pipSupported) ...[
+                                if (_pipSupported || Platform.isIOS) ...[
                                   const SizedBox(width: 8),
                                   Material(
                                     color: const Color(0xFA1E1E1E),
