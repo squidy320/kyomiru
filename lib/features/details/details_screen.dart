@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -85,7 +86,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   double _phoneEpisodeThumbHeight(BuildContext context) {
     final tw = _phoneEpisodeThumbWidth(context);
-    return (tw * 0.58).clamp(64.0, 82.0);
+    return (tw * (9 / 16)).clamp(64.0, 82.0);
   }
 
   void _refreshPahe(AniListMedia media, {SoraAnimeMatch? manual}) {
@@ -1772,8 +1773,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                               final pct = p?.percent ?? 0;
                               final thumb =
                                   _episodeThumbnailUrl(media, ep.number);
-                              final fallbackThumb =
-                                  media.cover.best ?? media.bannerImage;
+                              final fallbackThumb = media.bannerImage;
                               final episodeSubtitle = _cleanEpisodeTitle(
                                 _episodeSpecificTitle(media, ep.number),
                                 ep.number,
@@ -1924,7 +1924,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 text: description.isEmpty
                                     ? 'No description.'
                                     : description,
-                                collapsedLines: 4,
+                                collapsedLines: 2,
                               ),
                               const SizedBox(height: 10),
                               if (media.genres.isNotEmpty)
@@ -2121,7 +2121,7 @@ class _LiteCard extends StatelessWidget {
 class _ExpandableSynopsis extends StatefulWidget {
   const _ExpandableSynopsis({
     required this.text,
-    this.collapsedLines = 3,
+    this.collapsedLines = 2,
   });
 
   final String text;
@@ -2138,34 +2138,38 @@ class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
   Widget build(BuildContext context) {
     final text = widget.text.trim();
     if (text.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          text,
-          maxLines: _expanded ? null : widget.collapsedLines,
-          overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 15,
-            height: 1.3,
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            text,
+            maxLines: _expanded ? null : widget.collapsedLines,
+            overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 15,
+              height: 1.3,
+            ),
           ),
-        ),
-        if (text.length > 180)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: GestureDetector(
-              onTap: () => setState(() => _expanded = !_expanded),
-              child: Text(
-                _expanded ? 'Read Less' : 'Read More',
-                style: const TextStyle(
-                  color: Color(0xFF93C5FD),
-                  fontWeight: FontWeight.w700,
+          if (text.length > 180)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: GestureDetector(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Text(
+                  _expanded ? 'Read Less' : 'Read More',
+                  style: const TextStyle(
+                    color: Color(0xFF93C5FD),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -2354,7 +2358,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                           text: description.isEmpty
                               ? 'No description.'
                               : description,
-                          collapsedLines: 3,
+                          collapsedLines: 2,
                         ),
                         const SizedBox(height: 14),
                         Row(
@@ -2533,7 +2537,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                         );
                       }
                       return SizedBox(
-                        height: 136,
+                        height: 146,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: episodes.length,
@@ -2553,10 +2557,9 @@ class _WideDetailsScaffold extends StatelessWidget {
                                 )
                                 .trim();
                             final episodeThumb = episodeThumbFor(ep.number);
-                            final fallbackThumb =
-                                media.cover.best ?? media.bannerImage;
+                            final fallbackThumb = media.bannerImage;
                             return SizedBox(
-                              width: 240,
+                              width: 260,
                               child: GestureDetector(
                                 onTap: () => onPlayEpisode(ep),
                                 child: ClipRRect(
@@ -3135,10 +3138,10 @@ class _BadlandsHero extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withValues(alpha: 0.72),
+                  Colors.black.withValues(alpha: 0.84),
                   const Color(0xFF090B13),
                 ],
-                stops: const [0.38, 0.74, 1.0],
+                stops: const [0.48, 0.78, 1.0],
               ),
             ),
           ),
@@ -3437,65 +3440,68 @@ class _EpisodeDownloadAction extends ConsumerWidget {
     final done = d?.status == 'done';
 
     if (d?.status == 'downloading') {
-      return IconButton.filledTonal(
-        style: IconButton.styleFrom(
-          minimumSize: const Size(30, 30),
-          padding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-        ),
+      return _SmallGlassIconButton(
+        icon: Icons.close,
         onPressed: () => ref
             .read(downloadControllerProvider.notifier)
             .cancel(mediaId, episodeNumber),
-        icon: const Icon(Icons.close),
       );
     }
 
     if (done) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton.filledTonal(
-            tooltip: 'Delete Download',
-            style: IconButton.styleFrom(
-              minimumSize: const Size(30, 30),
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-            ),
-            onPressed: () => ref
-                .read(downloadControllerProvider.notifier)
-                .delete(mediaId, episodeNumber),
-            icon: const Icon(Icons.check_circle_rounded),
-          ),
-          const Text(
-            'Downloaded',
-            style: TextStyle(
-              fontSize: 9,
-              color: Color(0xFF86EFAC),
-            ),
-          ),
-        ],
+      return _SmallGlassIconButton(
+        icon: Icons.check_circle_rounded,
+        tooltip: 'Delete Download',
+        onPressed: () => ref
+            .read(downloadControllerProvider.notifier)
+            .delete(mediaId, episodeNumber),
       );
     }
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        unawaited(onDownloadTap());
-      },
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.12),
+    return _SmallGlassIconButton(
+      icon: Icons.download_rounded,
+      onPressed: () => unawaited(onDownloadTap()),
+    );
+  }
+}
+
+class _SmallGlassIconButton extends StatelessWidget {
+  const _SmallGlassIconButton({
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip ?? '',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onPressed,
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.20),
+                width: 0.5,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 17,
+              color: Colors.white,
+            ),
           ),
-        ),
-        child: const Icon(
-          Icons.download_outlined,
-          size: 29,
-          color: Colors.white,
         ),
       ),
     );
@@ -3591,80 +3597,138 @@ class _EpisodeRowThumb extends ConsumerWidget {
     final localFile = localThumb.valueOrNull;
     final network = (networkThumbUrl ?? '').trim();
     final fallback = (fallbackUrl ?? '').trim();
+    final persistedProgress =
+        ref.read(progressStoreProvider).read(mediaId, episode)?.percent ?? 0;
+    final effectiveProgress = progress > 0 ? progress : persistedProgress;
 
     Widget base;
     if (localFile != null) {
       base = Image.file(
         localFile,
-        fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => fallback.isNotEmpty
-            ? KyomiruImageCache.image(
-                fallback,
-                fit: BoxFit.contain,
-                error: const ColoredBox(color: Color(0x22111111)),
-              )
-            : const ColoredBox(color: Color(0x22111111)),
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _EpisodeFallbackBackdrop(
+          fallbackUrl: fallback,
+          episode: episode,
+        ),
       );
     } else if (network.isNotEmpty) {
       base = KyomiruImageCache.image(
         network,
-        fit: BoxFit.contain,
-        error: fallback.isNotEmpty
-            ? KyomiruImageCache.image(
-                fallback,
-                fit: BoxFit.contain,
-                error: const ColoredBox(color: Color(0x22111111)),
-              )
-            : const ColoredBox(color: Color(0x22111111)),
+        fit: BoxFit.cover,
+        error: _EpisodeFallbackBackdrop(
+          fallbackUrl: fallback,
+          episode: episode,
+        ),
       );
     } else if (fallback.isNotEmpty) {
-      base = KyomiruImageCache.image(
-        fallback,
-        fit: BoxFit.contain,
-        error: const ColoredBox(color: Color(0x22111111)),
+      base = _EpisodeFallbackBackdrop(
+        fallbackUrl: fallback,
+        episode: episode,
       );
     } else {
-      base = const ColoredBox(color: Color(0x22111111));
+      base = _EpisodeFallbackBackdrop(
+        fallbackUrl: null,
+        episode: episode,
+      );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          base,
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.46),
-                  ],
-                  stops: const [0.58, 1.0],
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            base,
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.46),
+                    ],
+                    stops: const [0.58, 1.0],
+                  ),
                 ),
               ),
             ),
-          ),
-          if (progress > 0 && progress < 1)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                height: 4,
-                color: Colors.white24,
-                child: FractionallySizedBox(
-                  alignment: Alignment.centerLeft,
-                  widthFactor: progress.clamp(0.0, 1.0),
-                  child: Container(color: const Color(0xFF60A5FA)),
+            if (effectiveProgress > 0 && effectiveProgress < 1)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  height: 3,
+                  color: Colors.white24,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: effectiveProgress.clamp(0.0, 1.0),
+                    child: Container(color: const Color(0xFF60A5FA)),
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _EpisodeFallbackBackdrop extends StatelessWidget {
+  const _EpisodeFallbackBackdrop({
+    required this.fallbackUrl,
+    required this.episode,
+  });
+
+  final String? fallbackUrl;
+  final int episode;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = (fallbackUrl ?? '').trim();
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (bg.isNotEmpty)
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: KyomiruImageCache.image(
+              bg,
+              fit: BoxFit.cover,
+              error: const ColoredBox(color: Color(0x22111111)),
+            ),
+          )
+        else
+          const ColoredBox(color: Color(0x22111111)),
+        Positioned.fill(
+          child: Container(color: Colors.black.withValues(alpha: 0.30)),
+        ),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.play_circle_fill_rounded,
+                size: 30,
+                color: Colors.white.withValues(alpha: 0.52),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'EP $episode',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.66),
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
