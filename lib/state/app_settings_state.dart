@@ -10,6 +10,11 @@ class AppSettings {
     this.defaultAudio = 'Sub',
     this.librarySource = 'AniList',
     this.chooseStreamEveryTime = false,
+    this.doubleTapSeekSeconds = 10,
+    this.autoPlayNextEpisode = true,
+    this.smartSkipEnabled = false,
+    this.autoSyncProgressToAniList = true,
+    this.fetchPrivateLists = false,
   });
 
   final String theme;
@@ -19,6 +24,11 @@ class AppSettings {
   final String defaultAudio;
   final String librarySource;
   final bool chooseStreamEveryTime;
+  final int doubleTapSeekSeconds;
+  final bool autoPlayNextEpisode;
+  final bool smartSkipEnabled;
+  final bool autoSyncProgressToAniList;
+  final bool fetchPrivateLists;
 
   // Backward-compatible aliases used across existing UI/business logic.
   bool get oled => isOledBlack;
@@ -37,6 +47,11 @@ class AppSettings {
     String? defaultAudio,
     String? librarySource,
     bool? chooseStreamEveryTime,
+    int? doubleTapSeekSeconds,
+    bool? autoPlayNextEpisode,
+    bool? smartSkipEnabled,
+    bool? autoSyncProgressToAniList,
+    bool? fetchPrivateLists,
   }) {
     return AppSettings(
       theme: theme ?? this.theme,
@@ -47,6 +62,12 @@ class AppSettings {
       librarySource: librarySource ?? this.librarySource,
       chooseStreamEveryTime:
           chooseStreamEveryTime ?? this.chooseStreamEveryTime,
+      doubleTapSeekSeconds: doubleTapSeekSeconds ?? this.doubleTapSeekSeconds,
+      autoPlayNextEpisode: autoPlayNextEpisode ?? this.autoPlayNextEpisode,
+      smartSkipEnabled: smartSkipEnabled ?? this.smartSkipEnabled,
+      autoSyncProgressToAniList:
+          autoSyncProgressToAniList ?? this.autoSyncProgressToAniList,
+      fetchPrivateLists: fetchPrivateLists ?? this.fetchPrivateLists,
     );
   }
 }
@@ -63,6 +84,12 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   static const _kAudio = 'settings.defaultAudio';
   static const _kLibrarySource = 'settings.librarySource';
   static const _kChooseEveryTime = 'settings.chooseStreamEveryTime';
+  static const _kDoubleTapSeekSeconds = 'settings.doubleTapSeekSeconds';
+  static const _kAutoPlayNextEpisode = 'settings.autoPlayNextEpisode';
+  static const _kSmartSkipEnabled = 'settings.smartSkipEnabled';
+  static const _kAutoSyncProgressToAniList =
+      'settings.autoSyncProgressToAniList';
+  static const _kFetchPrivateLists = 'settings.fetchPrivateLists';
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -74,6 +101,12 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       defaultAudio: prefs.getString(_kAudio) ?? 'Sub',
       librarySource: prefs.getString(_kLibrarySource) ?? 'AniList',
       chooseStreamEveryTime: prefs.getBool(_kChooseEveryTime) ?? false,
+      doubleTapSeekSeconds: prefs.getInt(_kDoubleTapSeekSeconds) ?? 10,
+      autoPlayNextEpisode: prefs.getBool(_kAutoPlayNextEpisode) ?? true,
+      smartSkipEnabled: prefs.getBool(_kSmartSkipEnabled) ?? false,
+      autoSyncProgressToAniList:
+          prefs.getBool(_kAutoSyncProgressToAniList) ?? true,
+      fetchPrivateLists: prefs.getBool(_kFetchPrivateLists) ?? false,
     );
   }
 
@@ -86,6 +119,14 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await prefs.setString(_kAudio, state.defaultAudio);
     await prefs.setString(_kLibrarySource, state.librarySource);
     await prefs.setBool(_kChooseEveryTime, state.chooseStreamEveryTime);
+    await prefs.setInt(_kDoubleTapSeekSeconds, state.doubleTapSeekSeconds);
+    await prefs.setBool(_kAutoPlayNextEpisode, state.autoPlayNextEpisode);
+    await prefs.setBool(_kSmartSkipEnabled, state.smartSkipEnabled);
+    await prefs.setBool(
+      _kAutoSyncProgressToAniList,
+      state.autoSyncProgressToAniList,
+    );
+    await prefs.setBool(_kFetchPrivateLists, state.fetchPrivateLists);
   }
 
   Future<void> setTheme(String value) async {
@@ -120,6 +161,33 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
 
   Future<void> setChooseStreamEveryTime(bool value) async {
     state = state.copyWith(chooseStreamEveryTime: value);
+    await _save();
+  }
+
+  Future<void> setDoubleTapSeekSeconds(int value) async {
+    state = state.copyWith(
+      doubleTapSeekSeconds: value.clamp(5, 30),
+    );
+    await _save();
+  }
+
+  Future<void> setAutoPlayNextEpisode(bool value) async {
+    state = state.copyWith(autoPlayNextEpisode: value);
+    await _save();
+  }
+
+  Future<void> setSmartSkipEnabled(bool value) async {
+    state = state.copyWith(smartSkipEnabled: value);
+    await _save();
+  }
+
+  Future<void> setAutoSyncProgressToAniList(bool value) async {
+    state = state.copyWith(autoSyncProgressToAniList: value);
+    await _save();
+  }
+
+  Future<void> setFetchPrivateLists(bool value) async {
+    state = state.copyWith(fetchPrivateLists: value);
     await _save();
   }
 

@@ -8,8 +8,10 @@ import '../../services/sora_extension_loader.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/library_source_state.dart';
+import 'account_data_settings_screen.dart';
 import 'appearance_settings_screen.dart';
 import 'debug_logs_screen.dart';
+import 'player_settings_screen.dart';
 import 'streams_settings_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -33,7 +35,8 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Text('Settings', style: Theme.of(context).textTheme.displaySmall),
+                child: Text('Settings',
+                    style: Theme.of(context).textTheme.displaySmall),
               ),
               const Padding(
                 padding: EdgeInsets.fromLTRB(6, 2, 6, 10),
@@ -51,7 +54,8 @@ class SettingsScreen extends ConsumerWidget {
                     title: 'Appearance',
                     subtitle: 'Themes, colors, and layout',
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const AppearanceSettingsScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const AppearanceSettingsScreen()),
                     ),
                   ),
                   _row(
@@ -59,7 +63,11 @@ class SettingsScreen extends ConsumerWidget {
                     icon: Icons.play_circle_outline,
                     title: 'Player',
                     subtitle: 'Playback controls and behavior',
-                    onTap: () => _openComingSoon(context, 'Player'),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PlayerSettingsScreen(),
+                      ),
+                    ),
                   ),
                   _row(
                     context,
@@ -68,15 +76,22 @@ class SettingsScreen extends ConsumerWidget {
                     subtitle:
                         'Default: ${settings.preferredQuality} ${settings.preferredAudio.toUpperCase()}${settings.chooseStreamEveryTime ? ' - Ask every time' : ''}',
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const StreamsSettingsScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const StreamsSettingsScreen()),
                     ),
                   ),
                   _row(
                     context,
                     icon: Icons.manage_accounts_outlined,
                     title: 'Account & Data',
-                    subtitle: connected ? 'AniList connected' : 'Auth and cleanup controls',
-                    onTap: () => _openComingSoon(context, 'Account & Data'),
+                    subtitle: connected
+                        ? 'AniList connected'
+                        : 'Auth and cleanup controls',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AccountDataSettingsScreen(),
+                      ),
+                    ),
                   ),
                   ListTile(
                     leading: const Icon(Icons.source_outlined),
@@ -103,7 +118,9 @@ class SettingsScreen extends ConsumerWidget {
                         onValueChanged: (value) {
                           if (value == null) return;
                           hapticTap();
-                          ref.read(appSettingsProvider.notifier).setLibrarySource(
+                          ref
+                              .read(appSettingsProvider.notifier)
+                              .setLibrarySource(
                                 value == LibrarySource.local
                                     ? 'Local'
                                     : 'AniList',
@@ -118,7 +135,8 @@ class SettingsScreen extends ConsumerWidget {
                     title: 'Debug Logs',
                     subtitle: 'View, copy, and share runtime logs',
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const DebugLogsScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const DebugLogsScreen()),
                     ),
                   ),
                   ListTile(
@@ -126,7 +144,8 @@ class SettingsScreen extends ConsumerWidget {
                     title: const Text('Cache'),
                     subtitle: Text(
                       cacheStatsAsync.when(
-                        data: (stats) => 'Used: ${formatBytes(stats.totalBytes)}',
+                        data: (stats) =>
+                            'Used: ${formatBytes(stats.totalBytes)}',
                         loading: () => 'Calculating...',
                         error: (_, __) => 'Unable to read cache size',
                       ),
@@ -142,11 +161,13 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                             actions: [
                               TextButton(
-                                onPressed: () => Navigator.of(context).pop(false),
+                                onPressed: () =>
+                                    Navigator.of(context).pop(false),
                                 child: const Text('Cancel'),
                               ),
                               FilledButton.tonal(
-                                onPressed: () => Navigator.of(context).pop(true),
+                                onPressed: () =>
+                                    Navigator.of(context).pop(true),
                                 child: const Text('Delete'),
                               ),
                             ],
@@ -214,22 +235,6 @@ class SettingsScreen extends ConsumerWidget {
         hapticTap();
         onTap();
       },
-    );
-  }
-
-  void _openComingSoon(BuildContext context, String title) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF1C1C1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text('$title page is next in migration.'),
-        ),
-      ),
     );
   }
 }

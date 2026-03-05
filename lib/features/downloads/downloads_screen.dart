@@ -43,6 +43,13 @@ class _UnifiedDownloadsView extends ConsumerWidget {
         items.sort((a, b) => a.animeTitle.compareTo(b.animeTitle));
         final active = items.where((i) => i.status != 'done').toList();
         final saved = items.where((i) => i.status == 'done').toList();
+        final savedGroups = <String, List<DownloadItem>>{};
+        for (final item in saved) {
+          savedGroups.putIfAbsent(item.animeTitle, () => []).add(item);
+        }
+        for (final group in savedGroups.values) {
+          group.sort((a, b) => a.episode.compareTo(b.episode));
+        }
         final activeGroups = <String, List<DownloadItem>>{};
         for (final item in active) {
           activeGroups.putIfAbsent(item.animeTitle, () => []).add(item);
@@ -96,99 +103,113 @@ class _UnifiedDownloadsView extends ConsumerWidget {
               const SizedBox(height: 14),
             ],
             const Text(
-              'Downloaded Episodes',
+              'Downloaded Library',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             if (saved.isEmpty)
               const GlassCard(child: Text('No saved episodes yet.'))
             else
-              ...saved.map(
-                (d) => Padding(
+              ...savedGroups.entries.map(
+                (entry) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: GlassCard(
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: SizedBox(
-                            width: 60,
-                            height: 84,
-                            child: d.coverImageUrl == null ||
-                                    d.coverImageUrl!.isEmpty
-                                ? const ColoredBox(color: Color(0x22111111))
-                                : Image.network(
-                                    d.coverImageUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        const ColoredBox(
-                                            color: Color(0x22111111)),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                d.animeTitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w800),
-                              ),
-                              Text('Episode ${d.episode}'),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formatBytes(d.totalBytes > 0
-                                    ? d.totalBytes
-                                    : d.downloadedBytes),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFFA1A8BC),
+                    child: ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 46,
+                          height: 64,
+                          child: entry.value.first.coverImageUrl == null ||
+                                  entry.value.first.coverImageUrl!.isEmpty
+                              ? const ColoredBox(color: Color(0x22111111))
+                              : Image.network(
+                                  entry.value.first.coverImageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      const ColoredBox(
+                                          color: Color(0x22111111)),
                                 ),
+                        ),
+                      ),
+                      title: Text(
+                        entry.key,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text('${entry.value.length} episodes'),
+                      children: entry.value.map((d) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Episode ${d.episode}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _formatBytes(d.totalBytes > 0
+                                          ? d.totalBytes
+                                          : d.downloadedBytes),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFFA1A8BC),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              _pillIconButton(
+                                icon: Icons.phone_iphone_rounded,
+                                onTap: () async {
+                                  hapticTap();
+                                  final localFile = await ref
+                                      .read(downloadControllerProvider.notifier)
+                                      .getLocalEpisodeByMedia(
+                                          d.mediaId, d.episode);
+                                  if (!context.mounted) return;
+                                  final local = localFile?.path;
+                                  final exists =
+                                      local != null && local.isNotEmpty;
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => PlayerScreen(
+                                        mediaId: d.mediaId,
+                                        episodeNumber: d.episode,
+                                        episodeTitle:
+                                            '${d.animeTitle} - Episode ${d.episode}',
+                                        sourceUrl: exists ? local : d.sourceUrl,
+                                        headers: d.headers,
+                                        isLocal: exists,
+                                        mediaTitle: d.animeTitle,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              _pillIconButton(
+                                icon: Icons.delete_outline_rounded,
+                                onTap: () async {
+                                  HapticFeedback.mediumImpact();
+                                  await ref
+                                      .read(downloadControllerProvider.notifier)
+                                      .delete(d.mediaId, d.episode);
+                                },
                               ),
                             ],
                           ),
-                        ),
-                        _pillIconButton(
-                          icon: Icons.phone_iphone_rounded,
-                          onTap: () async {
-                            hapticTap();
-                            final localFile = await ref
-                                .read(downloadControllerProvider.notifier)
-                                .getLocalEpisodeByMedia(d.mediaId, d.episode);
-                            if (!context.mounted) return;
-                            final local = localFile?.path;
-                            final exists = local != null && local.isNotEmpty;
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => PlayerScreen(
-                                  mediaId: d.mediaId,
-                                  episodeNumber: d.episode,
-                                  episodeTitle:
-                                      '${d.animeTitle} - Episode ${d.episode}',
-                                  sourceUrl: exists ? local : d.sourceUrl,
-                                  headers: d.headers,
-                                  isLocal: exists,
-                                  mediaTitle: d.animeTitle,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        _pillIconButton(
-                          icon: Icons.delete_outline_rounded,
-                          onTap: () async {
-                            HapticFeedback.mediumImpact();
-                            await ref
-                                .read(downloadControllerProvider.notifier)
-                                .delete(d.mediaId, d.episode);
-                          },
-                        ),
-                      ],
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),

@@ -1326,9 +1326,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             unawaited(_updateDetailBackground(media));
           }
         }
-        final bgBase = uiSettings.enableDynamicColors
-            ? _detailBgSeed.withValues(alpha: 0.30)
-            : Colors.black;
+        const bgBase = Color(0xFF000000);
         final isWide = MediaQuery.sizeOf(context).width > 600;
         final mobileHeroHeight = _phoneDetailHeroHeight(context);
         final mobileThumbWidth = _phoneEpisodeThumbWidth(context);
@@ -1364,17 +1362,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         }
         return Scaffold(
           body: Container(
-            decoration: BoxDecoration(
-              color: Colors.black,
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  bgBase,
-                  const Color(0xFF090B13),
-                ],
-              ),
-            ),
+            color: bgBase,
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) => [
                 SliverAppBar(
@@ -2334,16 +2322,43 @@ class _WideDetailsScaffold extends StatelessWidget {
         children: [
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
-            child: Container(
+            child: LayoutBuilder(
               key: ValueKey<int>(media.id),
-              decoration: BoxDecoration(
-                image: image == null
-                    ? null
-                    : DecorationImage(
-                        image: KyomiruImageCache.provider(image),
-                        fit: BoxFit.cover,
+              builder: (context, constraints) {
+                if (image == null || image.isEmpty) {
+                  return const ColoredBox(color: Color(0xFF111111));
+                }
+                final aspect = constraints.maxWidth / constraints.maxHeight;
+                final extremeAspect = aspect > 1.95;
+                if (!extremeAspect) {
+                  return Image(
+                    image: KyomiruImageCache.provider(image),
+                    fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
+                  );
+                }
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: Transform.scale(
+                        scale: 1.12,
+                        child: Image(
+                          image: KyomiruImageCache.provider(image),
+                          fit: BoxFit.cover,
+                          alignment: Alignment.topCenter,
+                        ),
                       ),
-              ),
+                    ),
+                    Image(
+                      image: KyomiruImageCache.provider(image),
+                      fit: BoxFit.contain,
+                      alignment: Alignment.topCenter,
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           Container(
@@ -3153,7 +3168,11 @@ class _BadlandsHero extends StatelessWidget {
         if (hero != null && hero.isNotEmpty)
           Hero(
             tag: 'detail-banner-${media.id}',
-            child: KyomiruImageCache.image(hero, fit: BoxFit.cover),
+            child: Image(
+              image: KyomiruImageCache.provider(hero),
+              fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
+            ),
           )
         else
           const ColoredBox(color: Color(0xFF111111)),

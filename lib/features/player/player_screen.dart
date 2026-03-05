@@ -133,6 +133,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _isControlsLocked = false;
   BoxFit _videoFit = BoxFit.contain;
   bool _iosPipActive = false;
+  bool _autoSmartSkipTriggered = false;
   bool _isVerticalAdjusting = false;
   bool _verticalAdjustBrightness = false;
   double _verticalStartValue = 1.0;
@@ -503,7 +504,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       _trimLiveHlsSegments();
       unawaited(_maybeAutoUpdateTracking());
-      unawaited(_maybeAutoPlayNext());
+      if (ref.read(appSettingsProvider).smartSkipEnabled &&
+          _hasActiveAniSkipWindow &&
+          !_autoSmartSkipTriggered &&
+          !_isDragging &&
+          _isMediaKitPlaying) {
+        _autoSmartSkipTriggered = true;
+        unawaited(_skipIntro());
+      } else if (!_hasActiveAniSkipWindow &&
+          opStart != null &&
+          _currentSec < (opStart! - 1.0)) {
+        // Allow re-trigger if user manually seeks before intro.
+        _autoSmartSkipTriggered = false;
+      }
+      if (ref.read(appSettingsProvider).autoPlayNextEpisode) {
+        unawaited(_maybeAutoPlayNext());
+      }
     });
   }
 
@@ -512,10 +528,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return int.tryParse(m?.group(1) ?? '') ?? 0;
   }
 
-  String _prettyAudio(String value) {
+  String _audioKey(String value) {
     final v = value.trim().toLowerCase();
-    if (v == 'dub') return 'Dub';
-    return 'Sub';
+    if (v == 'any') return 'any';
+    if (v.contains('dub') || v.contains('eng')) return 'dub';
+    if (v.contains('sub') || v.contains('jpn') || v.contains('jp')) {
+      return 'sub';
+    }
+    return 'sub';
+  }
+
+  String _prettyAudio(String value) {
+    return _audioKey(value) == 'dub' ? 'Dub' : 'Sub';
   }
 
   String _prettyQuality(String value) {
@@ -541,8 +565,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (pool.isEmpty) pool = sorted;
       final exact = pool.where((s) {
         final q = s.quality.toLowerCase();
-        final a = s.subOrDub.toLowerCase();
-        return q.contains(lock.quality) && a == lock.audio;
+        final a = _audioKey(s.subOrDub);
+        return q.contains(lock.quality) && a == _audioKey(lock.audio);
       }).toList();
       if (exact.isNotEmpty) return exact.first;
       final qualityOnly = pool
@@ -553,12 +577,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     var pool = sorted;
-    final preferredAudio = settings.defaultAudio.toLowerCase();
+    final preferredAudio = _audioKey(settings.defaultAudio);
     final preferredQuality = settings.defaultQuality.toLowerCase();
     if (preferredAudio != 'any') {
-      final audio = pool
-          .where((s) => s.subOrDub.toLowerCase() == preferredAudio)
-          .toList();
+      final audio =
+          pool.where((s) => _audioKey(s.subOrDub) == preferredAudio).toList();
       if (audio.isNotEmpty) pool = audio;
     }
     if (preferredQuality != 'auto') {
@@ -842,6 +865,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final auth = ref.read(authControllerProvider);
     final token = auth.token;
     if (token == null || token.isEmpty) return;
+    if (!ref.read(appSettingsProvider).autoSyncProgressToAniList) return;
 
     _autoTrackingSyncTriggered = true;
     final client = ref.read(anilistClientProvider);
@@ -1198,6 +1222,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_isControlsLocked) return;
     final width = MediaQuery.sizeOf(context).width;
     final isForward = details.localPosition.dx > width / 2;
+    final skipSeconds = ref.read(appSettingsProvider).doubleTapSeekSeconds;
     HapticFeedback.lightImpact();
     setState(() {
       _skipAnimationPosition = details.localPosition;
@@ -1205,7 +1230,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
     _skipAnimationController.forward(from: 0);
     unawaited(
-      _seekRelative(Duration(seconds: isForward ? 10 : -10)),
+      _seekRelative(Duration(seconds: isForward ? skipSeconds : -skipSeconds)),
     );
   }
 
@@ -1421,18 +1446,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    final target = _sourceCatalog.firstWhere(
-      (s) => _prettyAudio(s.subOrDub) == selected,
-      orElse: () => _sourceCatalog.isNotEmpty
+    final selectedAudioKey = _audioKey(selected);
+    final selectedQuality = _selectedQuality.toLowerCase();
+    final audioPool = _sourceCatalog
+        .where((s) => _audioKey(s.subOrDub) == selectedAudioKey)
+        .toList();
+    SoraSource target;
+    if (audioPool.isNotEmpty) {
+      final sameQuality = audioPool.where((s) {
+        final q = _prettyQuality(s.quality).toLowerCase();
+        return q == selectedQuality;
+      }).toList();
+      final ranked = [...audioPool]..sort(
+          (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)),
+        );
+      target = sameQuality.isNotEmpty ? sameQuality.first : ranked.first;
+    } else {
+      target = _sourceCatalog.isNotEmpty
           ? _sourceCatalog.first
           : SoraSource(
               url: _activePlaybackUrl() ?? '',
               quality: _selectedQuality,
-              subOrDub: selected.toLowerCase(),
+              subOrDub: selectedAudioKey,
               format: 'm3u8',
               headers: _activePlaybackHeaders(),
-            ),
-    );
+            );
+    }
     if (_sourceCatalog.isNotEmpty) {
       await _switchToSource(target);
     } else {
@@ -1483,7 +1522,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    final preferredAudio = _selectedSubtitle.toLowerCase();
+    final preferredAudio = _audioKey(_selectedSubtitle);
     final candidates = _sourceCatalog.where((s) {
       final q = _prettyQuality(s.quality).toLowerCase();
       return q == selected.toLowerCase();
@@ -1491,7 +1530,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     SoraSource? target;
     if (candidates.isNotEmpty) {
       target = candidates.firstWhere(
-        (s) => _prettyAudio(s.subOrDub).toLowerCase() == preferredAudio,
+        (s) => _audioKey(s.subOrDub) == preferredAudio,
         orElse: () => candidates.first,
       );
     }
