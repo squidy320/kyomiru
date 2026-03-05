@@ -342,20 +342,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   }
 
   String? _episodeThumbnailUrl(AniListMedia media, int episodeNumber) {
-    AniListStreamingEpisode? indexedFallback;
-    var currentIndex = 0;
     for (final se in media.streamingEpisodes) {
-      if (currentIndex == episodeNumber - 1) {
-        indexedFallback ??= se;
-      }
       if (se.guessedEpisodeNumber == episodeNumber) {
         final thumb = se.thumbnail?.trim();
         if (thumb != null && thumb.isNotEmpty) return thumb;
       }
-      currentIndex++;
     }
-    final indexedThumb = indexedFallback?.thumbnail?.trim();
-    if (indexedThumb != null && indexedThumb.isNotEmpty) return indexedThumb;
     return null;
   }
 
@@ -2138,38 +2130,85 @@ class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
   Widget build(BuildContext context) {
     final text = widget.text.trim();
     if (text.isEmpty) return const SizedBox.shrink();
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            text,
-            maxLines: _expanded ? null : widget.collapsedLines,
-            overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 15,
-              height: 1.3,
+    const baseStyle = TextStyle(
+      color: Colors.white70,
+      fontSize: 15,
+      height: 1.3,
+    );
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: baseStyle),
+      maxLines: widget.collapsedLines,
+      textDirection: Directionality.of(context),
+    )..layout(maxWidth: MediaQuery.sizeOf(context).width - 64);
+    final canExpand = painter.didExceedMaxLines;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Text(
+              text,
+              maxLines: widget.collapsedLines,
+              overflow: TextOverflow.ellipsis,
+              style: baseStyle,
             ),
-          ),
-          if (text.length > 180)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: GestureDetector(
-                onTap: () => setState(() => _expanded = !_expanded),
-                child: Text(
-                  _expanded ? 'Read Less' : 'Read More',
-                  style: const TextStyle(
-                    color: Color(0xFF93C5FD),
-                    fontWeight: FontWeight.w700,
+            if (canExpand)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 30,
+                child: IgnorePointer(
+                  ignoring: !_expanded,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    opacity: _expanded ? 1 : 0,
+                    child: AnimatedSlide(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      offset: _expanded ? Offset.zero : const Offset(0, 0.08),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                          child: Container(
+                            constraints: const BoxConstraints(maxHeight: 180),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.52),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.18),
+                              ),
+                            ),
+                            child: SingleChildScrollView(
+                              child: Text(text, style: baseStyle),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
+          ],
+        ),
+        if (canExpand)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Text(
+                _expanded ? 'Read Less' : 'Read More',
+                style: const TextStyle(
+                  color: Color(0xFF93C5FD),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -2313,11 +2352,11 @@ class _WideDetailsScaffold extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0x33000000),
-                  Color(0xB0000000),
+                  Color(0x11000000),
+                  Color(0xC8000000),
                   Color(0xEE090B13),
                 ],
-                stops: [0.0, 0.58, 1.0],
+                stops: [0.0, 0.62, 1.0],
               ),
             ),
           ),
@@ -2332,23 +2371,12 @@ class _WideDetailsScaffold extends StatelessWidget {
                     icon:
                         const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
                   ),
-                  const SizedBox(height: 8),
+                  const Spacer(flex: 4),
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 760),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          media.title.best,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 56,
-                            fontWeight: FontWeight.w800,
-                            height: 0.95,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
                         _MetadataGlassPill(
                           text:
                               '${media.episodes ?? '-'} EPS  •  $studio  •  ${media.averageScore ?? 0}%',
@@ -2360,64 +2388,63 @@ class _WideDetailsScaffold extends StatelessWidget {
                               : description,
                           collapsedLines: 2,
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 12),
+                        Text(
+                          media.title.best,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 56,
+                            fontWeight: FontWeight.w800,
+                            height: 0.95,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
-                            FilledButton(
-                              onPressed: onPlay,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF6366F1),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(999),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: onPlay,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6366F1),
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(260, 54),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 17,
+                                  ),
                                 ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 10,
-                                ),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.play_arrow_rounded, size: 22),
-                                  SizedBox(width: 6),
-                                  Text('Play'),
-                                ],
+                                icon: const Icon(Icons.play_arrow_rounded,
+                                    size: 24),
+                                label: const Text('Play'),
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            GlassButton(
+                            const SizedBox(width: 8),
+                            _MiniGlassActionButton(
                               onPressed: onBookmark,
-                              child: Icon(
+                              tooltip: inAnyList ? 'Bookmarked' : 'Bookmark',
+                              icon: Icon(
                                 inAnyList
                                     ? Icons.bookmark_rounded
                                     : Icons.bookmark_border_rounded,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            GlassButton(
+                            const SizedBox(width: 8),
+                            _MiniGlassActionButton(
                               onPressed: onManualMatch,
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.link_rounded, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Manual Match'),
-                                ],
-                              ),
+                              tooltip: 'Manual Match',
+                              icon: const Icon(Icons.link_rounded, size: 18),
                             ),
-                            const SizedBox(width: 10),
-                            GlassButton(
+                            const SizedBox(width: 8),
+                            _MiniGlassActionButton(
                               onPressed: onDownloadAll,
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.download_for_offline_outlined,
-                                      size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Download All'),
-                                ],
-                              ),
+                              tooltip: 'Download All',
+                              icon: const Icon(
+                                  Icons.download_for_offline_outlined,
+                                  size: 18),
                             ),
                           ],
                         ),
@@ -3138,10 +3165,10 @@ class _BadlandsHero extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withValues(alpha: 0.84),
+                  Colors.black.withValues(alpha: 0.90),
                   const Color(0xFF090B13),
                 ],
-                stops: const [0.48, 0.78, 1.0],
+                stops: const [0.42, 0.72, 1.0],
               ),
             ),
           ),
@@ -3206,22 +3233,24 @@ class _BadlandsHero extends StatelessWidget {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  ElevatedButton.icon(
-                    onPressed: onPlay,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6366F1),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(210, 54),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: onPlay,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6366F1),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(248, 56),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
                       ),
-                    ),
-                    icon: const Icon(Icons.play_arrow_rounded, size: 24),
-                    label: const Text(
-                      'Play',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 24),
+                      label: const Text(
+                        'Play',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
                       ),
                     ),
                   ),
@@ -3323,6 +3352,45 @@ class _MetadataGlassPill extends StatelessWidget {
           color: Colors.white,
           fontSize: 16,
           fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniGlassActionButton extends StatelessWidget {
+  const _MiniGlassActionButton({
+    required this.onPressed,
+    required this.icon,
+    required this.tooltip,
+  });
+
+  final VoidCallback onPressed;
+  final Widget icon;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(999),
+          child: Ink(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.24),
+                width: 0.8,
+              ),
+            ),
+            child: Center(child: icon),
+          ),
         ),
       ),
     );
@@ -3655,18 +3723,22 @@ class _EpisodeRowThumb extends ConsumerWidget {
                 ),
               ),
             ),
-            if (effectiveProgress > 0 && effectiveProgress < 1)
+            if (effectiveProgress > 0)
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
                 child: Container(
-                  height: 3,
+                  height: 2.5,
                   color: Colors.white24,
                   child: FractionallySizedBox(
                     alignment: Alignment.centerLeft,
                     widthFactor: effectiveProgress.clamp(0.0, 1.0),
-                    child: Container(color: const Color(0xFF60A5FA)),
+                    child: Container(
+                      color: effectiveProgress >= 1
+                          ? const Color(0xFF34D399)
+                          : const Color(0xFF60A5FA),
+                    ),
                   ),
                 ),
               ),
@@ -3694,38 +3766,61 @@ class _EpisodeFallbackBackdrop extends StatelessWidget {
       children: [
         if (bg.isNotEmpty)
           ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: KyomiruImageCache.image(
-              bg,
-              fit: BoxFit.cover,
-              error: const ColoredBox(color: Color(0x22111111)),
+            imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Transform.scale(
+              scale: 1.22,
+              child: KyomiruImageCache.image(
+                bg,
+                fit: BoxFit.cover,
+                error: const ColoredBox(color: Color(0x22111111)),
+              ),
             ),
           )
         else
           const ColoredBox(color: Color(0x22111111)),
         Positioned.fill(
-          child: Container(color: Colors.black.withValues(alpha: 0.30)),
+          child: Container(color: Colors.black.withValues(alpha: 0.38)),
         ),
         Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.play_circle_fill_rounded,
-                size: 30,
-                color: Colors.white.withValues(alpha: 0.52),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'EP $episode',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.66),
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  fontSize: 18,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    width: 0.7,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.play_arrow_rounded,
+                      size: 26,
+                      color: Colors.white.withValues(alpha: 0.70),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$episode',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.68),
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                        fontSize: 34,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ],

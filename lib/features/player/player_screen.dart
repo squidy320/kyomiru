@@ -93,6 +93,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Player? _mediaKitPlayer;
   VideoController? _mediaKitVideoController;
   final SimplePip _simplePip = SimplePip();
+  static const MethodChannel _iosPipChannel = MethodChannel('kyomiru/ios_pip');
   final bool _enablePip = true;
 
   Timer? _persistTimer;
@@ -131,6 +132,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _sourceSwitching = false;
   bool _isControlsLocked = false;
   BoxFit _videoFit = BoxFit.contain;
+  bool _iosPipActive = false;
   bool _isVerticalAdjusting = false;
   bool _verticalAdjustBrightness = false;
   double _verticalStartValue = 1.0;
@@ -164,6 +166,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       duration: const Duration(milliseconds: 480),
     );
     WidgetsBinding.instance.addObserver(this);
+    if (Platform.isIOS) {
+      _iosPipChannel.setMethodCallHandler(_handleIosPipCallback);
+    }
     unawaited(WakelockPlus.enable());
     unawaited(_initPip());
     unawaited(_fetchAniSkipData());
@@ -182,19 +187,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
       }
       unawaited(_persistProgress());
-      if (playing) {
+      if (playing && !_iosPipActive) {
         unawaited(togglePiP());
       }
     }
   }
 
   Future<void> _initPip() async {
-    if (!_enablePip || !Platform.isAndroid) return;
+    if (!_enablePip) return;
     try {
-      final supported = await SimplePip.isPipAvailable;
+      bool supported = false;
+      if (Platform.isAndroid) {
+        supported = await SimplePip.isPipAvailable;
+      } else if (Platform.isIOS) {
+        supported =
+            await _iosPipChannel.invokeMethod<bool>('isAvailable') ?? false;
+      }
       if (!mounted) return;
       setState(() => _pipSupported = supported);
-      if (supported) {
+      if (supported && Platform.isAndroid) {
         unawaited(_simplePip.setAutoPipMode(
           seamlessResize: true,
           autoEnter: true,
@@ -287,8 +298,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
       if (mounted) {
         setState(() {
-          _initStatusMessage =
-              isHls ? 'Establishing Secure Connection...' : 'Initializing player...';
+          _initStatusMessage = isHls
+              ? 'Establishing Secure Connection...'
+              : 'Initializing player...';
         });
       }
 
@@ -325,8 +337,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
 
       final saved = _progressStore.read(widget.mediaId, widget.episodeNumber);
-      var initialPositionMs =
-          resumePositionMsOverride ?? widget.resumePositionMs ?? saved?.positionMs ?? 0;
+      var initialPositionMs = resumePositionMsOverride ??
+          widget.resumePositionMs ??
+          saved?.positionMs ??
+          0;
       if (saved != null && saved.positionMs > initialPositionMs) {
         initialPositionMs = saved.positionMs;
       }
@@ -618,7 +632,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         target.headers,
       );
       var matchedIndex = _candidates.indexWhere(
-        (c) => c.url == candidate.url && c.headers.toString() == target.headers.toString(),
+        (c) =>
+            c.url == candidate.url &&
+            c.headers.toString() == target.headers.toString(),
       );
       if (matchedIndex < 0) {
         matchedIndex = _candidates.indexWhere((c) => c.url == candidate.url);
@@ -821,7 +837,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final nextProgress = widget.episodeNumber > (current?.progress ?? 0)
           ? widget.episodeNumber
           : (current?.progress ?? 0);
-      final availability = await client.episodeAvailability(token, widget.mediaId);
+      final availability =
+          await client.episodeAvailability(token, widget.mediaId);
       final isReleasing =
           (availability?.status.toUpperCase() ?? '') == 'RELEASING';
       final totalEpisodes = availability?.episodes ?? 0;
@@ -916,7 +933,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     localFile ??= await downloader.getLocalEpisodeByMedia(
         widget.mediaId, widget.episodeNumber);
     if (localFile != null) {
-      final localCandidate = _PlayerCandidate(url: localFile.path, headers: const {});
+      final localCandidate =
+          _PlayerCandidate(url: localFile.path, headers: const {});
       final boundMediaKit =
           await _bindMediaKitController(localCandidate, isLocal: true);
       if (boundMediaKit) {
@@ -930,8 +948,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       // continue to network candidates if local open fails
     }
 
-    String? url = widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
-    Map<String, String> initialHeaders = Map<String, String>.from(widget.headers);
+    String? url =
+        widget.sourceUrl == null ? null : _sanitizeUrl(widget.sourceUrl!);
+    Map<String, String> initialHeaders =
+        Map<String, String>.from(widget.headers);
 
     if (!widget.isLocal) {
       try {
@@ -1177,11 +1197,56 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _enterPip() async {
-    if (!_enablePip || !Platform.isAndroid || !_pipSupported) return;
+    if (!_enablePip || !_pipSupported) return;
     try {
-      await _simplePip.enterPipMode(
-        seamlessResize: true,
-      );
+      if (Platform.isAndroid) {
+        await _simplePip.enterPipMode(
+          seamlessResize: true,
+        );
+        return;
+      }
+      if (Platform.isIOS) {
+        final url = _activePlaybackUrl();
+        if (url == null || url.trim().isEmpty) return;
+        final started = await _iosPipChannel.invokeMethod<bool>('enterPip', {
+          'url': url.trim(),
+          'headers': _activePlaybackHeaders(),
+          'positionMs': (_currentSec * 1000).round(),
+          'speed': _selectedPlaybackSpeed,
+        });
+        if (started == true) {
+          await _mediaKitPlayer?.pause();
+          _isMediaKitPlaying = false;
+          _iosPipActive = true;
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleIosPipCallback(MethodCall call) async {
+    if (!mounted) return;
+    if (call.method != 'onPipStopped') return;
+    _iosPipActive = false;
+    final args = call.arguments;
+    int positionMs = 0;
+    if (args is Map) {
+      final raw = args['positionMs'];
+      if (raw is num) positionMs = raw.round();
+    }
+    final mk = _mediaKitPlayer;
+    if (mk == null) return;
+    try {
+      if (positionMs > 0) {
+        await mk.seek(Duration(milliseconds: positionMs));
+      }
+      await _setPlaybackSpeed(_selectedPlaybackSpeed);
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (state == null || state == AppLifecycleState.resumed) {
+        await mk.play();
+        _isMediaKitPlaying = true;
+        if (mounted) setState(() {});
+        _registerInteraction();
+      }
     } catch (_) {}
   }
 
@@ -1197,7 +1262,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final mk = _mediaKitPlayer;
     if (mk != null) {
       try {
-        await mk.setRate(speed);
+        final target = speed.clamp(0.5, 2.0);
+        await mk.setRate(target);
+
+        // MediaKit/mpv can occasionally drift A/V sync right after rate
+        // changes on some HLS streams. Re-seeking to the current position
+        // re-aligns decoder clocks without a visible jump.
+        if (_isMediaKitPlaying) {
+          final now = mk.state.position;
+          if (now > Duration.zero) {
+            await mk.seek(now);
+            await mk.setRate(target);
+          }
+        }
       } catch (_) {}
     }
   }
@@ -1273,7 +1350,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Subtitles', style: TextStyle(fontWeight: FontWeight.w700)),
+                const Text('Subtitles',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 ...options.map(
                   (o) => ListTile(
@@ -1294,13 +1372,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (selected == null || !mounted) return;
     final target = _sourceCatalog.firstWhere(
       (s) => _prettyAudio(s.subOrDub) == selected,
-      orElse: () => _sourceCatalog.isNotEmpty ? _sourceCatalog.first : SoraSource(
-        url: _activePlaybackUrl() ?? '',
-        quality: _selectedQuality,
-        subOrDub: selected.toLowerCase(),
-        format: 'm3u8',
-        headers: _activePlaybackHeaders(),
-      ),
+      orElse: () => _sourceCatalog.isNotEmpty
+          ? _sourceCatalog.first
+          : SoraSource(
+              url: _activePlaybackUrl() ?? '',
+              quality: _selectedQuality,
+              subOrDub: selected.toLowerCase(),
+              format: 'm3u8',
+              headers: _activePlaybackHeaders(),
+            ),
     );
     if (_sourceCatalog.isNotEmpty) {
       await _switchToSource(target);
@@ -1312,15 +1392,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _openQualityMenu() async {
     await _ensureSourceCatalog();
-    final qualityValues = _sourceCatalog
-        .map((s) => _prettyQuality(s.quality))
-        .toSet()
-        .toList()
-      ..sort((a, b) {
-        if (a == 'Auto') return -1;
-        if (b == 'Auto') return 1;
-        return _qualityRank(b).compareTo(_qualityRank(a));
-      });
+    final qualityValues =
+        _sourceCatalog.map((s) => _prettyQuality(s.quality)).toSet().toList()
+          ..sort((a, b) {
+            if (a == 'Auto') return -1;
+            if (b == 'Auto') return 1;
+            return _qualityRank(b).compareTo(_qualityRank(a));
+          });
     final options = qualityValues.isEmpty
         ? <String>['Auto', '1080p', '720p', '480p']
         : qualityValues;
@@ -1334,7 +1412,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Quality', style: TextStyle(fontWeight: FontWeight.w700)),
+                const Text('Quality',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 ...options.map(
                   (o) => ListTile(
@@ -1448,7 +1527,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 0.5),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.18), width: 0.5),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1486,9 +1566,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final played = durationSec <= 0 ? 0.0 : (currentSec / durationSec).clamp(0.0, 1.0);
+        final played =
+            durationSec <= 0 ? 0.0 : (currentSec / durationSec).clamp(0.0, 1.0);
         final hasSkip = _hasValidIntroRange && durationSec > 0;
-        final skipStart = hasSkip ? (opStart! / durationSec).clamp(0.0, 1.0) : 0.0;
+        final skipStart =
+            hasSkip ? (opStart! / durationSec).clamp(0.0, 1.0) : 0.0;
         final skipEnd = hasSkip ? (opEnd! / durationSec).clamp(0.0, 1.0) : 0.0;
 
         return GestureDetector(
@@ -1496,7 +1578,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           onTapDown: (details) {
             _registerInteraction();
             _setDragFromDx(details.localPosition.dx, width);
-            final ratio = width <= 0 ? 0.0 : (details.localPosition.dx / width).clamp(0.0, 1.0);
+            final ratio = width <= 0
+                ? 0.0
+                : (details.localPosition.dx / width).clamp(0.0, 1.0);
             unawaited(_seekByRatio(ratio));
           },
           onHorizontalDragStart: (details) {
@@ -1511,7 +1595,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             _setDragFromDx(details.localPosition.dx, width);
           },
           onHorizontalDragEnd: (_) {
-            final ratio = durationSec <= 0 ? 0.0 : (_dragValueSec / durationSec).clamp(0.0, 1.0);
+            final ratio = durationSec <= 0
+                ? 0.0
+                : (_dragValueSec / durationSec).clamp(0.0, 1.0);
             setState(() => _isDragging = false);
             unawaited(_seekByRatio(ratio));
             _registerInteraction();
@@ -1574,8 +1660,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (width <= 0) return;
     _isVerticalAdjusting = true;
     _verticalAdjustBrightness = details.localPosition.dx < (width / 2);
-    _verticalStartValue =
-        _verticalAdjustBrightness ? _virtualBrightness : (_mediaKitPlayer?.state.volume ?? 100) / 100.0;
+    _verticalStartValue = _verticalAdjustBrightness
+        ? _virtualBrightness
+        : (_mediaKitPlayer?.state.volume ?? 100) / 100.0;
   }
 
   void _handleVerticalAdjustUpdate(DragUpdateDetails details) {
@@ -1591,7 +1678,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     final mk = _mediaKitPlayer;
     if (mk == null) return;
-    final next = ((_verticalStartValue + delta).clamp(0.0, 1.0) * 100).roundToDouble();
+    final next =
+        ((_verticalStartValue + delta).clamp(0.0, 1.0) * 100).roundToDouble();
     unawaited(mk.setVolume(next));
     _verticalStartValue = (next / 100.0);
   }
@@ -1705,6 +1793,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final mediaKit = _mediaKitPlayer;
     _mediaKitPlayer = null;
     _mediaKitVideoController = null;
+    if (Platform.isIOS) {
+      _iosPipChannel.setMethodCallHandler(null);
+    }
     unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
     unawaited(mediaKit?.pause());
     mediaKit?.dispose();
@@ -1847,28 +1938,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         children: [
                           Positioned(
                             top: topHudOffset,
-                            right: 8,
+                            left: 8,
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (_pipSupported)
-                                  Material(
-                                    color: const Color(0xFA1E1E1E),
-                                    borderRadius: BorderRadius.circular(999),
-                                    child: InkWell(
-                                      onTap: enterPictureInPictureMode,
-                                      borderRadius: BorderRadius.circular(999),
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(10),
-                                        child: Icon(
-                                          Icons.picture_in_picture_alt_rounded,
-                                          color: Colors.white,
-                                          size: 18,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                const SizedBox(width: 8),
                                 Material(
                                   color: const Color(0xFA1E1E1E),
                                   borderRadius: BorderRadius.circular(999),
@@ -1885,6 +1958,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                     ),
                                   ),
                                 ),
+                                if (_pipSupported) ...[
+                                  const SizedBox(width: 8),
+                                  Material(
+                                    color: const Color(0xFA1E1E1E),
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: InkWell(
+                                      onTap: enterPictureInPictureMode,
+                                      borderRadius: BorderRadius.circular(999),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(10),
+                                        child: Icon(
+                                          Icons.picture_in_picture_alt_rounded,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -1945,13 +2037,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                             const SizedBox(width: 6),
                                             _controlPillButton(
                                               icon: Icons.subtitles_rounded,
-                                              label: compact ? null : _selectedSubtitle,
+                                              label: compact
+                                                  ? null
+                                                  : _selectedSubtitle,
                                               onTap: _openSubtitleMenu,
                                             ),
                                             const SizedBox(width: 6),
                                             _controlPillButton(
                                               icon: Icons.high_quality_rounded,
-                                              label: compact ? null : _selectedQuality,
+                                              label: compact
+                                                  ? null
+                                                  : _selectedQuality,
                                               onTap: _openQualityMenu,
                                             ),
                                           ];
@@ -1959,7 +2055,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                             _controlPillButton(
                                               icon: Icons.skip_next_rounded,
                                               label: compact
-                                                  ? (_hasActiveAniSkipWindow ? 'Intro' : '85s')
+                                                  ? (_hasActiveAniSkipWindow
+                                                      ? 'Intro'
+                                                      : '85s')
                                                   : _dynamicSkipLabel,
                                               onTap: _handleDynamicSkip,
                                             ),
@@ -1968,7 +2066,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                               icon: Icons.aspect_ratio_rounded,
                                               label: compact
                                                   ? null
-                                                  : (_videoFit == BoxFit.contain ? 'Fit' : 'Fill'),
+                                                  : (_videoFit == BoxFit.contain
+                                                      ? 'Fit'
+                                                      : 'Fill'),
                                               onTap: _toggleAspectFit,
                                             ),
                                             const SizedBox(width: 6),
@@ -1978,13 +2078,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                                   : Icons.lock_open_rounded,
                                               onTap: _toggleControlLock,
                                             ),
-                                            if (_pipSupported) ...[
-                                              const SizedBox(width: 6),
-                                              _controlPillButton(
-                                                icon: Icons.picture_in_picture_alt_rounded,
-                                                onTap: enterPictureInPictureMode,
-                                              ),
-                                            ],
                                           ];
 
                                           if (veryNarrow) {
@@ -2055,11 +2148,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                           onTap: _toggleControlLock,
                           borderRadius: BorderRadius.circular(999),
                           child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.lock_rounded, size: 16, color: Colors.white),
+                                Icon(Icons.lock_rounded,
+                                    size: 16, color: Colors.white),
                                 SizedBox(width: 6),
                                 Text(
                                   'Locked',
