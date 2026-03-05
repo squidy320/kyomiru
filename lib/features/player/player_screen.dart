@@ -548,6 +548,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return v.toLowerCase() == 'auto' ? 'Auto' : v;
   }
 
+  SoraSource? _pickCatalogSource({
+    required String desiredAudio,
+    required String desiredQuality,
+  }) {
+    if (_sourceCatalog.isEmpty) return null;
+    final ranked = [..._sourceCatalog]
+      ..sort((a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+    final wantedAudio = _audioKey(desiredAudio);
+    final wantedQuality = desiredQuality.trim().toLowerCase();
+    final wantedRank = _qualityRank(wantedQuality);
+
+    List<SoraSource> pool = ranked;
+    if (wantedAudio != 'any') {
+      final byAudio = ranked.where((s) => _audioKey(s.subOrDub) == wantedAudio).toList();
+      if (byAudio.isNotEmpty) pool = byAudio;
+    }
+
+    if (wantedQuality != 'auto') {
+      final exact = pool.where((s) {
+        final q = s.quality.toLowerCase();
+        return q.contains(wantedQuality) || (wantedRank > 0 && _qualityRank(q) == wantedRank);
+      }).toList();
+      if (exact.isNotEmpty) return exact.first;
+    }
+
+    if (pool.isNotEmpty) return pool.first;
+    return ranked.first;
+  }
+
   SoraSource _pickSourceByLock(
     List<SoraSource> sources,
     AppSettings settings,
@@ -1429,6 +1458,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _openSubtitleMenu() async {
     await _ensureSourceCatalog();
+    if (!mounted) return;
     final audioValues = _sourceCatalog
         .map((s) => _prettyAudio(s.subOrDub))
         .toSet()
@@ -1465,34 +1495,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    final selectedAudioKey = _audioKey(selected);
-    final selectedQuality = _selectedQuality.toLowerCase();
-    final audioPool = _sourceCatalog
-        .where((s) => _audioKey(s.subOrDub) == selectedAudioKey)
-        .toList();
-    SoraSource target;
-    if (audioPool.isNotEmpty) {
-      final sameQuality = audioPool.where((s) {
-        final q = _prettyQuality(s.quality).toLowerCase();
-        return q == selectedQuality;
-      }).toList();
-      final ranked = [...audioPool]..sort(
-          (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)),
-        );
-      target = sameQuality.isNotEmpty ? sameQuality.first : ranked.first;
-    } else {
-      target = _sourceCatalog.isNotEmpty
-          ? _sourceCatalog.first
-          : SoraSource(
-              url: _activePlaybackUrl() ?? '',
-              quality: _selectedQuality,
-              subOrDub: selectedAudioKey,
-              format: 'm3u8',
-              headers: _activePlaybackHeaders(),
-            );
-    }
+    final target = _pickCatalogSource(
+      desiredAudio: selected,
+      desiredQuality: _selectedQuality,
+    );
     if (_sourceCatalog.isNotEmpty) {
-      await _switchToSource(target);
+      if (target != null) {
+        await _switchToSource(target);
+      }
     } else {
       setState(() => _selectedSubtitle = selected);
     }
@@ -1501,6 +1511,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _openQualityMenu() async {
     await _ensureSourceCatalog();
+    if (!mounted) return;
     final qualityValues =
         _sourceCatalog.map((s) => _prettyQuality(s.quality)).toSet().toList()
           ..sort((a, b) {
@@ -1541,18 +1552,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    final preferredAudio = _audioKey(_selectedSubtitle);
-    final candidates = _sourceCatalog.where((s) {
-      final q = _prettyQuality(s.quality).toLowerCase();
-      return q == selected.toLowerCase();
-    }).toList();
-    SoraSource? target;
-    if (candidates.isNotEmpty) {
-      target = candidates.firstWhere(
-        (s) => _audioKey(s.subOrDub) == preferredAudio,
-        orElse: () => candidates.first,
-      );
-    }
+    final target = _pickCatalogSource(
+      desiredAudio: _selectedSubtitle,
+      desiredQuality: selected,
+    );
     if (target != null) {
       await _switchToSource(target);
     } else {
