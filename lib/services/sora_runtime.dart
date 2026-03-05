@@ -109,9 +109,10 @@ class SoraRuntime {
           if (e.type == DioExceptionType.cancel) rethrow;
           final status = e.response?.statusCode ?? 0;
           final shouldRetryStatus = status == 429 || status >= 500;
-          final shouldRetryType = e.type == DioExceptionType.connectionTimeout ||
-              e.type == DioExceptionType.receiveTimeout ||
-              e.type == DioExceptionType.connectionError;
+          final shouldRetryType =
+              e.type == DioExceptionType.connectionTimeout ||
+                  e.type == DioExceptionType.receiveTimeout ||
+                  e.type == DioExceptionType.connectionError;
           if (!shouldRetryStatus && !shouldRetryType) {
             rethrow;
           }
@@ -419,7 +420,8 @@ class SoraRuntime {
         .toList()
       ..sort((a, b) => a.number.compareTo(b.number));
 
-    _episodesCache[session] = _RuntimeCacheEntry<List<SoraEpisode>>(value: episodes, expiresAt: DateTime.now().add(_cacheTtl));
+    _episodesCache[session] = _RuntimeCacheEntry<List<SoraEpisode>>(
+        value: episodes, expiresAt: DateTime.now().add(_cacheTtl));
     return episodes;
   }
 
@@ -618,8 +620,12 @@ class SoraRuntime {
         final qualityNum =
             RegExp(r'(360|480|720|1080)').firstMatch(title)?.group(1);
         final quality = qualityNum == null ? 'auto' : '${qualityNum}p';
-        final subOrDub =
-            title.contains('eng') || title.contains('dub') ? 'dub' : 'sub';
+        final subOrDub = _audioLabelFromHints([
+          title,
+          (item['audio'] ?? '').toString(),
+          (item['language'] ?? '').toString(),
+          streamUrl,
+        ]);
 
         out.add(
           SoraSource(
@@ -715,7 +721,7 @@ class SoraRuntime {
         SoraSource(
           url: url,
           quality: q == null ? 'auto' : '${q}p',
-          subOrDub: 'sub',
+          subOrDub: _audioLabelFromHints([url, episodeUrl]),
           format: 'm3u8',
           headers: {
             'Referer': episodeUrl,
@@ -737,7 +743,7 @@ class SoraRuntime {
         SoraSource(
           url: url,
           quality: q == null ? 'auto' : '${q}p',
-          subOrDub: 'sub',
+          subOrDub: _audioLabelFromHints([url, episodeUrl]),
           format: 'mp4',
           headers: {
             'Referer': episodeUrl,
@@ -766,7 +772,7 @@ class SoraRuntime {
         SoraSource(
           url: hls,
           quality: c.resolution > 0 ? '${c.resolution}p' : 'auto',
-          subOrDub: c.audio.contains('eng') ? 'dub' : 'sub',
+          subOrDub: _audioLabelFromHints([c.audio, c.kwik, hls]),
           format: 'm3u8',
           headers: {
             'Referer': c.kwik,
@@ -958,6 +964,39 @@ class SoraRuntime {
 
   static const _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1';
+
+  String _audioLabelFromHints(Iterable<String?> hints) {
+    final joined =
+        hints.whereType<String>().map((e) => e.toLowerCase()).join(' ');
+    if (joined.isEmpty) return 'sub';
+
+    final dubSignals = <RegExp>[
+      RegExp(r'\bdub\b'),
+      RegExp(r'\bdubbed\b'),
+      RegExp(r'\beng\b'),
+      RegExp(r'\benglish\b'),
+      RegExp(r'[\W_]en[\W_]'),
+      RegExp(r'audio=eng'),
+      RegExp(r'lang=eng'),
+    ];
+    for (final rx in dubSignals) {
+      if (rx.hasMatch(joined)) return 'dub';
+    }
+
+    final subSignals = <RegExp>[
+      RegExp(r'\bsub\b'),
+      RegExp(r'\bsubbed\b'),
+      RegExp(r'\bjpn\b'),
+      RegExp(r'\bjp\b'),
+      RegExp(r'\bjapanese\b'),
+      RegExp(r'audio=jpn'),
+      RegExp(r'lang=jpn'),
+    ];
+    for (final rx in subSignals) {
+      if (rx.hasMatch(joined)) return 'sub';
+    }
+    return 'sub';
+  }
 }
 
 class _LocalSource {
@@ -971,11 +1010,3 @@ class _LocalSource {
   final int resolution;
   final String audio;
 }
-
-
-
-
-
-
-
-

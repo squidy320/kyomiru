@@ -11,8 +11,8 @@ import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
-import '../../core/image_cache.dart';
 import '../../core/app_logger.dart';
+import '../../core/image_cache.dart';
 import '../../models/anilist_models.dart';
 import '../../models/sora_models.dart';
 import '../../services/download_manager.dart';
@@ -667,16 +667,35 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               preferredQuality: chosen.quality,
               preferredAudio: chosen.subOrDub,
             );
-            await ref
-                .read(downloadControllerProvider.notifier)
-                .downloadHlsEpisode(
-                  mediaId: media.id,
-                  episode: ep.number,
-                  animeTitle: media.title.best,
-                  coverImageUrl: media.cover.best,
-                  episodeThumbnailUrl: _episodeThumbnailUrl(media, ep.number),
-                  source: selected,
+            try {
+              await ref
+                  .read(downloadControllerProvider.notifier)
+                  .downloadHlsEpisode(
+                    mediaId: media.id,
+                    episode: ep.number,
+                    animeTitle: media.title.best,
+                    coverImageUrl: media.cover.best,
+                    episodeThumbnailUrl: _episodeThumbnailUrl(media, ep.number),
+                    source: selected,
+                  );
+            } catch (e, st) {
+              AppLogger.w(
+                'Details',
+                'Bulk download enqueue failed for episode ${ep.number}',
+                error: e,
+                stackTrace: st,
+              );
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Failed to queue episode ${ep.number}. Continuing...',
+                    ),
+                  ),
                 );
+              }
+              continue;
+            }
           }
         }
         if (!mounted) return;
@@ -2322,43 +2341,16 @@ class _WideDetailsScaffold extends StatelessWidget {
         children: [
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
-            child: LayoutBuilder(
+            child: Container(
               key: ValueKey<int>(media.id),
-              builder: (context, constraints) {
-                if (image == null || image.isEmpty) {
-                  return const ColoredBox(color: Color(0xFF111111));
-                }
-                final aspect = constraints.maxWidth / constraints.maxHeight;
-                final extremeAspect = aspect > 1.95;
-                if (!extremeAspect) {
-                  return Image(
-                    image: KyomiruImageCache.provider(image),
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
-                  );
-                }
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Transform.scale(
-                        scale: 1.12,
-                        child: Image(
-                          image: KyomiruImageCache.provider(image),
-                          fit: BoxFit.cover,
-                          alignment: Alignment.topCenter,
-                        ),
+              decoration: BoxDecoration(
+                image: image == null
+                    ? null
+                    : DecorationImage(
+                        image: KyomiruImageCache.provider(image),
+                        fit: BoxFit.cover,
                       ),
-                    ),
-                    Image(
-                      image: KyomiruImageCache.provider(image),
-                      fit: BoxFit.contain,
-                      alignment: Alignment.topCenter,
-                    ),
-                  ],
-                );
-              },
+              ),
             ),
           ),
           Container(

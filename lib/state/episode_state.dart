@@ -68,9 +68,8 @@ final soraRuntimeProvider = Provider<SoraRuntime>((ref) {
   return runtime;
 });
 
-final episodeProvider =
-    FutureProvider.autoDispose.family<EpisodeLoadResult, EpisodeQuery>(
-        (ref, query) async {
+final episodeProvider = FutureProvider.autoDispose
+    .family<EpisodeLoadResult, EpisodeQuery>((ref, query) async {
   final runtime = ref.watch(soraRuntimeProvider);
 
   await runtime.initialize();
@@ -102,9 +101,8 @@ final episodeProvider =
   throw lastError ?? Exception('Failed to load episodes');
 });
 
-final episodeSourcesProvider =
-    FutureProvider.autoDispose.family<List<SoraSource>, EpisodeSourceQuery>(
-        (ref, query) async {
+final episodeSourcesProvider = FutureProvider.autoDispose
+    .family<List<SoraSource>, EpisodeSourceQuery>((ref, query) async {
   final settings = ref.watch(appSettingsProvider);
   final runtime = ref.watch(soraRuntimeProvider);
   await runtime.initialize();
@@ -118,6 +116,13 @@ final episodeSourcesProvider =
   final audio = settings.defaultAudio.toLowerCase();
   final quality = settings.defaultQuality.toLowerCase();
   final sorted = [...sources];
+  String audioKey(String value) {
+    final v = value.trim().toLowerCase();
+    if (v == 'any') return 'any';
+    if (v.contains('dub') || v.contains('eng')) return 'dub';
+    return 'sub';
+  }
+
   int qualityRank(String q) {
     final m = RegExp(r'(\d+)').firstMatch(q);
     return int.tryParse(m?.group(1) ?? '') ?? 0;
@@ -125,13 +130,14 @@ final episodeSourcesProvider =
 
   int scoreFor(SoraSource s) {
     var score = 0;
-    final sourceAudio = s.subOrDub.toLowerCase();
+    final sourceAudio = audioKey(s.subOrDub);
+    final wantedAudio = audioKey(audio);
     final sourceQuality = s.quality.toLowerCase();
     final sourceFormat = s.format.toLowerCase();
     if (sourceFormat == 'm3u8' && sourceQuality.contains('auto')) {
       score += 1000;
     }
-    if (audio == 'any' || sourceAudio == audio) {
+    if (wantedAudio == 'any' || sourceAudio == wantedAudio) {
       score += 500;
     }
     if (quality == 'auto' || sourceQuality.contains(quality)) {

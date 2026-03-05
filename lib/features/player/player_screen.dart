@@ -1334,25 +1334,44 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     await _enterPip();
   }
 
-  Future<void> _setPlaybackSpeed(double speed) async {
+  Future<void> _setPlaybackSpeed(
+    double speed, {
+    bool forceResync = true,
+  }) async {
     final mk = _mediaKitPlayer;
-    if (mk != null) {
-      try {
-        final target = speed.clamp(0.5, 2.0);
-        await mk.setRate(target);
+    if (mk == null) return;
+    try {
+      final target = speed.clamp(0.5, 2.0);
+      final wasPlaying = _isMediaKitPlaying || mk.state.playing;
 
-        // MediaKit/mpv can occasionally drift A/V sync right after rate
-        // changes on some HLS streams. Re-seeking to the current position
-        // re-aligns decoder clocks without a visible jump.
-        if (_isMediaKitPlaying) {
-          final now = mk.state.position;
-          if (now > Duration.zero) {
-            await mk.seek(now);
-            await mk.setRate(target);
-          }
-        }
-      } catch (_) {}
-    }
+      if (!forceResync) {
+        await mk.setRate(target);
+        return;
+      }
+
+      final now = mk.state.position;
+      if (wasPlaying) {
+        await mk.pause();
+      }
+
+      // Hard clock reset prevents cases where audio rate applies but
+      // decoded video timeline lags behind on certain HLS streams.
+      await mk.setRate(1.0);
+      if (now > Duration.zero) {
+        await mk.seek(now);
+      }
+      await mk.setRate(target);
+
+      if (wasPlaying) {
+        await mk.play();
+      }
+
+      // One more exact seek after playback resumes to lock A/V sync.
+      if (now > Duration.zero) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        await mk.seek(now);
+      }
+    } catch (_) {}
   }
 
   Future<void> _setPreferredPlaybackSpeed(double speed) async {
@@ -1780,12 +1799,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _handleLongPressStart(LongPressStartDetails _) {
     setState(() => _isLongPressSpeeding = true);
-    unawaited(_setPlaybackSpeed(2.0));
+    unawaited(_setPlaybackSpeed(2.0, forceResync: false));
   }
 
   void _handleLongPressEnd(LongPressEndDetails _) {
     setState(() => _isLongPressSpeeding = false);
-    unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
+    unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed, forceResync: false));
   }
 
   Future<void> _togglePlayPause() async {
