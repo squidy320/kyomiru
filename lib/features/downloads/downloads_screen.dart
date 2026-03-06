@@ -551,13 +551,28 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
                             )
                           else
                             Expanded(
-                              child: ListView.separated(
-                                itemCount: done.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 8),
-                                itemBuilder: (context, index) {
-                                  return _WideDownloadedEpisodeRow(
-                                    item: done[index],
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final width = constraints.maxWidth;
+                                  final columns = width > 1100
+                                      ? 3
+                                      : width > 760
+                                          ? 2
+                                          : 1;
+                                  return GridView.builder(
+                                    gridDelegate:
+                                        SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: columns,
+                                      mainAxisSpacing: 8,
+                                      crossAxisSpacing: 8,
+                                      childAspectRatio: columns == 1 ? 4.2 : 2.9,
+                                    ),
+                                    itemCount: done.length,
+                                    itemBuilder: (context, index) {
+                                      return _DownloadedEpisodeTile(
+                                        item: done[index],
+                                      );
+                                    },
                                   );
                                 },
                               ),
@@ -627,141 +642,6 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
   }
 }
 
-class _WideDownloadedEpisodeRow extends ConsumerWidget {
-  const _WideDownloadedEpisodeRow({required this.item});
-
-  final DownloadItem item;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final size =
-        _formatBytes(item.totalBytes > 0 ? item.totalBytes : item.downloadedBytes);
-    final ratio = (item.lastDurationMs > 0)
-        ? (item.lastPositionMs / item.lastDurationMs).clamp(0.0, 1.0)
-        : 0.0;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFA1E1E1E),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 190,
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _DownloadedEpisodeThumb(item: item),
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.42),
-                            ],
-                            stops: const [0.58, 1.0],
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (ratio > 0)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          height: 2.5,
-                          color: Colors.white24,
-                          child: FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: ratio,
-                            child: Container(color: const Color(0xFF60A5FA)),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Episode ${item.episode}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  size,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFA1A8BC),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _iconButton(
-            icon: Icons.play_arrow_rounded,
-            onTap: () => _playDownloadedEpisode(context, ref, item),
-          ),
-          const SizedBox(width: 6),
-          _iconButton(
-            icon: Icons.delete_outline_rounded,
-            onTap: () async {
-              HapticFeedback.mediumImpact();
-              await ref
-                  .read(downloadControllerProvider.notifier)
-                  .delete(item.mediaId, item.episode);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _playDownloadedEpisode(
-    BuildContext context,
-    WidgetRef ref,
-    DownloadItem item,
-  ) async {
-    hapticTap();
-    final localFile = await ref
-        .read(downloadControllerProvider.notifier)
-        .getLocalEpisodeByMedia(item.mediaId, item.episode);
-    if (!context.mounted) return;
-    final local = localFile?.path;
-    final exists = local != null && local.isNotEmpty;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          mediaId: item.mediaId,
-          episodeNumber: item.episode,
-          episodeTitle: '${item.animeTitle} - Episode ${item.episode}',
-          sourceUrl: exists ? local : item.sourceUrl,
-          headers: item.headers,
-          isLocal: exists,
-          mediaTitle: item.animeTitle,
-        ),
-      ),
-    );
-  }
-}
 
 class _SeriesBannerHero extends StatelessWidget {
   const _SeriesBannerHero({required this.series});
