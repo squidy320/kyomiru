@@ -822,26 +822,29 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
     hapticTap();
     final source = ref.read(librarySourceProvider);
-    try {
-      AniListTrackingEntry? refreshed;
-      if (source == LibrarySource.anilist &&
-          token != null &&
-          token.isNotEmpty) {
-        refreshed = await ref
-            .read(anilistClientProvider)
-            .trackingEntry(token, media.id, force: true);
-      } else {
-        refreshed = await ref.refresh(mediaListProvider(media.id).future);
-      }
-      if (refreshed != null) {
-        ref.read(mediaListEntryControllerProvider(media.id).notifier).setLocal(
-              status: refreshed.status,
-              progress: refreshed.progress,
-              score: refreshed.score,
-            );
-      }
-    } catch (_) {}
+    final cached = ref.read(mediaListProvider(media.id)).valueOrNull;
+    if (cached != null) {
+      ref.read(mediaListEntryControllerProvider(media.id).notifier).setLocal(
+            status: cached.status,
+            progress: cached.progress,
+            score: cached.score,
+          );
+    }
     if (!mounted) return;
+    unawaited(() async {
+      try {
+        if (source == LibrarySource.anilist &&
+            token != null &&
+            token.isNotEmpty) {
+          await ref
+              .read(mediaListEntryControllerProvider(media.id).notifier)
+              .loadFresh(force: true);
+        } else {
+          ref.invalidate(mediaListProvider(media.id));
+          await ref.read(mediaListProvider(media.id).future);
+        }
+      } catch (_) {}
+    }());
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -881,7 +884,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     required String? token,
   }) async {
     final source = ref.read(librarySourceProvider);
-    if (source == LibrarySource.anilist && !trackingResolved) {
+    if (source == LibrarySource.anilist) {
       await _openTrackingSheet(media, token);
       return;
     }
@@ -2748,10 +2751,19 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   @override
   void initState() {
     super.initState();
+    final existing = ref.read(mediaListProvider(widget.media.id)).valueOrNull ??
+        ref.read(mediaListEntryControllerProvider(widget.media.id));
+    if (existing != null) {
+      _status = existing.status;
+      _score = existing.score;
+      _progress = existing.progress;
+      _loadedInitial = true;
+      _lastHydratedSignature = _entrySignature(existing);
+    }
     unawaited(
       ref
           .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-          .loadFresh(),
+          .loadFresh(force: false),
     );
   }
 
@@ -2963,10 +2975,6 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
       }
     }
 
-    if (fetchedEntryAsync.isLoading || scoreFormatAsync.isLoading) {
-      return const GlassCard(child: Text('Loading tracking...'));
-    }
-
     final bg = meAsync.valueOrNull?.bannerImage ?? widget.media.bannerImage;
     final maxEp = widget.media.episodes ?? 9999;
     final scoreFormat = scoreFormatAsync.valueOrNull ?? 'POINT_10_DECIMAL';
@@ -2995,6 +3003,11 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                       fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 10),
+                if (fetchedEntryAsync.isLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
                 if (source == LibrarySource.anilist &&
                     fetchedEntry == null &&
                     optimisticEntry == null) ...[

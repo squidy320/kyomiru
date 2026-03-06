@@ -40,7 +40,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
   final Ref _ref;
   final int mediaId;
 
-  Future<void> loadFresh() async {
+  Future<void> loadFresh({bool force = false}) async {
     final source = _ref.read(librarySourceProvider);
     if (source == LibrarySource.local) {
       final local = await _ref.read(localLibraryStoreProvider).entryForMedia(mediaId);
@@ -55,7 +55,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
     }
     state = await _ref
         .read(anilistClientProvider)
-        .trackingEntry(token, mediaId, force: true);
+        .trackingEntry(token, mediaId, force: force);
   }
 
   void setLocal({
