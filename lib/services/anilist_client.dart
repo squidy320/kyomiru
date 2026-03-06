@@ -1721,4 +1721,104 @@ class AniListClient {
     if (month <= 8) return 'SUMMER';
     return 'FALL';
   }
+
+  List<AniListLibrarySection> cachedLibrarySections(String token) {
+    final fromMemory = _librarySectionsCache.entries
+        .where((e) => e.key.startsWith('$token:'))
+        .map((e) => e.value.value)
+        .where((sections) => sections.isNotEmpty)
+        .toList();
+    if (fromMemory.isNotEmpty) {
+      return fromMemory.first;
+    }
+
+    final box = _queryBox();
+    if (box == null) return const [];
+    final prefix = 'librarySections:$token:';
+    Map<String, dynamic>? newest;
+    var newestAtMs = -1;
+    for (final key in box.keys) {
+      final keyStr = key.toString();
+      if (!keyStr.startsWith(prefix)) continue;
+      final raw = box.get(keyStr);
+      if (raw is! Map) continue;
+      final cachedAtMs = (raw['cachedAtMs'] as num?)?.toInt() ?? 0;
+      if (cachedAtMs <= newestAtMs) continue;
+      final data = raw['data'];
+      if (data is! Map) continue;
+      newest = Map<String, dynamic>.from(data);
+      newestAtMs = cachedAtMs;
+    }
+    if (newest == null) return const [];
+    final sections = _parseLibrarySections(newest);
+    if (sections.isNotEmpty) {
+      _librarySectionsCache['$token:cached_snapshot'] =
+          _CacheEntry<List<AniListLibrarySection>>(
+        sections,
+        DateTime.now().add(const Duration(minutes: 5)),
+      );
+    }
+    return sections;
+  }
+
+  ({List<AniListMedia> trending, List<AniListDiscoverySection> sections})?
+      cachedDiscoverySnapshot() {
+    List<AniListMedia> trending = const [];
+    List<AniListDiscoverySection> sections = const [];
+
+    if (_discoveryTrendingCache?.value.isNotEmpty ?? false) {
+      trending = _discoveryTrendingCache!.value;
+    } else {
+      final persistedTrending = _readQueryCache('discoveryTrending', maxAge: null);
+      if (persistedTrending != null) {
+        final rows = (persistedTrending['items'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => AniListMedia.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        trending = _sanitizeMediaList(rows);
+      }
+    }
+
+    if (_discoverySectionsCache?.value.isNotEmpty ?? false) {
+      sections = _discoverySectionsCache!.value;
+    } else {
+      final persistedSections = _readQueryCache('discoverySections', maxAge: null);
+      if (persistedSections != null) {
+        sections = _parseDiscoverySections(persistedSections);
+      }
+    }
+
+    if (trending.isEmpty && sections.isEmpty) return null;
+    return (trending: trending, sections: sections);
+  }
+
+  List<AniListLibrarySection> _parseLibrarySections(Map<String, dynamic> data) {
+    return (data['sections'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) {
+      final map = Map<String, dynamic>.from(e);
+      final title = (map['title'] ?? 'Section').toString();
+      final items = (map['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((row) =>
+              AniListLibraryEntry.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+      return AniListLibrarySection(title: title, items: items);
+    }).toList();
+  }
+
+  List<AniListDiscoverySection> _parseDiscoverySections(
+      Map<String, dynamic> data) {
+    return (data['sections'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) {
+      final map = Map<String, dynamic>.from(e);
+      final title = (map['title'] ?? 'Section').toString();
+      final items = (map['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((row) => AniListMedia.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+      return AniListDiscoverySection(title: title, items: items);
+    }).toList();
+  }
 }

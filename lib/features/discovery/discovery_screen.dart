@@ -73,12 +73,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() {
-        _discoveryFuture = _loadDiscovery();
-      });
-    });
+    final cached = ref.read(anilistClientProvider).cachedDiscoverySnapshot();
+    if (cached != null) {
+      _cachedPayload = _DiscoveryPayload(
+        trending: cached.trending,
+        sections: cached.sections,
+      );
+      _startHeroTimer(cached.trending.length);
+    }
+    _discoveryFuture = _loadDiscovery();
   }
 
   @override

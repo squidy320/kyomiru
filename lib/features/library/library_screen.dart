@@ -226,6 +226,7 @@ class _LibraryDataView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
     final settings = ref.watch(appSettingsProvider);
+    final cachedSections = client.cachedLibrarySections(token);
 
     return FutureBuilder<List<dynamic>>(
       future: client.me(token).then(
@@ -237,7 +238,8 @@ class _LibraryDataView extends ConsumerWidget {
             !loading && !hasError ? snap.data![0] as AniListUser : null;
         final sections = !loading && !hasError
             ? snap.data![1] as List<AniListLibrarySection>
-            : const <AniListLibrarySection>[];
+            : cachedSections;
+        final showingCached = loading && cachedSections.isNotEmpty;
 
         final chips = <String>['All', ...sections.map((s) => s.title)];
         final filtered = selected == 'All'
@@ -311,11 +313,23 @@ class _LibraryDataView extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 12),
+              if (showingCached)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Showing cached library',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFFA1A8BC),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               const _ContinueWatchingShelf(),
               const SizedBox(height: 12),
-              if (loading)
+              if (loading && cachedSections.isEmpty)
                 const _LibrarySkeletonBody()
-              else if (hasError)
+              else if (hasError && sections.isEmpty)
                 GlassCard(child: Text('Failed loading library: ${snap.error}'))
               else if (sections.isEmpty)
                 const GlassCard(child: Text('No library items found.'))
