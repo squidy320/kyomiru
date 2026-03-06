@@ -624,7 +624,11 @@ class SoraRuntime {
           title,
           (item['audio'] ?? '').toString(),
           (item['language'] ?? '').toString(),
+          (item['lang'] ?? '').toString(),
+          (item['type'] ?? '').toString(),
+          (item['label'] ?? '').toString(),
           streamUrl,
+          jsonEncode(item),
         ]);
 
         out.add(
@@ -649,7 +653,11 @@ class SoraRuntime {
 
       out.sort(
           (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
-      return _dedupSources(out);
+      final repaired = _repairAmbiguousAudioLabels(
+        out,
+        context: 'jorm:$session/$episodeSession',
+      );
+      return _dedupSources(repaired);
     } catch (_) {
       _releaseToken(token);
       return const [];
@@ -695,7 +703,39 @@ class SoraRuntime {
                   RegExp(r'(360|480|720|1080)').firstMatch(tag)?.group(1) ??
                       '') ??
               0);
-      final a = (_attr(tag, 'data-audio') ?? 'jpn').toLowerCase();
+      final a = _audioLabelFromHints([
+        _attr(tag, 'data-audio'),
+        _attr(tag, 'data-lang'),
+        _attr(tag, 'data-type'),
+        tag,
+        url,
+      ]);
+      candidates.add(_LocalSource(kwik: url, resolution: q, audio: a));
+    }
+
+    final elementRegex = RegExp(
+      r'''<(?:button|a)[^>]*(?:data-src|href)=["']([^"']+)["'][^>]*>(.*?)</(?:button|a)>''',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    for (final m in elementRegex.allMatches(html)) {
+      final raw = m.group(1) ?? '';
+      final inner = (m.group(2) ?? '').replaceAll(RegExp(r'<[^>]+>'), ' ');
+      if (raw.isEmpty) continue;
+      final url = _resolveMaybeRelative(episodeUrl, raw);
+      if (!(url.contains('kwik.') ||
+          url.contains('/e/') ||
+          url.contains('.m3u8'))) {
+        continue;
+      }
+      final q = int.tryParse(
+              RegExp(r'(360|480|720|1080)').firstMatch(inner)?.group(1) ??
+                  '') ??
+          int.tryParse(
+                  RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1) ??
+                      '') ??
+          0;
+      final a = _audioLabelFromHints([inner, url]);
       candidates.add(_LocalSource(kwik: url, resolution: q, audio: a));
     }
 
@@ -707,7 +747,13 @@ class SoraRuntime {
       final q = int.tryParse(
               RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1) ?? '') ??
           0;
-      candidates.add(_LocalSource(kwik: url, resolution: q, audio: 'jpn'));
+      candidates.add(
+        _LocalSource(
+          kwik: url,
+          resolution: q,
+          audio: _audioLabelFromHints([url]),
+        ),
+      );
     }
 
     final inlineM3u8Regex =
@@ -786,7 +832,11 @@ class SoraRuntime {
 
     out.sort(
         (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
-    return _dedupSources(out);
+    final repaired = _repairAmbiguousAudioLabels(
+      out,
+      context: 'local:$session/$episodeSession',
+    );
+    return _dedupSources(repaired);
   }
 
   Future<String?> _extractKwikHls(String kwikUrl) async {
@@ -932,6 +982,80 @@ class SoraRuntime {
     return map.values.toList();
   }
 
+  List<SoraSource> _repairAmbiguousAudioLabels(
+    List<SoraSource> sources, {
+    required String context,
+  }) {
+    if (sources.isEmpty) return sources;
+    final hasDub = sources.any((s) => _audioLabelFromHints([s.subOrDub]) == 'dub');
+    if (hasDub) {
+      final dubCount =
+          sources.where((s) => _audioLabelFromHints([s.subOrDub]) == 'dub').length;
+      AppLogger.i(
+        'SoraRuntime',
+        'Audio labels resolved $context total=${sources.length} dub=$dubCount sub=${sources.length - dubCount}',
+      );
+      return sources;
+    }
+
+    final grouped = <String, List<int>>{};
+    for (var i = 0; i < sources.length; i++) {
+      final s = sources[i];
+      grouped.putIfAbsent('${s.quality}|${s.format}', () => <int>[]).add(i);
+    }
+    final mutable = [...sources];
+    var repairedAny = false;
+    final dubHint = RegExp(
+      r'(?:\bdub\b|\bdubbed\b|\beng\b|\benglish\b|audio=eng|lang=eng)',
+      caseSensitive: false,
+    );
+
+    for (final entry in grouped.entries) {
+      final idx = entry.value;
+      if (idx.length != 2) continue;
+      final a = mutable[idx[0]];
+      final b = mutable[idx[1]];
+      final aUrl = a.url.toLowerCase();
+      final bUrl = b.url.toLowerCase();
+      final aScore = dubHint.hasMatch(aUrl) ? 1 : 0;
+      final bScore = dubHint.hasMatch(bUrl) ? 1 : 0;
+
+      int dubIndex;
+      if (aScore != bScore) {
+        dubIndex = aScore > bScore ? idx[0] : idx[1];
+      } else {
+        final pair = [idx[0], idx[1]]
+          ..sort((l, r) => mutable[l].url.compareTo(mutable[r].url));
+        dubIndex = pair.last;
+      }
+      final chosen = mutable[dubIndex];
+      mutable[dubIndex] = SoraSource(
+        url: chosen.url,
+        quality: chosen.quality,
+        subOrDub: 'dub',
+        format: chosen.format,
+        headers: chosen.headers,
+      );
+      repairedAny = true;
+    }
+
+    final dubCount =
+        mutable.where((s) => _audioLabelFromHints([s.subOrDub]) == 'dub').length;
+    if (repairedAny) {
+      AppLogger.i(
+        'SoraRuntime',
+        'Audio labels repaired $context total=${mutable.length} dub=$dubCount sub=${mutable.length - dubCount}',
+      );
+      return mutable;
+    }
+
+    AppLogger.i(
+      'SoraRuntime',
+      'Audio labels unresolved $context total=${sources.length} dub=0 sub=${sources.length}',
+    );
+    return sources;
+  }
+
   int _qualityRank(String q) {
     final m = RegExp(r'(\d+)').firstMatch(q);
     return int.tryParse(m?.group(1) ?? '') ?? 0;
@@ -975,9 +1099,14 @@ class SoraRuntime {
       RegExp(r'\bdubbed\b'),
       RegExp(r'\beng\b'),
       RegExp(r'\benglish\b'),
+      RegExp(r'\ben-us\b'),
+      RegExp(r'\ben_?us\b'),
       RegExp(r'[\W_]en[\W_]'),
       RegExp(r'audio=eng'),
+      RegExp(r'audio=english'),
       RegExp(r'lang=eng'),
+      RegExp(r'lang=en'),
+      RegExp(r'[?&]audio=dub'),
     ];
     for (final rx in dubSignals) {
       if (rx.hasMatch(joined)) return 'dub';
@@ -990,7 +1119,9 @@ class SoraRuntime {
       RegExp(r'\bjp\b'),
       RegExp(r'\bjapanese\b'),
       RegExp(r'audio=jpn'),
+      RegExp(r'audio=japanese'),
       RegExp(r'lang=jpn'),
+      RegExp(r'lang=ja'),
     ];
     for (final rx in subSignals) {
       if (rx.hasMatch(joined)) return 'sub';
