@@ -43,6 +43,7 @@ class SoraRuntime {
   Future<void>? _initFuture;
   bool _disposed = false;
   static const Duration _cacheTtl = Duration(minutes: 30);
+  static const int _sourcesCacheVersion = 2;
   final Set<String> _refreshing = <String>{};
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
   final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
@@ -445,7 +446,7 @@ class SoraRuntime {
     }
     final session = segments[segments.length - 2];
     final episodeSession = segments.last;
-    final cacheKey = '$session/$episodeSession';
+    final cacheKey = '$session/$episodeSession:v$_sourcesCacheVersion';
     final cached = _sourcesCache[cacheKey];
     if (cached != null) {
       if (cached.isFresh) return cached.value;
@@ -628,7 +629,6 @@ class SoraRuntime {
           (item['type'] ?? '').toString(),
           (item['label'] ?? '').toString(),
           streamUrl,
-          jsonEncode(item),
         ]);
 
         out.add(
@@ -1101,11 +1101,12 @@ class SoraRuntime {
       RegExp(r'\benglish\b'),
       RegExp(r'\ben-us\b'),
       RegExp(r'\ben_?us\b'),
-      RegExp(r'[\W_]en[\W_]'),
       RegExp(r'audio=eng'),
       RegExp(r'audio=english'),
+      RegExp(r'audio=en'),
       RegExp(r'lang=eng'),
       RegExp(r'lang=en'),
+      RegExp(r'locale=en'),
       RegExp(r'[?&]audio=dub'),
     ];
     for (final rx in dubSignals) {
