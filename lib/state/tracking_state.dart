@@ -34,6 +34,8 @@ final mediaListEntryControllerProvider = StateNotifierProvider.family<
   return MediaListEntryController(ref, mediaId);
 });
 
+final librarySyncBumpProvider = StateProvider<int>((ref) => 0);
+
 class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
   MediaListEntryController(this._ref, this.mediaId) : super(null);
 
@@ -100,6 +102,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
         }
         _ref.invalidate(localLibraryEntriesProvider);
         _ref.invalidate(mediaListProvider(mediaId));
+        _ref.read(librarySyncBumpProvider.notifier).state++;
         return true;
       } catch (_) {
         state = previous;
@@ -128,6 +131,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
           );
       state = saved;
       _ref.invalidate(mediaListProvider(mediaId));
+      _ref.read(librarySyncBumpProvider.notifier).state++;
       return true;
     } catch (_) {
       state = previous;
@@ -145,6 +149,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
         await _ref.read(localLibraryStoreProvider).removeByMediaId(mediaId);
         _ref.invalidate(localLibraryEntriesProvider);
         _ref.invalidate(mediaListProvider(mediaId));
+        _ref.read(librarySyncBumpProvider.notifier).state++;
         return true;
       } catch (_) {
         state = previous;
@@ -170,6 +175,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
         return false;
       }
       _ref.invalidate(mediaListProvider(mediaId));
+      _ref.read(librarySyncBumpProvider.notifier).state++;
       return true;
     } catch (_) {
       state = previous;

@@ -226,6 +226,7 @@ class _LibraryDataView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
     final settings = ref.watch(appSettingsProvider);
+    ref.watch(librarySyncBumpProvider);
     final cachedSections = client.cachedLibrarySections(token);
 
     return FutureBuilder<List<dynamic>>(

@@ -2745,8 +2745,10 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   double _score = 0;
   int _progress = 0;
   bool _saving = false;
+  bool _isFetching = false;
   bool _loadedInitial = false;
   String? _lastHydratedSignature;
+  DateTime? _lastSyncedAt;
 
   @override
   void initState() {
@@ -2759,12 +2761,35 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
       _progress = existing.progress;
       _loadedInitial = true;
       _lastHydratedSignature = _entrySignature(existing);
+      _lastSyncedAt = DateTime.now();
     }
-    unawaited(
-      ref
+    final source = ref.read(librarySourceProvider);
+    if (source == LibrarySource.anilist) {
+      _isFetching = true;
+      unawaited(_fetchFreshTracking());
+    } else {
+      unawaited(
+        ref
+            .read(mediaListEntryControllerProvider(widget.media.id).notifier)
+            .loadFresh(force: false),
+      );
+    }
+  }
+
+  Future<void> _fetchFreshTracking() async {
+    try {
+      await ref
           .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-          .loadFresh(force: false),
-    );
+          .loadFresh(force: true);
+      if (!mounted) return;
+      setState(() {
+        _isFetching = false;
+        _lastSyncedAt = DateTime.now();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isFetching = false);
+    }
   }
 
   void _hydrateInitial(AniListTrackingEntry? entry) {
@@ -2810,6 +2835,14 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
 
   String _entrySignature(AniListTrackingEntry e) {
     return '${e.id}|${e.status}|${e.progress}|${e.score.toStringAsFixed(2)}';
+  }
+
+  String _lastSyncedLabel() {
+    final at = _lastSyncedAt;
+    if (at == null) return 'Last synced: --';
+    final h = at.hour.toString().padLeft(2, '0');
+    final m = at.minute.toString().padLeft(2, '0');
+    return 'Last synced: $h:$m';
   }
 
   Widget _scoreEditor(String format) {
@@ -3008,6 +3041,28 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                     padding: EdgeInsets.only(bottom: 8),
                     child: LinearProgressIndicator(minHeight: 2),
                   ),
+                if (_isFetching)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Fetching tracking...',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFA1A8BC),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (source == LibrarySource.anilist &&
                     fetchedEntry == null &&
                     optimisticEntry == null) ...[
@@ -3035,52 +3090,64 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                   ),
                   const SizedBox(height: 6),
                 ],
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final s in const [
-                      'CURRENT',
-                      'PLANNING',
-                      'COMPLETED',
-                      'PAUSED',
-                      'DROPPED',
-                      'REPEATING'
-                    ])
-                      ChoiceChip(
-                        label: Text(s),
-                        selected: _status == s,
-                        onSelected: (_) => setState(() {
-                          _loadedInitial = true;
-                          _status = s;
-                          _pushOptimistic();
-                          _persistLocalImmediate();
-                        }),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Text('Episode'),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Slider(
-                        value: _progress.toDouble().clamp(0, maxEp.toDouble()),
-                        max: maxEp.toDouble(),
-                        divisions: maxEp > 0 ? maxEp : 1,
-                        label: '$_progress',
-                        onChanged: (v) => setState(() {
-                          _loadedInitial = true;
-                          _progress = v.round();
-                          _pushOptimistic();
-                          _persistLocalImmediate();
-                        }),
-                      ),
+                AbsorbPointer(
+                  absorbing: _isFetching || _saving,
+                  child: Opacity(
+                    opacity: (_isFetching || _saving) ? 0.55 : 1.0,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            for (final s in const [
+                              'CURRENT',
+                              'PLANNING',
+                              'COMPLETED',
+                              'PAUSED',
+                              'DROPPED',
+                              'REPEATING'
+                            ])
+                              ChoiceChip(
+                                label: Text(s),
+                                selected: _status == s,
+                                onSelected: (_) => setState(() {
+                                  _loadedInitial = true;
+                                  _status = s;
+                                  _pushOptimistic();
+                                  _persistLocalImmediate();
+                                }),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            const Text('Episode'),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Slider(
+                                value:
+                                    _progress.toDouble().clamp(0, maxEp.toDouble()),
+                                max: maxEp.toDouble(),
+                                divisions: maxEp > 0 ? maxEp : 1,
+                                label: '$_progress',
+                                onChanged: (v) => setState(() {
+                                  _loadedInitial = true;
+                                  _progress = v.round();
+                                  _pushOptimistic();
+                                  _persistLocalImmediate();
+                                }),
+                              ),
+                            ),
+                            Text('$_progress/$maxEp'),
+                          ],
+                        ),
+                        _scoreEditor(scoreFormat),
+                      ],
                     ),
-                    Text('$_progress/$maxEp'),
-                  ],
+                  ),
                 ),
-                _scoreEditor(scoreFormat),
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
@@ -3128,6 +3195,9 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                                   return;
                                 }
                                 final messenger = ScaffoldMessenger.of(context);
+                                final rollbackStatus = _status;
+                                final rollbackProgress = _progress;
+                                final rollbackScore = _score;
                                 setState(() => _saving = true);
                                 final ok = await ref
                                     .read(mediaListEntryControllerProvider(
@@ -3142,21 +3212,18 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                                     );
                                 if (!mounted) return;
                                 if (!ok) {
-                                  final rollback = ref.read(
-                                      mediaListEntryControllerProvider(
-                                          widget.media.id));
-                                  if (rollback != null) {
-                                    setState(() {
-                                      _status = rollback.status;
-                                      _progress = rollback.progress;
-                                      _score = rollback.score;
-                                    });
-                                  }
+                                  setState(() {
+                                    _status = rollbackStatus;
+                                    _progress = rollbackProgress;
+                                    _score = rollbackScore;
+                                  });
+                                  _pushOptimistic();
                                   messenger.showSnackBar(
                                     const SnackBar(
                                         content: Text('Sync Failed')),
                                   );
                                 } else {
+                                  _lastSyncedAt = DateTime.now();
                                   messenger.showSnackBar(
                                     SnackBar(
                                       content: Text(
@@ -3182,6 +3249,35 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    if (_saving) ...[
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Syncing AniList...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFFA1A8BC),
+                        ),
+                      ),
+                      const Spacer(),
+                    ] else
+                      const Spacer(),
+                    Text(
+                      _lastSyncedLabel(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFA1A8BC),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
