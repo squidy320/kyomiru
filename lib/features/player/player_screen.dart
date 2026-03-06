@@ -417,6 +417,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('demuxer-max-bytes', isHls ? '100663296' : '50331648');
       await setProp('demuxer-readahead-secs', isHls ? '35' : '12');
       await setProp('cache-secs', isHls ? '40' : '12');
+      await setProp('video-sync', 'audio');
+      await setProp('audio-pitch-correction', 'yes');
     } catch (_) {}
   }
 
@@ -1365,41 +1367,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   Future<void> _setPlaybackSpeed(
     double speed, {
-    bool forceResync = true,
+    bool forceResync = false,
   }) async {
     final mk = _mediaKitPlayer;
     if (mk == null) return;
     try {
       final target = speed.clamp(0.5, 2.0);
-      final wasPlaying = _isMediaKitPlaying || mk.state.playing;
-
-      if (!forceResync) {
-        await mk.setRate(target);
-        return;
-      }
+      await mk.setRate(target);
+      if (!forceResync) return;
 
       final now = mk.state.position;
-      if (wasPlaying) {
-        await mk.pause();
-      }
+      final duration = mk.state.duration;
+      if (now <= Duration.zero || duration <= Duration.zero) return;
+      final wasPlaying = _isMediaKitPlaying || mk.state.playing;
+      if (wasPlaying) await mk.pause();
 
-      // Hard clock reset prevents cases where audio rate applies but
-      // decoded video timeline lags behind on certain HLS streams.
-      await mk.setRate(1.0);
-      if (now > Duration.zero) {
-        await mk.seek(now);
-      }
-      await mk.setRate(target);
+      final nudge = now + const Duration(milliseconds: 120);
+      final clampedNudge = nudge < duration ? nudge : duration;
+      await mk.seek(clampedNudge);
+      await mk.seek(now);
 
-      if (wasPlaying) {
-        await mk.play();
-      }
-
-      // One more exact seek after playback resumes to lock A/V sync.
-      if (now > Duration.zero) {
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-        await mk.seek(now);
-      }
+      if (wasPlaying) await mk.play();
     } catch (_) {}
   }
 
