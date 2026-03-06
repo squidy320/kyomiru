@@ -838,7 +838,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             token.isNotEmpty) {
           await ref
               .read(mediaListEntryControllerProvider(media.id).notifier)
-              .loadFresh(force: true);
+              .loadFresh(force: false);
         } else {
           ref.invalidate(mediaListProvider(media.id));
           await ref.read(mediaListProvider(media.id).future);
@@ -2780,7 +2780,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     try {
       await ref
           .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-          .loadFresh(force: true);
+          .loadFresh(force: false);
       if (!mounted) return;
       setState(() {
         _isFetching = false;

@@ -49,6 +49,25 @@ class LegacyType78Adapter extends TypeAdapter<Map<dynamic, dynamic>> {
   }
 }
 
+class LegacyType79Adapter extends TypeAdapter<Map<dynamic, dynamic>> {
+  @override
+  final int typeId = 79;
+
+  @override
+  Map<dynamic, dynamic> read(BinaryReader reader) {
+    try {
+      final value = reader.read();
+      if (value is Map) return value;
+    } catch (_) {}
+    return <dynamic, dynamic>{};
+  }
+
+  @override
+  void write(BinaryWriter writer, Map<dynamic, dynamic> obj) {
+    writer.write(obj);
+  }
+}
+
 void _registerHiveAdapters() {
   // Keep adapter registration centralized so all typeIds are guaranteed
   // to be available before any box is opened.
@@ -58,10 +77,14 @@ void _registerHiveAdapters() {
   if (!Hive.isAdapterRegistered(78)) {
     Hive.registerAdapter(LegacyType78Adapter());
   }
+  if (!Hive.isAdapterRegistered(79)) {
+    Hive.registerAdapter(LegacyType79Adapter());
+  }
   AppLogger.i(
     'Boot',
     'Hive adapters registered: type77=${Hive.isAdapterRegistered(77)} '
-        'type78=${Hive.isAdapterRegistered(78)}',
+        'type78=${Hive.isAdapterRegistered(78)} '
+        'type79=${Hive.isAdapterRegistered(79)}',
   );
 }
 

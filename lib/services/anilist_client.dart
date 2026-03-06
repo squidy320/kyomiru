@@ -90,6 +90,7 @@ class AniListClient {
       _notificationsCache = {};
   final Map<String, _CacheEntry<AniListTrackingEntry?>> _trackingEntryCache =
       {};
+  final Map<String, Future<AniListTrackingEntry?>> _inflightTrackingLoads = {};
 
   _CacheEntry<List<AniListMedia>>? _discoveryTrendingCache;
   _CacheEntry<List<AniListDiscoverySection>>? _discoverySectionsCache;
@@ -1486,15 +1487,21 @@ class AniListClient {
     final key = '$token:$mediaId';
     final persistedKey = 'trackingEntry:${token.hashCode}:$mediaId';
     final cached = _trackingEntryCache[key];
-    if (!force && cached != null && cached.isValid) return cached.value;
     if (!force) {
-      final persisted = _readQueryCache(
+      if (cached != null && cached.isValid) return cached.value;
+      if (cached != null) {
+        _refreshInBackground('tracking:$key', () async {
+          await trackingEntry(token, mediaId, force: true);
+        });
+        return cached.value;
+      }
+      final persistedFresh = _readQueryCache(
         persistedKey,
         maxAge: _trackingTtl,
       );
-      if (persisted != null) {
-        final hasEntry = persisted['hasEntry'] == true;
-        final raw = persisted['entry'];
+      if (persistedFresh != null) {
+        final hasEntry = persistedFresh['hasEntry'] == true;
+        final raw = persistedFresh['entry'];
         final entry = hasEntry && raw is Map<String, dynamic>
             ? AniListTrackingEntry.fromJson(raw)
             : null;
@@ -1504,9 +1511,49 @@ class AniListClient {
         );
         return entry;
       }
+      final persistedStale = _readQueryCache(persistedKey, maxAge: null);
+      if (persistedStale != null) {
+        final hasEntry = persistedStale['hasEntry'] == true;
+        final raw = persistedStale['entry'];
+        final entry = hasEntry && raw is Map<String, dynamic>
+            ? AniListTrackingEntry.fromJson(raw)
+            : null;
+        _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
+          entry,
+          DateTime.now().add(const Duration(seconds: 25)),
+        );
+        _refreshInBackground('tracking:$key', () async {
+          await trackingEntry(token, mediaId, force: true);
+        });
+        return entry;
+      }
     }
+    final inflight = _inflightTrackingLoads[key];
+    if (inflight != null) return inflight;
+    final loadFuture = _loadTrackingEntryNetwork(
+      key: key,
+      token: token,
+      mediaId: mediaId,
+      persistedKey: persistedKey,
+      cached: cached,
+    );
+    _inflightTrackingLoads[key] = loadFuture;
+    try {
+      return await loadFuture;
+    } finally {
+      _inflightTrackingLoads.remove(key);
+    }
+  }
+
+  Future<AniListTrackingEntry?> _loadTrackingEntryNetwork({
+    required String key,
+    required String token,
+    required int mediaId,
+    required String persistedKey,
+    required _CacheEntry<AniListTrackingEntry?>? cached,
+  }) async {
     const q = r'''
-      query ($mediaId: Int) {
+      query TrackingEntry($mediaId: Int) {
         MediaList(mediaId: $mediaId, type: ANIME) {
           id
           status
@@ -1515,7 +1562,7 @@ class AniListClient {
         }
       }
     ''';
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= 2; attempt++) {
       try {
         final data = await _graphql(
           query: q,
@@ -1543,9 +1590,9 @@ class AniListClient {
         });
         return entry;
       } catch (_) {
-        if (attempt < 3) {
+        if (attempt < 2) {
           await Future<void>.delayed(
-            Duration(milliseconds: 400 * attempt),
+            Duration(milliseconds: 250 * attempt),
           );
           continue;
         }
