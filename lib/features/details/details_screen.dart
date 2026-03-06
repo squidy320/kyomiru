@@ -823,7 +823,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     hapticTap();
     final source = ref.read(librarySourceProvider);
     try {
-      final refreshed = await ref.refresh(mediaListProvider(media.id).future);
+      AniListTrackingEntry? refreshed;
+      if (source == LibrarySource.anilist &&
+          token != null &&
+          token.isNotEmpty) {
+        refreshed = await ref
+            .read(anilistClientProvider)
+            .trackingEntry(token, media.id, force: true);
+      } else {
+        refreshed = await ref.refresh(mediaListProvider(media.id).future);
+      }
       if (refreshed != null) {
         ref.read(mediaListEntryControllerProvider(media.id).notifier).setLocal(
               status: refreshed.status,
@@ -2734,7 +2743,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   int _progress = 0;
   bool _saving = false;
   bool _loadedInitial = false;
-  int? _lastHydratedEntryId;
+  String? _lastHydratedSignature;
 
   @override
   void initState() {
@@ -2755,7 +2764,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
         _score = entry.score;
         _progress = entry.progress;
         _loadedInitial = true;
-        _lastHydratedEntryId = entry.id;
+        _lastHydratedSignature = _entrySignature(entry);
       });
       ref
           .read(mediaListEntryControllerProvider(widget.media.id).notifier)
@@ -2785,6 +2794,10 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     );
     ref.invalidate(localLibraryEntriesProvider);
     ref.invalidate(mediaListProvider(widget.media.id));
+  }
+
+  String _entrySignature(AniListTrackingEntry e) {
+    return '${e.id}|${e.status}|${e.progress}|${e.score.toStringAsFixed(2)}';
   }
 
   Widget _scoreEditor(String format) {
@@ -2924,25 +2937,30 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
           _score = optimisticEntry.score;
           _progress = optimisticEntry.progress;
           _loadedInitial = true;
-          _lastHydratedEntryId = optimisticEntry.id;
+          _lastHydratedSignature = _entrySignature(optimisticEntry);
         });
       });
     }
 
-    if (!_saving &&
-        fetchedEntry != null &&
-        _lastHydratedEntryId != fetchedEntry.id &&
-        fetchedEntryAsync.hasValue) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() {
-          _status = fetchedEntry.status;
-          _score = fetchedEntry.score;
-          _progress = fetchedEntry.progress;
-          _loadedInitial = true;
-          _lastHydratedEntryId = fetchedEntry.id;
+    if (!_saving && fetchedEntry != null && fetchedEntryAsync.hasValue) {
+      final signature = _entrySignature(fetchedEntry);
+      final shouldHydrate = !_loadedInitial ||
+          _lastHydratedSignature != signature ||
+          _status != fetchedEntry.status ||
+          _progress != fetchedEntry.progress ||
+          (_score - fetchedEntry.score).abs() > 0.01;
+      if (shouldHydrate) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _status = fetchedEntry.status;
+            _score = fetchedEntry.score;
+            _progress = fetchedEntry.progress;
+            _loadedInitial = true;
+            _lastHydratedSignature = signature;
+          });
         });
-      });
+      }
     }
 
     if (fetchedEntryAsync.isLoading || scoreFormatAsync.isLoading) {
