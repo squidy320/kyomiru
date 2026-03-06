@@ -43,7 +43,7 @@ class SoraRuntime {
   Future<void>? _initFuture;
   bool _disposed = false;
   static const Duration _cacheTtl = Duration(minutes: 30);
-  static const int _sourcesCacheVersion = 5;
+  static const int _sourcesCacheVersion = 6;
   final Set<String> _refreshing = <String>{};
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
   final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
@@ -1040,7 +1040,7 @@ class SoraRuntime {
           ..sort((l, r) => mutable[l].url.compareTo(mutable[r].url));
         // Fallback split for paired qualities when extractor doesn't expose
         // explicit audio labels. Keep deterministic mapping.
-        dubIndex = pair.last;
+        dubIndex = pair.first;
       }
       final chosen = mutable[dubIndex];
       mutable[dubIndex] = SoraSource(
