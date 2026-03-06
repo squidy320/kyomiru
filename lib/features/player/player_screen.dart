@@ -577,6 +577,57 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return ranked.first;
   }
 
+  String _resolvedAudioSelection() {
+    if (_sourceCatalog.isEmpty) return _prettyAudio(_selectedSubtitle);
+    final wanted = _audioKey(_selectedSubtitle);
+    final available = _sourceCatalog.map((s) => _audioKey(s.subOrDub)).toSet();
+    if (wanted == 'any') {
+      if (available.contains('sub')) return 'Sub';
+      if (available.contains('dub')) return 'Dub';
+      return 'Sub';
+    }
+    if (available.contains(wanted)) return _prettyAudio(wanted);
+    if (available.contains('sub')) return 'Sub';
+    if (available.contains('dub')) return 'Dub';
+    return 'Sub';
+  }
+
+  List<String> _qualityOptionsForAudio(String audio) {
+    if (_sourceCatalog.isEmpty) {
+      return <String>['Auto', '1080p', '720p', '480p', '360p'];
+    }
+    final audioKey = _audioKey(audio);
+    var pool = _sourceCatalog.where((s) => _audioKey(s.subOrDub) == audioKey).toList();
+    if (pool.isEmpty) {
+      pool = [..._sourceCatalog];
+    }
+    final qualityValues = pool.map((s) => _prettyQuality(s.quality)).toSet().toList()
+      ..sort((a, b) {
+        if (a == 'Auto') return -1;
+        if (b == 'Auto') return 1;
+        return _qualityRank(b).compareTo(_qualityRank(a));
+      });
+    return qualityValues;
+  }
+
+  void _normalizeSelectionFromCatalog() {
+    if (_sourceCatalog.isEmpty || !mounted) return;
+    final target = _pickCatalogSource(
+      desiredAudio: _resolvedAudioSelection(),
+      desiredQuality: _selectedQuality,
+    );
+    if (target == null) return;
+    final nextAudio = _prettyAudio(target.subOrDub);
+    final nextQuality = _prettyQuality(target.quality);
+    if (nextAudio == _selectedSubtitle && nextQuality == _selectedQuality) {
+      return;
+    }
+    setState(() {
+      _selectedSubtitle = nextAudio;
+      _selectedQuality = nextQuality;
+    });
+  }
+
   SoraSource _pickSourceByLock(
     List<SoraSource> sources,
     AppSettings settings,
@@ -665,6 +716,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       setState(() {
         _sourceCatalog = sources;
       });
+      _normalizeSelectionFromCatalog();
     } catch (_) {
       // Keep existing playback if catalog loading fails.
     } finally {
@@ -1464,7 +1516,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         .toSet()
         .toList()
       ..sort();
-    final options = audioValues.isEmpty ? <String>['Sub', 'Dub'] : audioValues;
+    final options = audioValues.isEmpty ? <String>['Sub'] : audioValues;
+    if (!options.contains(_selectedSubtitle) && options.isNotEmpty) {
+      setState(() => _selectedSubtitle = options.first);
+    }
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1512,16 +1567,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _openQualityMenu() async {
     await _ensureSourceCatalog();
     if (!mounted) return;
-    final qualityValues =
-        _sourceCatalog.map((s) => _prettyQuality(s.quality)).toSet().toList()
-          ..sort((a, b) {
-            if (a == 'Auto') return -1;
-            if (b == 'Auto') return 1;
-            return _qualityRank(b).compareTo(_qualityRank(a));
-          });
-    final options = qualityValues.isEmpty
-        ? <String>['Auto', '1080p', '720p', '480p']
-        : qualityValues;
+    final resolvedAudio = _resolvedAudioSelection();
+    if (_selectedSubtitle != resolvedAudio) {
+      setState(() => _selectedSubtitle = resolvedAudio);
+    }
+    final options = _qualityOptionsForAudio(resolvedAudio);
+    if (!options.contains(_selectedQuality) && options.isNotEmpty) {
+      setState(() => _selectedQuality = options.first);
+    }
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1553,7 +1606,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
     if (selected == null || !mounted) return;
     final target = _pickCatalogSource(
-      desiredAudio: _selectedSubtitle,
+      desiredAudio: _resolvedAudioSelection(),
       desiredQuality: selected,
     );
     if (target != null) {
