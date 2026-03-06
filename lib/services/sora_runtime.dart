@@ -1026,7 +1026,10 @@ class SoraRuntime {
       } else {
         final pair = [idx[0], idx[1]]
           ..sort((l, r) => mutable[l].url.compareTo(mutable[r].url));
-        dubIndex = pair.last;
+        // AnimePahe paired variants usually put sub first and dub second in
+        // extractor order; URL lexical fallback should map the earlier entry
+        // to dub when no explicit hint exists.
+        dubIndex = pair.first;
       }
       final chosen = mutable[dubIndex];
       mutable[dubIndex] = SoraSource(
