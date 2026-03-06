@@ -43,7 +43,7 @@ class SoraRuntime {
   Future<void>? _initFuture;
   bool _disposed = false;
   static const Duration _cacheTtl = Duration(minutes: 30);
-  static const int _sourcesCacheVersion = 2;
+  static const int _sourcesCacheVersion = 3;
   final Set<String> _refreshing = <String>{};
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
   final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
@@ -497,11 +497,20 @@ class SoraRuntime {
               s.url.startsWith('http://') || s.url.startsWith('https://'))
           .toList());
       if (jormClean.isNotEmpty) {
+        var normalized = jormClean;
+        if (_isAudioAmbiguous(normalized)) {
+          final localForAudio = await _extractViaLocalFallback(session, episodeSession);
+          normalized = _mergeAudioHintsFromFallback(normalized, localForAudio);
+        }
+        normalized = _repairAmbiguousAudioLabels(
+          normalized,
+          context: 'jorm:$session/$episodeSession',
+        );
         AppLogger.i('SoraRuntime',
-            'Jorm extracted ${jormClean.length} source(s) for $session/$episodeSession');
+            'Jorm extracted ${normalized.length} source(s) for $session/$episodeSession');
         _sourcesCache[cacheKey] = _RuntimeCacheEntry<List<SoraSource>>(
-            value: jormClean, expiresAt: DateTime.now().add(_cacheTtl));
-        return jormClean;
+            value: normalized, expiresAt: DateTime.now().add(_cacheTtl));
+        return normalized;
       }
 
       final local = await _extractViaLocalFallback(session, episodeSession);
@@ -1024,12 +1033,7 @@ class SoraRuntime {
       if (aScore != bScore) {
         dubIndex = aScore > bScore ? idx[0] : idx[1];
       } else {
-        final pair = [idx[0], idx[1]]
-          ..sort((l, r) => mutable[l].url.compareTo(mutable[r].url));
-        // AnimePahe paired variants usually put sub first and dub second in
-        // extractor order; URL lexical fallback should map the earlier entry
-        // to dub when no explicit hint exists.
-        dubIndex = pair.first;
+        continue;
       }
       final chosen = mutable[dubIndex];
       mutable[dubIndex] = SoraSource(
@@ -1057,6 +1061,66 @@ class SoraRuntime {
       'Audio labels unresolved $context total=${sources.length} dub=0 sub=${sources.length}',
     );
     return sources;
+  }
+
+  bool _isAudioAmbiguous(List<SoraSource> sources) {
+    if (sources.isEmpty) return false;
+    final dubCount = sources.where((s) => _audioLabelFromHints([s.subOrDub]) == 'dub').length;
+    if (dubCount > 0) return false;
+    final grouped = <String, int>{};
+    for (final s in sources) {
+      final key = '${s.quality}|${s.format}';
+      grouped[key] = (grouped[key] ?? 0) + 1;
+    }
+    return grouped.values.any((count) => count >= 2);
+  }
+
+  List<SoraSource> _mergeAudioHintsFromFallback(
+    List<SoraSource> primary,
+    List<SoraSource> fallback,
+  ) {
+    if (primary.isEmpty || fallback.isEmpty) return primary;
+    final fallbackByGroup = <String, List<SoraSource>>{};
+    for (final s in fallback) {
+      final key = '${s.quality}|${s.format}';
+      fallbackByGroup.putIfAbsent(key, () => <SoraSource>[]).add(s);
+    }
+
+    final out = <SoraSource>[];
+    for (final src in primary) {
+      final groupKey = '${src.quality}|${src.format}';
+      final group = fallbackByGroup[groupKey];
+      if (group == null || group.isEmpty) {
+        out.add(src);
+        continue;
+      }
+
+      SoraSource? best;
+      var bestScore = -1;
+      for (final cand in group) {
+        final score = _score(_normalize(src.url), _normalize(cand.url));
+        if (score > bestScore) {
+          bestScore = score;
+          best = cand;
+        }
+      }
+      if (best == null) {
+        out.add(src);
+        continue;
+      }
+
+      final hinted = _audioLabelFromHints([best.subOrDub, best.url]);
+      out.add(
+        SoraSource(
+          url: src.url,
+          quality: src.quality,
+          subOrDub: hinted,
+          format: src.format,
+          headers: src.headers,
+        ),
+      );
+    }
+    return out;
   }
 
   int _qualityRank(String q) {
