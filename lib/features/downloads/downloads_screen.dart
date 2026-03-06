@@ -527,60 +527,57 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Expanded(
-                    child: GlassCard(
-                      borderRadius: 18,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Downloaded Episodes',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (done.isEmpty)
-                            const Expanded(
-                              child: Center(
-                                child: Text(
-                                  'No fully downloaded episodes in this series.',
-                                ),
-                              ),
-                            )
-                          else
-                            Expanded(
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final width = constraints.maxWidth;
-                                  final columns = width > 1100
-                                      ? 3
-                                      : width > 760
-                                          ? 2
-                                          : 1;
-                                  return GridView.builder(
-                                    gridDelegate:
-                                        SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: columns,
-                                      mainAxisSpacing: 8,
-                                      crossAxisSpacing: 8,
-                                      childAspectRatio: columns == 1 ? 4.2 : 2.9,
-                                    ),
-                                    itemCount: done.length,
-                                    itemBuilder: (context, index) {
-                                      return _DownloadedEpisodeTile(
-                                        item: done[index],
-                                      );
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
+                  SizedBox(
+                    height: 42,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: const [
+                        _WideSeriesChip(
+                          label: 'Current Series',
+                          active: true,
+                        ),
+                        SizedBox(width: 8),
+                        _WideSeriesChip(
+                          label: 'Downloaded',
+                          active: false,
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  if (done.isEmpty)
+                    const GlassCard(
+                      child: Text('No fully downloaded episodes in this series.'),
+                    )
+                  else
+                    SizedBox(
+                      height: 152,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: done.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, index) {
+                          final item = done[index];
+                          return SizedBox(
+                            width: 320,
+                            child: _DownloadedEpisodeWideCard(
+                              item: item,
+                              onPlay: () => _playDownloadedEpisode(
+                                context,
+                                ref,
+                                item,
+                              ),
+                              onDelete: () async {
+                                HapticFeedback.mediumImpact();
+                                await ref
+                                    .read(downloadControllerProvider.notifier)
+                                    .delete(item.mediaId, item.episode);
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -636,6 +633,139 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
           headers: item.headers,
           isLocal: exists,
           mediaTitle: item.animeTitle,
+        ),
+      ),
+    );
+  }
+}
+
+class _WideSeriesChip extends StatelessWidget {
+  const _WideSeriesChip({
+    required this.label,
+    required this.active,
+  });
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: active
+            ? Colors.white.withValues(alpha: 0.24)
+            : Colors.black.withValues(alpha: 0.22),
+        border: Border.all(
+          color: active
+              ? Colors.white.withValues(alpha: 0.92)
+              : Colors.white.withValues(alpha: 0.20),
+          width: active ? 1.0 : 0.6,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          color: active ? Colors.white : Colors.white70,
+        ),
+      ),
+    );
+  }
+}
+
+class _DownloadedEpisodeWideCard extends StatelessWidget {
+  const _DownloadedEpisodeWideCard({
+    required this.item,
+    required this.onPlay,
+    required this.onDelete,
+  });
+
+  final DownloadItem item;
+  final VoidCallback onPlay;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final ratio = (item.lastDurationMs > 0)
+        ? (item.lastPositionMs / item.lastDurationMs).clamp(0.0, 1.0)
+        : 0.0;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFA1E1E1E),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _DownloadedEpisodeThumb(item: item),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.76),
+                    ],
+                    stops: const [0.46, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              top: 8,
+              child: Row(
+                children: [
+                  _iconButton(
+                    icon: Icons.play_arrow_rounded,
+                    onTap: onPlay,
+                  ),
+                  const SizedBox(width: 6),
+                  _iconButton(
+                    icon: Icons.delete_outline_rounded,
+                    onTap: onDelete,
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: Text(
+                '${item.animeTitle} - Episode ${item.episode}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  height: 1.15,
+                ),
+              ),
+            ),
+            if (ratio > 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  height: 2.5,
+                  color: Colors.white24,
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: ratio,
+                    child: Container(color: const Color(0xFF60A5FA)),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
