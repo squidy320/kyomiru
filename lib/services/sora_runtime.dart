@@ -43,7 +43,7 @@ class SoraRuntime {
   Future<void>? _initFuture;
   bool _disposed = false;
   static const Duration _cacheTtl = Duration(minutes: 30);
-  static const int _sourcesCacheVersion = 4;
+  static const int _sourcesCacheVersion = 5;
   final Set<String> _refreshing = <String>{};
   final Map<String, _RuntimeCacheEntry<List<SoraEpisode>>> _episodesCache = {};
   final Map<String, _RuntimeCacheEntry<List<SoraSource>>> _sourcesCache = {};
@@ -498,9 +498,12 @@ class SoraRuntime {
           .toList());
       if (jormClean.isNotEmpty) {
         var normalized = jormClean;
+        final localForAudio = await _extractViaLocalFallback(session, episodeSession);
         if (_isAudioAmbiguous(normalized)) {
-          final localForAudio = await _extractViaLocalFallback(session, episodeSession);
           normalized = _mergeAudioHintsFromFallback(normalized, localForAudio);
+        }
+        if (!_hasDubSources(normalized) && _hasDubSources(localForAudio)) {
+          normalized = _mergeMissingDubFromFallback(normalized, localForAudio);
         }
         normalized = _repairAmbiguousAudioLabels(
           normalized,
@@ -1077,6 +1080,44 @@ class SoraRuntime {
       grouped[key] = (grouped[key] ?? 0) + 1;
     }
     return grouped.values.any((count) => count >= 2);
+  }
+
+  bool _hasDubSources(List<SoraSource> sources) {
+    return sources.any((s) => _audioLabelFromHints([s.subOrDub]) == 'dub');
+  }
+
+  List<SoraSource> _mergeMissingDubFromFallback(
+    List<SoraSource> primary,
+    List<SoraSource> fallback,
+  ) {
+    if (primary.isEmpty || fallback.isEmpty) return primary;
+    final out = <SoraSource>[...primary];
+    final seen = <String>{
+      for (final s in out) '${s.url}|${s.quality}|${_audioLabelFromHints([s.subOrDub])}|${s.format}',
+    };
+
+    final fallbackDub = fallback
+        .where((s) => _audioLabelFromHints([s.subOrDub]) == 'dub')
+        .toList();
+    if (fallbackDub.isEmpty) return primary;
+
+    for (final dub in fallbackDub) {
+      final key =
+          '${dub.url}|${dub.quality}|${_audioLabelFromHints([dub.subOrDub])}|${dub.format}';
+      if (!seen.contains(key)) {
+        out.add(
+          SoraSource(
+            url: dub.url,
+            quality: dub.quality,
+            subOrDub: 'dub',
+            format: dub.format,
+            headers: dub.headers,
+          ),
+        );
+        seen.add(key);
+      }
+    }
+    return out;
   }
 
   List<SoraSource> _mergeAudioHintsFromFallback(
