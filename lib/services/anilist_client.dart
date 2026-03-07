@@ -1757,23 +1757,45 @@ class AniListClient {
         }
       }
     ''';
-    final data = await _graphql(
-      query: hasEntryId ? qUpdate : qCreate,
-      token: token,
-      variables: hasEntryId
-          ? {
-              'id': entryId,
-              'status': status,
-              'progress': progress,
-              'score': score,
-            }
-          : {
-              'mediaId': mediaId,
-              'status': status,
-              'progress': progress,
-              'score': score,
-            },
-    );
+    Future<Map<String, dynamic>> runMutation({
+      required bool useEntryId,
+    }) {
+      return _graphql(
+        query: useEntryId ? qUpdate : qCreate,
+        token: token,
+        variables: useEntryId
+            ? {
+                'id': entryId,
+                'status': status,
+                'progress': progress,
+                'score': score,
+              }
+            : {
+                'mediaId': mediaId,
+                'status': status,
+                'progress': progress,
+                'score': score,
+              },
+      );
+    }
+
+    Map<String, dynamic> data;
+    try {
+      data = await runMutation(useEntryId: hasEntryId);
+    } catch (e, st) {
+      final isUnauthorized = e.toString().contains('HTTP 401');
+      if (hasEntryId && isUnauthorized) {
+        AppLogger.w(
+          'AniListTracking',
+          'saveTrackingEntry id-based update unauthorized; retrying with mediaId mediaId=$mediaId entryId=$entryId',
+          error: e,
+          stackTrace: st,
+        );
+        data = await runMutation(useEntryId: false);
+      } else {
+        rethrow;
+      }
+    }
     final saved = AniListTrackingEntry.fromJson(
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
     );
