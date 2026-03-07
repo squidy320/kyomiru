@@ -233,7 +233,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         return;
       }
 
-      final mediaId = await _resolveAniListMediaId();
+      var mediaId = await _resolveAniListMediaId();
       if (mediaId <= 0) {
         state = state.copyWith(
           isFetching: false,
@@ -247,8 +247,36 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         client.trackingEntry(token, mediaId, force: force),
         client.episodeAvailability(token, mediaId),
       ]);
-      final entry = futures[0] as AniListTrackingEntry?;
-      final availability = futures[1] as AniListEpisodeAvailability?;
+      var entry = futures[0] as AniListTrackingEntry?;
+      var availability = futures[1] as AniListEpisodeAvailability?;
+
+      // If this id looks like a default/planning stub, try resolving by title
+      // against the user's actual AniList library and switch to that id.
+      if ((entry?.status ?? '') == 'PLANNING' && (entry?.progress ?? 0) == 0) {
+        final libraryMatchId = await _resolveMediaIdFromUserLibrary(token);
+        if (libraryMatchId > 0 && libraryMatchId != mediaId) {
+          AppLogger.w(
+            'AniListSync',
+            'direct id appears stale/wrong (PLANNING/0); switching by title match '
+                'sourceMediaId=${_target.sourceMediaId} oldMediaId=$mediaId newMediaId=$libraryMatchId',
+          );
+          final switched = await Future.wait<dynamic>([
+            client.trackingEntry(token, libraryMatchId, force: true),
+            client.episodeAvailability(token, libraryMatchId),
+          ]);
+          final switchedEntry = switched[0] as AniListTrackingEntry?;
+          final switchedAvailability = switched[1] as AniListEpisodeAvailability?;
+          if (switchedEntry != null) {
+            await _persistResolvedMediaId(
+              libraryMatchId,
+              includeTitleKeys: true,
+            );
+            mediaId = libraryMatchId;
+            entry = switchedEntry;
+            availability = switchedAvailability;
+          }
+        }
+      }
       AppLogger.i(
         'AniListSync',
         'tracking fetched sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId '
@@ -714,6 +742,42 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       if (ro.isNotEmpty && (c1 == ro || c2 == ro || c3 == ro)) return item;
     }
     return candidates.first;
+  }
+
+  Future<int> _resolveMediaIdFromUserLibrary(String token) async {
+    try {
+      final items = await _ref.read(anilistClientProvider).libraryCurrent(token);
+      if (items.isEmpty) return 0;
+      final targetNorms = <String>{
+        _norm(_target.title),
+        _norm(_target.englishTitle ?? ''),
+        _norm(_target.romajiTitle ?? ''),
+      }..removeWhere((e) => e.isEmpty);
+      if (targetNorms.isEmpty) return 0;
+
+      for (final entry in items) {
+        final media = entry.media;
+        final candidates = <String>{
+          _norm(media.title.best),
+          _norm(media.title.english ?? ''),
+          _norm(media.title.romaji ?? ''),
+          _norm(media.title.native ?? ''),
+        }..removeWhere((e) => e.isEmpty);
+        final matched = candidates.any(targetNorms.contains);
+        if (matched) {
+          return media.id;
+        }
+      }
+      return 0;
+    } catch (e, st) {
+      AppLogger.w(
+        'AniListSync',
+        'library title resolver failed',
+        error: e,
+        stackTrace: st,
+      );
+      return 0;
+    }
   }
 
   String _norm(String value) {
