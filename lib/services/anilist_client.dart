@@ -1588,6 +1588,36 @@ class AniListClient {
     required String persistedKey,
     required _CacheEntry<AniListTrackingEntry?>? cached,
   }) async {
+    bool is429(Object error) => error.toString().contains('429');
+
+    AniListTrackingEntry? fallbackFromCaches() {
+      if (cached != null) {
+        AppLogger.w(
+          'AniListTracking',
+          'trackingEntry using memory fallback mediaId=$mediaId status=${cached.value?.status ?? 'null'} progress=${cached.value?.progress ?? -1}',
+        );
+        return cached.value;
+      }
+      final stale = _readQueryCache(persistedKey, maxAge: null);
+      if (stale != null) {
+        final hasEntry = stale['hasEntry'] == true;
+        final raw = stale['entry'];
+        final entry = hasEntry && raw is Map<String, dynamic>
+            ? AniListTrackingEntry.fromJson(raw)
+            : null;
+        _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
+          entry,
+          DateTime.now().add(_trackingTtl),
+        );
+        AppLogger.w(
+          'AniListTracking',
+          'trackingEntry using persisted fallback mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1}',
+        );
+        return entry;
+      }
+      return null;
+    }
+
     const q = r'''
       query TrackingEntry($mediaId: Int) {
         MediaList(mediaId: $mediaId, type: ANIME) {
@@ -1640,6 +1670,11 @@ class AniListClient {
           error: e,
           stackTrace: st,
         );
+        if (is429(e)) {
+          final fallback = fallbackFromCaches();
+          if (fallback != null) return fallback;
+          if (attempt >= 1) break;
+        }
         if (attempt < 2) {
           await Future<void>.delayed(
             Duration(milliseconds: 250 * attempt),
@@ -1648,24 +1683,8 @@ class AniListClient {
         }
       }
     }
-    if (cached != null) return cached.value;
-    final stale = _readQueryCache(persistedKey, maxAge: null);
-    if (stale != null) {
-      final hasEntry = stale['hasEntry'] == true;
-      final raw = stale['entry'];
-      final entry = hasEntry && raw is Map<String, dynamic>
-          ? AniListTrackingEntry.fromJson(raw)
-          : null;
-      _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
-        entry,
-        DateTime.now().add(_trackingTtl),
-      );
-      AppLogger.w(
-        'AniListTracking',
-        'trackingEntry falling back to stale persisted cache mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1}',
-      );
-      return entry;
-    }
+    final fallback = fallbackFromCaches();
+    if (fallback != null) return fallback;
     AppLogger.w(
       'AniListTracking',
       'trackingEntry resolved null mediaId=$mediaId (no cache and network failed)',
