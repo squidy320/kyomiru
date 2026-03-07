@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_logger.dart';
@@ -42,7 +45,7 @@ class DebugLogsScreen extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Share',
-            onPressed: () {
+            onPressed: () async {
               final text = AppLogger.dumpAsText();
               if (text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -50,7 +53,25 @@ class DebugLogsScreen extends StatelessWidget {
                 );
                 return;
               }
-              Share.share(text, subject: 'Kyomiru debug logs');
+              try {
+                final tempDir = await getTemporaryDirectory();
+                final now = DateTime.now();
+                final stamp =
+                    '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_'
+                    '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+                final outFile = File('${tempDir.path}/kyomiru_logs_$stamp.txt');
+                await outFile.writeAsString(text, flush: true);
+                await Share.shareXFiles(
+                  [XFile(outFile.path, mimeType: 'text/plain')],
+                  subject: 'Kyomiru debug logs',
+                  text: 'Kyomiru debug logs ($stamp)',
+                );
+              } catch (_) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Failed to prepare log file.')),
+                );
+              }
             },
             icon: const Icon(Icons.share_outlined),
           ),
