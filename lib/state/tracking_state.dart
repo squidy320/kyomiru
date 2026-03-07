@@ -330,15 +330,25 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
           score: state.scoreDraft,
         );
     final maxEp = state.maxEpisodes <= 0 ? 9999 : state.maxEpisodes;
-    final progress = state.progressDraft.clamp(0, maxEp);
+    var progress = state.progressDraft.clamp(0, maxEp);
+    var statusToSave = state.statusDraft;
+    if (statusToSave == 'CURRENT' && progress <= 0) {
+      // AniList often normalizes CURRENT@0 back to PLANNING on readback.
+      // Keep CURRENT stable by saving minimum progress 1.
+      progress = 1;
+      AppLogger.i(
+        'AniListSync',
+        'commit adjusted CURRENT progress from 0 to 1 sourceMediaId=${_target.sourceMediaId}',
+      );
+    }
     AppLogger.i(
       'AniListSync',
       'commit start sourceMediaId=${_target.sourceMediaId} resolvedMediaId=${state.resolvedMediaId ?? -1} '
-          'status=${state.statusDraft} progress=$progress score=${state.scoreDraft}',
+          'status=${state.statusDraft} statusToSave=$statusToSave progress=$progress score=${state.scoreDraft}',
     );
     final optimistic = AniListTrackingEntry(
       id: state.entry?.id ?? 0,
-      status: state.statusDraft,
+      status: statusToSave,
       progress: progress,
       score: state.scoreDraft,
     );
@@ -355,7 +365,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
                 _target.sourceMediaId,
                 title: _target.title,
                 totalEpisodes: _target.episodes ?? maxEp,
-                status: state.statusDraft,
+                status: statusToSave,
                 progress: progress,
                 score: state.scoreDraft,
               );
@@ -364,11 +374,12 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         _ref.invalidate(mediaListProvider(_target.sourceMediaId));
         _ref.read(librarySyncBumpProvider.notifier).state++;
         _committed = TrackingDraft(
-          status: state.statusDraft,
+          status: statusToSave,
           progress: progress,
           score: state.scoreDraft,
         );
         state = state.copyWith(
+          statusDraft: statusToSave,
           isSaving: false,
           lastSyncedAt: DateTime.now(),
         );
@@ -387,29 +398,44 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       final saved = await _ref.read(anilistClientProvider).saveTrackingEntry(
             token: token,
             mediaId: mediaId,
-            status: state.statusDraft,
+            status: statusToSave,
             progress: progress,
             score: state.scoreDraft,
           );
+      final verified = await _ref
+          .read(anilistClientProvider)
+          .trackingEntry(token, mediaId, force: true);
+      final effective = verified ?? saved;
+      if (verified != null &&
+          (verified.status != saved.status ||
+              verified.progress != saved.progress ||
+              (verified.score - saved.score).abs() > 0.001)) {
+        AppLogger.w(
+          'AniListSync',
+          'commit verification mismatch sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId '
+              'saved=(${saved.status},${saved.progress},${saved.score}) '
+              'verified=(${verified.status},${verified.progress},${verified.score})',
+        );
+      }
       _committed = TrackingDraft(
-        status: saved.status,
-        progress: saved.progress,
-        score: saved.score,
+        status: effective.status,
+        progress: effective.progress,
+        score: effective.score,
       );
       _ref.invalidate(mediaListProvider(mediaId));
       _ref.read(librarySyncBumpProvider.notifier).state++;
       state = state.copyWith(
-        entry: saved,
-        statusDraft: saved.status,
-        progressDraft: saved.progress.clamp(0, state.maxEpisodes),
-        scoreDraft: saved.score,
+        entry: effective,
+        statusDraft: effective.status,
+        progressDraft: effective.progress.clamp(0, state.maxEpisodes),
+        scoreDraft: effective.score,
         isSaving: false,
         lastSyncedAt: DateTime.now(),
       );
       AppLogger.i(
         'AniListSync',
         'commit success anilist sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId '
-            'status=${saved.status} progress=${saved.progress} score=${saved.score}',
+            'status=${effective.status} progress=${effective.progress} score=${effective.score}',
       );
       return true;
     } catch (e, st) {

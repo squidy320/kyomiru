@@ -50,13 +50,7 @@ class CacheService {
 
     for (final name in _hiveCacheBoxes) {
       try {
-        if (Hive.isBoxOpen(name)) {
-          await Hive.box(name).clear();
-        } else {
-          await Hive.openBox(name);
-          await Hive.box(name).clear();
-          await Hive.box(name).close();
-        }
+        await _clearHiveBoxSafe(name);
       } catch (e, st) {
         AppLogger.w('Cache', 'Failed to clear box $name', error: e, stackTrace: st);
       }
@@ -88,10 +82,6 @@ class CacheService {
 
   Future<int> _hiveBoxBytes(String name) async {
     try {
-      if (!Hive.isBoxOpen(name)) {
-        await Hive.openBox(name);
-        await Hive.box(name).close();
-      }
       final docs = await getApplicationDocumentsDirectory();
       final dir = Directory(docs.path);
       if (!await dir.exists()) return 0;
@@ -152,6 +142,45 @@ class CacheService {
     } catch (_) {
       return 0;
     }
+  }
+
+  Future<void> _clearHiveBoxSafe(String name) async {
+    bool isUnknownTypeIdError(Object error) {
+      final text = error.toString().toLowerCase();
+      return text.contains('unknown typeid');
+    }
+
+    Future<void> closeIfOpen() async {
+      if (Hive.isBoxOpen(name)) {
+        await Hive.box(name).close();
+      }
+    }
+
+    try {
+      if (Hive.isBoxOpen(name)) {
+        await Hive.box(name).clear();
+        return;
+      }
+      final box = await Hive.openBox(name);
+      await box.clear();
+      await box.close();
+      return;
+    } catch (e, st) {
+      AppLogger.w(
+        'Cache',
+        'Primary clear failed for $name, attempting delete-and-recreate',
+        error: e,
+        stackTrace: st,
+      );
+      if (!isUnknownTypeIdError(e)) rethrow;
+    }
+
+    await closeIfOpen();
+    await Hive.deleteBoxFromDisk(name);
+    final box = await Hive.openBox(name);
+    await box.clear();
+    await box.close();
+    AppLogger.i('Cache', 'Recovered Hive box $name via delete-and-recreate');
   }
 }
 

@@ -170,6 +170,68 @@ Future<void> _openHiveBoxSafe(String name, {bool critical = true}) async {
   }
 }
 
+Future<void> _runOneTimeMigrations() async {
+  Box<dynamic>? settingsBox;
+  try {
+    settingsBox = Hive.box('app_settings');
+  } catch (e, st) {
+    AppLogger.w(
+      'Boot',
+      'Could not access app_settings for migrations',
+      error: e,
+      stackTrace: st,
+    );
+    return;
+  }
+
+  Future<void> runOnce(
+    String key,
+    Future<void> Function() migration,
+  ) async {
+    final done = settingsBox?.get(key) == true;
+    if (done) return;
+    try {
+      await migration();
+      await settingsBox?.put(key, true);
+      AppLogger.i('Boot', 'Migration completed: $key');
+    } catch (e, st) {
+      AppLogger.w(
+        'Boot',
+        'Migration failed: $key',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  await runOnce('migration_query_cache_reset_v1', () async {
+    const boxName = 'anilist_query_cache';
+    try {
+      if (Hive.isBoxOpen(boxName)) {
+        await Hive.box(boxName).close();
+      }
+    } catch (_) {}
+    await Hive.deleteBoxFromDisk(boxName);
+  });
+
+  await runOnce('migration_tracking_id_title_keys_cleanup_v1', () async {
+    const boxName = 'anilist_tracking_id_map';
+    final wasOpen = Hive.isBoxOpen(boxName);
+    final box = wasOpen
+        ? Hive.box<dynamic>(boxName)
+        : await Hive.openBox<dynamic>(boxName);
+    final keys = box.keys.map((k) => k.toString()).toList(growable: false);
+    for (final key in keys) {
+      if (key.startsWith('title:')) {
+        await box.delete(key);
+      }
+    }
+    if (!wasOpen) {
+      await box.close();
+    }
+  });
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogger.initializeSessionFileLogging();
@@ -204,6 +266,7 @@ Future<void> main() async {
   await _openHiveBoxSafe('local_library');
   await _openHiveBoxSafe('watch_history');
   await _openHiveBoxSafe('anilist_media_cache', critical: false);
+  await _runOneTimeMigrations();
   // Keep query cache lazy-open only. On some legacy iOS installs this box
   // can contain stale adapter payloads and trigger platform-level errors
   // during boot. AniListClient opens/uses it opportunistically when safe.

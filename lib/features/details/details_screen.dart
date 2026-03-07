@@ -827,11 +827,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     );
     final source = ref.read(librarySourceProvider);
     final target = media.toTrackingTarget();
-    unawaited(
-      ref
-          .read(aniListTrackingProvider(target).notifier)
-          .prepare(tokenOverride: token, forceRefresh: true),
-    );
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -2723,7 +2718,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     unawaited(
       ref
           .read(aniListTrackingProvider(widget.target).notifier)
-          .prepare(tokenOverride: widget.token),
+          .prepare(tokenOverride: widget.token, forceRefresh: true),
     );
   }
 
