@@ -230,6 +230,16 @@ Future<void> _runOneTimeMigrations() async {
       await box.close();
     }
   });
+
+  await runOnce('migration_query_cache_reset_v2_tracking_live_only', () async {
+    const boxName = 'anilist_query_cache';
+    try {
+      if (Hive.isBoxOpen(boxName)) {
+        await Hive.box(boxName).close();
+      }
+    } catch (_) {}
+    await Hive.deleteBoxFromDisk(boxName);
+  });
 }
 
 Future<void> main() async {
