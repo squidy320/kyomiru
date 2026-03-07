@@ -334,7 +334,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final pattern = RegExp(
       r'^(?:episode|ep)\s*0*' +
           RegExp.escape(episodeNumber.toString()) +
-          r'\s*[:.\-–—]?\s*',
+          r'\s*[:.\-]?\s*',
       caseSensitive: false,
     );
     final cleaned = raw.replaceFirst(pattern, '').trim();
@@ -822,29 +822,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
     hapticTap();
     final source = ref.read(librarySourceProvider);
-    final cached = ref.read(mediaListProvider(media.id)).valueOrNull;
-    if (cached != null) {
-      ref.read(mediaListEntryControllerProvider(media.id).notifier).setLocal(
-            status: cached.status,
-            progress: cached.progress,
-            score: cached.score,
-          );
-    }
+    final target = media.toTrackingTarget();
+    unawaited(
+      ref
+          .read(aniListTrackingProvider(target).notifier)
+          .prepare(tokenOverride: token),
+    );
     if (!mounted) return;
-    unawaited(() async {
-      try {
-        if (source == LibrarySource.anilist &&
-            token != null &&
-            token.isNotEmpty) {
-          await ref
-              .read(mediaListEntryControllerProvider(media.id).notifier)
-              .loadFresh(force: false);
-        } else {
-          ref.invalidate(mediaListProvider(media.id));
-          await ref.read(mediaListProvider(media.id).future);
-        }
-      } catch (_) {}
-    }());
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -868,7 +852,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                       ),
                     )
                   : SingleChildScrollView(
-                      child: _TrackingPane(token: token, media: media),
+                      child: _TrackingPane(token: token, media: media, target: target),
                     ),
             ),
           ),
@@ -909,26 +893,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       return;
     }
 
-    final ok = await ref
-        .read(mediaListEntryControllerProvider(media.id).notifier)
-        .save(
-          status: 'PLANNING',
-          progress: 0,
-          score: 0,
-          media: media,
-          tokenOverride: token,
-        );
-    if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to add to AniList.')),
-      );
-      return;
-    }
-    ref.invalidate(mediaListProvider(media.id));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Added to Planning.')),
-    );
+    await _openTrackingSheet(media, token);
   }
 
   SoraEpisode _pickSmartEpisode(
@@ -1366,10 +1331,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         final media = snap.data!;
         _manualMatch ??= _readSavedMatch(media.id);
         final trackingEntryAsync = ref.watch(mediaListProvider(media.id));
-        final optimisticTracking =
-            ref.watch(mediaListEntryControllerProvider(media.id));
-        final inAnyList = trackingEntryAsync.valueOrNull != null ||
-            optimisticTracking != null;
+        final inAnyList = trackingEntryAsync.valueOrNull != null;
         final trackingResolved = trackingEntryAsync.hasValue;
         final episodeQuery = EpisodeQuery(
           mediaId: media.id,
@@ -1952,7 +1914,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                   if (_detailTabIndex == 1)
                     Column(
                       children: [
-                        _TrackingPane(token: auth.token, media: media),
+                        _TrackingPane(
+                          token: auth.token,
+                          media: media,
+                          target: media.toTrackingTarget(),
+                        ),
                         const SizedBox(height: 10),
                         GlassCard(
                           child: Column(
@@ -2431,7 +2397,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                       children: [
                         _MetadataGlassPill(
                           text:
-                              '${media.episodes ?? '-'} EPS  •  $studio  •  ${media.averageScore ?? 0}%',
+                              '${media.episodes ?? '-'} EPS  -  $studio  -  ${media.averageScore ?? 0}%',
                         ),
                         const SizedBox(height: 10),
                         _ExpandableSynopsis(
@@ -2629,7 +2595,7 @@ class _WideDetailsScaffold extends StatelessWidget {
                                   RegExp(
                                     r'^(?:episode|ep)\s*0*' +
                                         RegExp.escape(ep.number.toString()) +
-                                        r'\s*[:.\-–—]?\s*',
+                                        r'\s*[:.\-]?\s*',
                                     caseSensitive: false,
                                   ),
                                   '',
@@ -2732,120 +2698,70 @@ class _WideDetailsScaffold extends StatelessWidget {
 }
 
 class _TrackingPane extends ConsumerStatefulWidget {
-  const _TrackingPane({required this.token, required this.media});
+  const _TrackingPane({
+    required this.token,
+    required this.media,
+    required this.target,
+  });
 
   final String? token;
   final AniListMedia media;
+  final AniListTrackingTarget target;
+
   @override
   ConsumerState<_TrackingPane> createState() => _TrackingPaneState();
 }
 
 class _TrackingPaneState extends ConsumerState<_TrackingPane> {
-  String _status = 'CURRENT';
-  double _score = 0;
-  int _progress = 0;
-  bool _saving = false;
-  bool _isFetching = false;
-  bool _loadedInitial = false;
-  String? _lastHydratedSignature;
-  DateTime? _lastSyncedAt;
-
   @override
   void initState() {
     super.initState();
-    final existing = ref.read(mediaListProvider(widget.media.id)).valueOrNull ??
-        ref.read(mediaListEntryControllerProvider(widget.media.id));
-    if (existing != null) {
-      _status = existing.status;
-      _score = existing.score;
-      _progress = existing.progress;
-      _loadedInitial = true;
-      _lastHydratedSignature = _entrySignature(existing);
-      _lastSyncedAt = DateTime.now();
-    }
-    final source = ref.read(librarySourceProvider);
-    if (source == LibrarySource.anilist) {
-      _isFetching = true;
-      unawaited(_fetchFreshTracking());
-    } else {
-      unawaited(
-        ref
-            .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-            .loadFresh(force: false),
-      );
-    }
-  }
-
-  Future<void> _fetchFreshTracking() async {
-    try {
-      await ref
-          .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-          .loadFresh(force: false);
-      if (!mounted) return;
-      setState(() {
-        _isFetching = false;
-        _lastSyncedAt = DateTime.now();
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _isFetching = false);
-    }
-  }
-
-  void _hydrateInitial(AniListTrackingEntry? entry) {
-    if (_loadedInitial || entry == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _loadedInitial) return;
-      setState(() {
-        _status = entry.status;
-        _score = entry.score;
-        _progress = entry.progress;
-        _loadedInitial = true;
-        _lastHydratedSignature = _entrySignature(entry);
-      });
-      ref
-          .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-          .setLocal(
-            status: _status,
-            progress: _progress,
-            score: _score,
-          );
-    });
-  }
-
-  void _pushOptimistic() {
-    ref
-        .read(mediaListEntryControllerProvider(widget.media.id).notifier)
-        .setLocal(status: _status, progress: _progress, score: _score);
-  }
-
-  void _persistLocalImmediate() {
-    if (ref.read(librarySourceProvider) != LibrarySource.local) return;
     unawaited(
-      ref.read(localLibraryStoreProvider).upsertFromMedia(
-            widget.media,
-            status: _status,
-            progress: _progress,
-            score: _score,
-          ),
+      ref
+          .read(aniListTrackingProvider(widget.target).notifier)
+          .prepare(tokenOverride: widget.token),
     );
-    ref.invalidate(localLibraryEntriesProvider);
-    ref.invalidate(mediaListProvider(widget.media.id));
   }
 
-  String _entrySignature(AniListTrackingEntry e) {
-    return '${e.id}|${e.status}|${e.progress}|${e.score.toStringAsFixed(2)}';
-  }
-
-  String _lastSyncedLabel() {
-    final at = _lastSyncedAt;
+  String _lastSyncedLabel(DateTime? at) {
     if (at == null) return 'Last synced: --';
     final h = at.hour.toString().padLeft(2, '0');
     final m = at.minute.toString().padLeft(2, '0');
-    return 'Last synced: $h:$m';
+    final s = at.second.toString().padLeft(2, '0');
+    return 'Last synced: $h:$m:$s';
   }
 
-  Widget _scoreEditor(String format) {
+  Widget _liquidSlider({
+    required double value,
+    required double max,
+    required int divisions,
+    required String labelText,
+    required ValueChanged<double>? onChanged,
+  }) {
+    return SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        trackHeight: 4,
+        activeTrackColor: const Color(0xFF7C82FF),
+        inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
+        thumbColor: const Color(0xFF8D96FF),
+        overlayColor: const Color(0x668D96FF),
+        thumbShape: _LiquidGlassThumbShape(labelText: labelText),
+      ),
+      child: Slider(
+        value: value.clamp(0, max),
+        max: max,
+        divisions: divisions > 0 ? divisions : 1,
+        onChanged: onChanged,
+      ),
+    );
+  }
+
+  Widget _scoreEditor({
+    required String format,
+    required double score,
+    required bool enabled,
+    required ValueChanged<double> onChanged,
+  }) {
     switch (format) {
       case 'POINT_100':
         return Row(
@@ -2853,24 +2769,19 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
             const Text('Score'),
             const SizedBox(width: 8),
             Expanded(
-              child: Slider(
-                value: _score.clamp(0, 100),
+              child: _liquidSlider(
+                value: score.clamp(0, 100),
                 max: 100,
                 divisions: 100,
-                label: _score.round().toString(),
-                onChanged: (v) => setState(() {
-                  _loadedInitial = true;
-                  _score = v.roundToDouble();
-                  _pushOptimistic();
-                  _persistLocalImmediate();
-                }),
+                labelText: score.round().toString(),
+                onChanged: enabled ? (v) => onChanged(v.roundToDouble()) : null,
               ),
             ),
-            Text(_score.round().toString()),
+            Text(score.round().toString()),
           ],
         );
       case 'POINT_5':
-        final current = _score.clamp(0, 5).round();
+        final current = score.clamp(0, 5).round();
         return Row(
           children: [
             const Text('Score'),
@@ -2878,12 +2789,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
             for (var i = 1; i <= 5; i++)
               IconButton(
                 visualDensity: VisualDensity.compact,
-                onPressed: () => setState(() {
-                  _loadedInitial = true;
-                  _score = i.toDouble();
-                  _pushOptimistic();
-                  _persistLocalImmediate();
-                }),
+                onPressed: enabled ? () => onChanged(i.toDouble()) : null,
                 icon: Icon(
                   i <= current ? Icons.star_rounded : Icons.star_border_rounded,
                   color: i <= current ? Colors.amber : Colors.white70,
@@ -2894,7 +2800,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
           ],
         );
       case 'POINT_3':
-        final current = _score.clamp(0, 3).round();
+        final current = score.clamp(0, 3).round();
         const opts = <(IconData icon, String label, int value)>[
           (Icons.sentiment_very_dissatisfied_rounded, 'Bad', 1),
           (Icons.sentiment_neutral_rounded, 'Ok', 2),
@@ -2906,12 +2812,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
             const SizedBox(width: 8),
             for (final o in opts)
               TextButton.icon(
-                onPressed: () => setState(() {
-                  _loadedInitial = true;
-                  _score = o.$3.toDouble();
-                  _pushOptimistic();
-                  _persistLocalImmediate();
-                }),
+                onPressed: enabled ? () => onChanged(o.$3.toDouble()) : null,
                 icon: Icon(
                   o.$1,
                   color: current == o.$3 ? Colors.white : Colors.white54,
@@ -2927,34 +2828,31 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
         );
       case 'POINT_10_DECIMAL':
       default:
-        const max = 10.0;
-        final div = format == 'POINT_10_DECIMAL' ? 100 : 10;
         return Row(
           children: [
             const Text('Score'),
             const SizedBox(width: 8),
             Expanded(
-              child: Slider(
-                value: _score.clamp(0, max),
-                max: max,
-                divisions: div,
-                label: format == 'POINT_10_DECIMAL'
-                    ? _score.toStringAsFixed(1)
-                    : _score.round().toString(),
-                onChanged: (v) => setState(() {
-                  _loadedInitial = true;
-                  _score = format == 'POINT_10_DECIMAL'
-                      ? (v * 10).round() / 10
-                      : v.roundToDouble();
-                  _pushOptimistic();
-                  _persistLocalImmediate();
-                }),
+              child: _liquidSlider(
+                value: score.clamp(0, 10),
+                max: 10,
+                divisions: format == 'POINT_10_DECIMAL' ? 100 : 10,
+                labelText: format == 'POINT_10_DECIMAL'
+                    ? score.toStringAsFixed(1)
+                    : score.round().toString(),
+                onChanged: enabled
+                    ? (v) => onChanged(
+                          format == 'POINT_10_DECIMAL'
+                              ? (v * 10).round() / 10
+                              : v.roundToDouble(),
+                        )
+                    : null,
               ),
             ),
             Text(
               format == 'POINT_10_DECIMAL'
-                  ? _score.toStringAsFixed(1)
-                  : _score.round().toString(),
+                  ? score.toStringAsFixed(1)
+                  : score.round().toString(),
             ),
           ],
         );
@@ -2966,51 +2864,13 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final source = ref.watch(librarySourceProvider);
     final meAsync = ref.watch(currentUserProvider);
     final scoreFormatAsync = ref.watch(trackingScoreFormatProvider);
-    final fetchedEntryAsync = ref.watch(mediaListProvider(widget.media.id));
-    final optimisticEntry =
-        ref.watch(mediaListEntryControllerProvider(widget.media.id));
-    final fetchedEntry = fetchedEntryAsync.valueOrNull;
-    _hydrateInitial(fetchedEntry ?? optimisticEntry);
-
-    if (fetchedEntryAsync.hasError &&
-        !_loadedInitial &&
-        optimisticEntry != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _loadedInitial) return;
-        setState(() {
-          _status = optimisticEntry.status;
-          _score = optimisticEntry.score;
-          _progress = optimisticEntry.progress;
-          _loadedInitial = true;
-          _lastHydratedSignature = _entrySignature(optimisticEntry);
-        });
-      });
-    }
-
-    if (!_saving && fetchedEntry != null && fetchedEntryAsync.hasValue) {
-      final signature = _entrySignature(fetchedEntry);
-      final shouldHydrate = !_loadedInitial ||
-          _lastHydratedSignature != signature ||
-          _status != fetchedEntry.status ||
-          _progress != fetchedEntry.progress ||
-          (_score - fetchedEntry.score).abs() > 0.01;
-      if (shouldHydrate) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() {
-            _status = fetchedEntry.status;
-            _score = fetchedEntry.score;
-            _progress = fetchedEntry.progress;
-            _loadedInitial = true;
-            _lastHydratedSignature = signature;
-          });
-        });
-      }
-    }
-
-    final bg = meAsync.valueOrNull?.bannerImage ?? widget.media.bannerImage;
-    final maxEp = widget.media.episodes ?? 9999;
+    final sync = ref.watch(aniListTrackingProvider(widget.target));
+    final notifier = ref.read(aniListTrackingProvider(widget.target).notifier);
     final scoreFormat = scoreFormatAsync.valueOrNull ?? 'POINT_10_DECIMAL';
+    final isLocked = sync.isFetching || sync.isResolvingId;
+    final isSyncing = sync.isSaving || sync.isRemoving;
+    final bg = meAsync.valueOrNull?.bannerImage ?? widget.media.bannerImage;
+    final maxEp = sync.maxEpisodes > 0 ? sync.maxEpisodes : 9999;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -3021,7 +2881,10 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
               child: KyomiruImageCache.image(bg, fit: BoxFit.cover),
             ),
           Positioned.fill(
-            child: Container(color: const Color(0xCC0B1020)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+              child: Container(color: const Color(0xB3161A2A)),
+            ),
           ),
           GlassCard(
             borderRadius: 16,
@@ -3033,121 +2896,127 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                       ? 'Local Library Tracking'
                       : 'AniList Tracking',
                   style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w800),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 10),
-                if (fetchedEntryAsync.isLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: LinearProgressIndicator(minHeight: 2),
-                  ),
-                if (_isFetching)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Fetching tracking...',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFFA1A8BC),
-                            fontWeight: FontWeight.w600,
+                if (isLocked)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Shimmer.fromColors(
+                      baseColor: Colors.white.withValues(alpha: 0.16),
+                      highlightColor: Colors.white.withValues(alpha: 0.34),
+                      child: Column(
+                        children: [
+                          Container(
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (source == LibrarySource.anilist &&
-                    fetchedEntry == null &&
-                    optimisticEntry == null) ...[
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Not in AniList list yet.',
-                          style: TextStyle(color: Color(0xFFA1A8BC)),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () {
-                          ref.invalidate(mediaListProvider(widget.media.id));
-                          unawaited(ref
-                              .read(mediaListEntryControllerProvider(
-                                      widget.media.id)
-                                  .notifier)
-                              .loadFresh());
-                        },
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                ],
-                AbsorbPointer(
-                  absorbing: _isFetching || _saving,
-                  child: Opacity(
-                    opacity: (_isFetching || _saving) ? 0.55 : 1.0,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            for (final s in const [
-                              'CURRENT',
-                              'PLANNING',
-                              'COMPLETED',
-                              'PAUSED',
-                              'DROPPED',
-                              'REPEATING'
-                            ])
-                              ChoiceChip(
-                                label: Text(s),
-                                selected: _status == s,
-                                onSelected: (_) => setState(() {
-                                  _loadedInitial = true;
-                                  _status = s;
-                                  _pushOptimistic();
-                                  _persistLocalImmediate();
-                                }),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Text('Episode'),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Slider(
-                                value:
-                                    _progress.toDouble().clamp(0, maxEp.toDouble()),
-                                max: maxEp.toDouble(),
-                                divisions: maxEp > 0 ? maxEp : 1,
-                                label: '$_progress',
-                                onChanged: (v) => setState(() {
-                                  _loadedInitial = true;
-                                  _progress = v.round();
-                                  _pushOptimistic();
-                                  _persistLocalImmediate();
-                                }),
+                          const SizedBox(height: 10),
+                          Container(
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Fetching Data...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            Text('$_progress/$maxEp'),
-                          ],
-                        ),
-                        _scoreEditor(scoreFormat),
-                      ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  AbsorbPointer(
+                    absorbing: isSyncing,
+                    child: Opacity(
+                      opacity: isSyncing ? 0.60 : 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              for (final s in const [
+                                'CURRENT',
+                                'PLANNING',
+                                'COMPLETED',
+                                'PAUSED',
+                                'DROPPED',
+                                'REPEATING'
+                              ])
+                                ChoiceChip(
+                                  label: Text(s),
+                                  selected: sync.statusDraft == s,
+                                  onSelected: (_) {
+                                    unawaited(notifier.requestStatus(s));
+                                  },
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Text('Episode'),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _liquidSlider(
+                                  value: sync.progressDraft.toDouble(),
+                                  max: maxEp.toDouble(),
+                                  divisions: maxEp,
+                                  labelText: sync.progressDraft.toString(),
+                                  onChanged: (v) {
+                                    unawaited(notifier.requestProgress(v.round()));
+                                  },
+                                ),
+                              ),
+                              Text('${sync.progressDraft}/$maxEp'),
+                            ],
+                          ),
+                          _scoreEditor(
+                            format: scoreFormat,
+                            score: sync.scoreDraft,
+                            enabled: !isSyncing,
+                            onChanged: (v) {
+                              unawaited(notifier.requestScore(v));
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                if (sync.errorMessage != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    sync.errorMessage!,
+                    style: const TextStyle(
+                      color: Color(0xFFFF9E9E),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
@@ -3155,97 +3024,46 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                     spacing: 8,
                     children: [
                       FilledButton.tonalIcon(
-                        onPressed: () async {
-                          final messenger = ScaffoldMessenger.of(context);
-                          setState(() => _saving = true);
-                          final removed = await ref
-                              .read(mediaListEntryControllerProvider(
-                                      widget.media.id)
-                                  .notifier)
-                              .remove(tokenOverride: widget.token);
-                          if (!mounted) return;
-                          setState(() => _saving = false);
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                removed
-                                    ? 'Removed from list.'
-                                    : 'Could not remove from list.',
-                              ),
-                            ),
-                          );
-                        },
+                        onPressed: isLocked || isSyncing
+                            ? null
+                            : () async {
+                                final removed =
+                                    await notifier.remove(tokenOverride: widget.token);
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      removed
+                                          ? 'Removed from list.'
+                                          : 'Could not remove from list.',
+                                    ),
+                                  ),
+                                );
+                              },
                         icon: const Icon(Icons.playlist_remove_rounded),
                         label: const Text('Remove from List'),
                       ),
                       FilledButton.tonalIcon(
-                        onPressed: _saving
+                        onPressed: isLocked || isSyncing
                             ? null
                             : () async {
-                                if (source == LibrarySource.anilist &&
-                                    (widget.token == null ||
-                                        widget.token!.isEmpty)) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'AniList token missing. Please reconnect your account.',
-                                      ),
+                                final ok =
+                                    await notifier.commit(tokenOverride: widget.token);
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      ok
+                                          ? (source == LibrarySource.local
+                                              ? 'Saved locally.'
+                                              : 'Tracking updated.')
+                                          : 'Sync Failed',
                                     ),
-                                  );
-                                  return;
-                                }
-                                final messenger = ScaffoldMessenger.of(context);
-                                final rollbackStatus = _status;
-                                final rollbackProgress = _progress;
-                                final rollbackScore = _score;
-                                setState(() => _saving = true);
-                                final ok = await ref
-                                    .read(mediaListEntryControllerProvider(
-                                            widget.media.id)
-                                        .notifier)
-                                    .save(
-                                      status: _status,
-                                      progress: _progress,
-                                      score: _score,
-                                      media: widget.media,
-                                      tokenOverride: widget.token,
-                                    );
-                                if (!mounted) return;
-                                if (!ok) {
-                                  setState(() {
-                                    _status = rollbackStatus;
-                                    _progress = rollbackProgress;
-                                    _score = rollbackScore;
-                                  });
-                                  _pushOptimistic();
-                                  messenger.showSnackBar(
-                                    const SnackBar(
-                                        content: Text('Sync Failed')),
-                                  );
-                                } else {
-                                  _lastSyncedAt = DateTime.now();
-                                  messenger.showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        source == LibrarySource.local
-                                            ? 'Saved locally.'
-                                            : 'Tracking updated.',
-                                      ),
-                                    ),
-                                  );
-                                }
-                                if (mounted) {
-                                  setState(() => _saving = false);
-                                }
+                                  ),
+                                );
                               },
                         icon: const Icon(Icons.save_outlined),
-                        label: Text(
-                          _saving
-                              ? 'Saving...'
-                              : (source == LibrarySource.local
-                                  ? 'Save Local'
-                                  : 'Save'),
-                        ),
+                        label: Text(isSyncing ? 'Syncing...' : 'Save'),
                       ),
                     ],
                   ),
@@ -3253,7 +3071,7 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    if (_saving) ...[
+                    if (isSyncing) ...[
                       const SizedBox(
                         width: 12,
                         height: 12,
@@ -3267,11 +3085,10 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                           color: Color(0xFFA1A8BC),
                         ),
                       ),
-                      const Spacer(),
-                    ] else
-                      const Spacer(),
+                    ],
+                    const Spacer(),
                     Text(
-                      _lastSyncedLabel(),
+                      _lastSyncedLabel(sync.lastSyncedAt),
                       style: const TextStyle(
                         fontSize: 12,
                         color: Color(0xFFA1A8BC),
@@ -3288,6 +3105,56 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
   }
 }
 
+class _LiquidGlassThumbShape extends SliderComponentShape {
+  const _LiquidGlassThumbShape({required this.labelText});
+
+  final String labelText;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) => const Size(44, 28);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final canvas = context.canvas;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: 44, height: 28),
+      const Radius.circular(999),
+    );
+    final fill = Paint()..color = const Color(0xCC9AA4FF);
+    final border = Paint()
+      ..color = Colors.white.withValues(alpha: 0.45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.drawRRect(rect, fill);
+    canvas.drawRRect(rect, border);
+
+    final tp = TextPainter(
+      text: TextSpan(
+        text: labelText,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      textDirection: textDirection,
+    )..layout(minWidth: 0, maxWidth: 44);
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+  }
+}
 class _BadlandsHero extends StatelessWidget {
   const _BadlandsHero({
     required this.media,
@@ -3998,3 +3865,4 @@ class _EpisodeFallbackBackdrop extends StatelessWidget {
     );
   }
 }
+

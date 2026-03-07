@@ -204,7 +204,9 @@ Future<void> main() async {
   await _openHiveBoxSafe('local_library');
   await _openHiveBoxSafe('watch_history');
   await _openHiveBoxSafe('anilist_media_cache', critical: false);
-  await _openHiveBoxSafe('anilist_query_cache', critical: false);
+  // Keep query cache lazy-open only. On some legacy iOS installs this box
+  // can contain stale adapter payloads and trigger platform-level errors
+  // during boot. AniListClient opens/uses it opportunistically when safe.
   final liquidGlassEnabled = await _runShaderWarmup();
   runApp(
     ProviderScope(
