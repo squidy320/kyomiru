@@ -401,6 +401,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
             status: statusToSave,
             progress: progress,
             score: state.scoreDraft,
+            entryId: state.entry?.id == 0 ? null : state.entry?.id,
           );
       final verified = await _ref
           .read(anilistClientProvider)
@@ -584,6 +585,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         status: isFinalEpisode ? 'COMPLETED' : 'CURRENT',
         progress: clamped,
         score: current?.score ?? 0,
+        entryId: current?.id == 0 ? null : current?.id,
       );
       _ref.invalidate(mediaListProvider(mediaId));
       _ref.read(librarySyncBumpProvider.notifier).state++;
@@ -857,6 +859,7 @@ class MediaListEntryController extends StateNotifier<AniListTrackingEntry?> {
             status: status,
             progress: progress,
             score: score,
+            entryId: state?.id == 0 ? null : state?.id,
           );
       state = saved;
       _ref.invalidate(mediaListProvider(mediaId));

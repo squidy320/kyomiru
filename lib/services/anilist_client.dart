@@ -1710,19 +1710,22 @@ class AniListClient {
     required String status,
     required int progress,
     required double score,
+    int? entryId,
   }) async {
     AppLogger.i(
       'AniListTracking',
-      'saveTrackingEntry request mediaId=$mediaId status=$status progress=$progress score=$score',
+      'saveTrackingEntry request mediaId=$mediaId entryId=${entryId ?? -1} status=$status progress=$progress score=$score',
     );
     const q = r'''
       mutation SaveMediaListEntryMutation(
+        $id: Int,
         $mediaId: Int!,
         $status: MediaListStatus!,
         $progress: Int!,
         $score: Float!
       ) {
         SaveMediaListEntry(
+          id: $id,
           mediaId: $mediaId,
           status: $status,
           progress: $progress,
@@ -1739,6 +1742,7 @@ class AniListClient {
       query: q,
       token: token,
       variables: {
+        'id': entryId,
         'mediaId': mediaId,
         'status': status,
         'progress': progress,

@@ -1111,6 +1111,7 @@ class _ContinueWatchingCard extends ConsumerWidget {
           status: nextStatus,
           progress: targetProgress,
           score: current?.score ?? 0,
+          entryId: current?.id == 0 ? null : current?.id,
         );
         ref.invalidate(mediaListProvider(entry.mediaId));
       } catch (_) {
