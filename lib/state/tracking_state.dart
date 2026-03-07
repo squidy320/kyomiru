@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
+import 'dart:async';
 
 import '../core/app_logger.dart';
 import '../models/anilist_models.dart';
@@ -406,7 +407,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       final verified = await _ref
           .read(anilistClientProvider)
           .trackingEntry(token, mediaId, force: true);
-      final effective = verified ?? saved;
+      final verificationRegressed = verified != null &&
+          ((saved.status != 'PLANNING' && verified.status == 'PLANNING') ||
+              verified.progress < saved.progress);
+      final effective = verificationRegressed ? saved : (verified ?? saved);
       if (verified != null &&
           (verified.status != saved.status ||
               verified.progress != saved.progress ||
@@ -417,6 +421,20 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
               'saved=(${saved.status},${saved.progress},${saved.score}) '
               'verified=(${verified.status},${verified.progress},${verified.score})',
         );
+        if (verificationRegressed) {
+          AppLogger.w(
+            'AniListSync',
+            'commit keeping mutation result due regressive immediate verification sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId',
+          );
+          unawaited(() async {
+            try {
+              await Future<void>.delayed(const Duration(seconds: 2));
+              await _ref
+                  .read(anilistClientProvider)
+                  .trackingEntry(token, mediaId, force: true);
+            } catch (_) {}
+          }());
+        }
       }
       _committed = TrackingDraft(
         status: effective.status,

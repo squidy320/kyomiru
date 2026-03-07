@@ -1716,16 +1716,35 @@ class AniListClient {
       'AniListTracking',
       'saveTrackingEntry request mediaId=$mediaId entryId=${entryId ?? -1} status=$status progress=$progress score=$score',
     );
-    const q = r'''
-      mutation SaveMediaListEntryMutation(
-        $id: Int,
-        $mediaId: Int!,
+    final hasEntryId = entryId != null && entryId > 0;
+    const qUpdate = r'''
+      mutation UpdateMediaListEntryMutation(
+        $id: Int!,
         $status: MediaListStatus!,
         $progress: Int!,
         $score: Float!
       ) {
         SaveMediaListEntry(
           id: $id,
+          status: $status,
+          progress: $progress,
+          score: $score
+        ) {
+          id
+          status
+          progress
+          score
+        }
+      }
+    ''';
+    const qCreate = r'''
+      mutation SaveMediaListEntryMutation(
+        $mediaId: Int!,
+        $status: MediaListStatus!,
+        $progress: Int!,
+        $score: Float!
+      ) {
+        SaveMediaListEntry(
           mediaId: $mediaId,
           status: $status,
           progress: $progress,
@@ -1739,15 +1758,21 @@ class AniListClient {
       }
     ''';
     final data = await _graphql(
-      query: q,
+      query: hasEntryId ? qUpdate : qCreate,
       token: token,
-      variables: {
-        'id': entryId,
-        'mediaId': mediaId,
-        'status': status,
-        'progress': progress,
-        'score': score,
-      },
+      variables: hasEntryId
+          ? {
+              'id': entryId,
+              'status': status,
+              'progress': progress,
+              'score': score,
+            }
+          : {
+              'mediaId': mediaId,
+              'status': status,
+              'progress': progress,
+              'score': score,
+            },
     );
     final saved = AniListTrackingEntry.fromJson(
       (data['SaveMediaListEntry'] as Map<String, dynamic>? ?? const {}),
