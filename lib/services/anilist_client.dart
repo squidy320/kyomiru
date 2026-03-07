@@ -1487,9 +1487,23 @@ class AniListClient {
     final key = '$token:$mediaId';
     final persistedKey = 'trackingEntry:${token.hashCode}:$mediaId';
     final cached = _trackingEntryCache[key];
+    AppLogger.d(
+      'AniListTracking',
+      'trackingEntry request mediaId=$mediaId force=$force hasMemCache=${cached != null} valid=${cached?.isValid ?? false}',
+    );
     if (!force) {
-      if (cached != null && cached.isValid) return cached.value;
+      if (cached != null && cached.isValid) {
+        AppLogger.d(
+          'AniListTracking',
+          'trackingEntry resolved from memory cache mediaId=$mediaId status=${cached.value?.status ?? 'null'} progress=${cached.value?.progress ?? -1}',
+        );
+        return cached.value;
+      }
       if (cached != null) {
+        AppLogger.d(
+          'AniListTracking',
+          'trackingEntry stale memory cache hit mediaId=$mediaId; scheduling background refresh',
+        );
         _refreshInBackground('tracking:$key', () async {
           await trackingEntry(token, mediaId, force: true);
         });
@@ -1509,6 +1523,10 @@ class AniListClient {
           entry,
           DateTime.now().add(_trackingTtl),
         );
+        AppLogger.d(
+          'AniListTracking',
+          'trackingEntry resolved from persisted fresh cache mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1}',
+        );
         return entry;
       }
       final persistedStale = _readQueryCache(persistedKey, maxAge: null);
@@ -1525,11 +1543,21 @@ class AniListClient {
         _refreshInBackground('tracking:$key', () async {
           await trackingEntry(token, mediaId, force: true);
         });
+        AppLogger.d(
+          'AniListTracking',
+          'trackingEntry resolved from persisted stale cache mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1}',
+        );
         return entry;
       }
     }
     final inflight = _inflightTrackingLoads[key];
-    if (inflight != null) return inflight;
+    if (inflight != null) {
+      AppLogger.d(
+        'AniListTracking',
+        'trackingEntry joining inflight request mediaId=$mediaId',
+      );
+      return inflight;
+    }
     final loadFuture = _loadTrackingEntryNetwork(
       key: key,
       token: token,
@@ -1564,6 +1592,10 @@ class AniListClient {
     ''';
     for (var attempt = 1; attempt <= 2; attempt++) {
       try {
+        AppLogger.d(
+          'AniListTracking',
+          'trackingEntry network attempt=$attempt mediaId=$mediaId',
+        );
         final data = await _graphql(
           query: q,
           token: token,
@@ -1588,8 +1620,18 @@ class AniListClient {
                   'score': entry.score,
                 },
         });
+        AppLogger.i(
+          'AniListTracking',
+          'trackingEntry network success mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1} score=${entry?.score ?? -1}',
+        );
         return entry;
-      } catch (_) {
+      } catch (e, st) {
+        AppLogger.w(
+          'AniListTracking',
+          'trackingEntry network failure attempt=$attempt mediaId=$mediaId',
+          error: e,
+          stackTrace: st,
+        );
         if (attempt < 2) {
           await Future<void>.delayed(
             Duration(milliseconds: 250 * attempt),
@@ -1610,8 +1652,16 @@ class AniListClient {
         entry,
         DateTime.now().add(_trackingTtl),
       );
+      AppLogger.w(
+        'AniListTracking',
+        'trackingEntry falling back to stale persisted cache mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1}',
+      );
       return entry;
     }
+    AppLogger.w(
+      'AniListTracking',
+      'trackingEntry resolved null mediaId=$mediaId (no cache and network failed)',
+    );
     return null;
   }
 
@@ -1622,6 +1672,10 @@ class AniListClient {
     required int progress,
     required double score,
   }) async {
+    AppLogger.i(
+      'AniListTracking',
+      'saveTrackingEntry request mediaId=$mediaId status=$status progress=$progress score=$score',
+    );
     const q = r'''
       mutation SaveMediaListEntryMutation(
         $mediaId: Int!,
@@ -1672,6 +1726,10 @@ class AniListClient {
       status: saved.status,
       progress: saved.progress,
     );
+    AppLogger.i(
+      'AniListTracking',
+      'saveTrackingEntry success mediaId=$mediaId status=${saved.status} progress=${saved.progress} score=${saved.score}',
+    );
     return saved;
   }
 
@@ -1679,6 +1737,7 @@ class AniListClient {
     required String token,
     required int mediaId,
   }) async {
+    AppLogger.i('AniListTracking', 'deleteTrackingEntry request mediaId=$mediaId');
     final existing = await trackingEntry(token, mediaId);
     if (existing == null || existing.id <= 0) return true;
     const q = r'''
@@ -1704,6 +1763,10 @@ class AniListClient {
       });
       _pruneFromLibraryCaches(token, mediaId);
     }
+    AppLogger.i(
+      'AniListTracking',
+      'deleteTrackingEntry result mediaId=$mediaId deleted=$deleted',
+    );
     return deleted;
   }
 

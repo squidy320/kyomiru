@@ -821,12 +821,16 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
   Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
     hapticTap();
+    AppLogger.i(
+      'TrackingUI',
+      'open tracking sheet mediaId=${media.id} title="${media.title.best}" tokenPresent=${token != null && token.isNotEmpty}',
+    );
     final source = ref.read(librarySourceProvider);
     final target = media.toTrackingTarget();
     unawaited(
       ref
           .read(aniListTrackingProvider(target).notifier)
-          .prepare(tokenOverride: token),
+          .prepare(tokenOverride: token, forceRefresh: true),
     );
     if (!mounted) return;
     await showModalBottomSheet<void>(

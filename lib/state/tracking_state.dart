@@ -179,6 +179,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
   static const _idMapBoxName = 'anilist_tracking_id_map';
 
   Future<void> prepare({String? tokenOverride, bool forceRefresh = false}) async {
+    AppLogger.i(
+      'AniListSync',
+      'prepare sourceMediaId=${_target.sourceMediaId} title="${_target.title}" forceRefresh=$forceRefresh',
+    );
     if (_bootstrapped && !forceRefresh) return;
     _bootstrapped = true;
     await refresh(tokenOverride: tokenOverride, force: forceRefresh);
@@ -186,6 +190,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
 
   Future<void> refresh({String? tokenOverride, bool force = true}) async {
     final source = _ref.read(librarySourceProvider);
+    AppLogger.i(
+      'AniListSync',
+      'refresh start source=$source sourceMediaId=${_target.sourceMediaId} force=$force',
+    );
     state = state.copyWith(
       isFetching: true,
       clearErrorMessage: true,
@@ -240,6 +248,12 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       ]);
       final entry = futures[0] as AniListTrackingEntry?;
       final availability = futures[1] as AniListEpisodeAvailability?;
+      AppLogger.i(
+        'AniListSync',
+        'tracking fetched sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId '
+            'entryStatus=${entry?.status ?? 'null'} entryProgress=${entry?.progress ?? -1} '
+            'entryScore=${entry?.score ?? -1}',
+      );
       final maxEpCandidate =
           availability?.episodes ?? _target.episodes ?? 0;
       final maxEp = maxEpCandidate > 0 ? maxEpCandidate : 9999;
@@ -275,6 +289,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
 
   Future<bool> requestStatus(String status) async {
     if (state.isBusy) return false;
+    AppLogger.d(
+      'AniListSync',
+      'requestStatus sourceMediaId=${_target.sourceMediaId} status=$status',
+    );
     state = state.copyWith(statusDraft: status, clearErrorMessage: true);
     return true;
   }
@@ -283,6 +301,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
     if (state.isBusy) return false;
     final maxEp = state.maxEpisodes <= 0 ? 9999 : state.maxEpisodes;
     final clamped = progress.clamp(0, maxEp).toInt();
+    AppLogger.d(
+      'AniListSync',
+      'requestProgress sourceMediaId=${_target.sourceMediaId} requested=$progress clamped=$clamped max=$maxEp',
+    );
     state = state.copyWith(progressDraft: clamped, clearErrorMessage: true);
     return true;
   }
@@ -290,6 +312,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
   Future<bool> requestScore(double score) async {
     if (state.isBusy) return false;
     final clamped = score < 0 ? 0.0 : score;
+    AppLogger.d(
+      'AniListSync',
+      'requestScore sourceMediaId=${_target.sourceMediaId} requested=$score clamped=$clamped',
+    );
     state = state.copyWith(scoreDraft: clamped, clearErrorMessage: true);
     return true;
   }
@@ -305,6 +331,11 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         );
     final maxEp = state.maxEpisodes <= 0 ? 9999 : state.maxEpisodes;
     final progress = state.progressDraft.clamp(0, maxEp);
+    AppLogger.i(
+      'AniListSync',
+      'commit start sourceMediaId=${_target.sourceMediaId} resolvedMediaId=${state.resolvedMediaId ?? -1} '
+          'status=${state.statusDraft} progress=$progress score=${state.scoreDraft}',
+    );
     final optimistic = AniListTrackingEntry(
       id: state.entry?.id ?? 0,
       status: state.statusDraft,
@@ -341,6 +372,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
           isSaving: false,
           lastSyncedAt: DateTime.now(),
         );
+        AppLogger.i(
+          'AniListSync',
+          'commit success local sourceMediaId=${_target.sourceMediaId} status=${state.statusDraft} progress=$progress',
+        );
         return true;
       }
 
@@ -371,6 +406,11 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         isSaving: false,
         lastSyncedAt: DateTime.now(),
       );
+      AppLogger.i(
+        'AniListSync',
+        'commit success anilist sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId '
+            'status=${saved.status} progress=${saved.progress} score=${saved.score}',
+      );
       return true;
     } catch (e, st) {
       AppLogger.w(
@@ -400,6 +440,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
     if (state.isBusy) return false;
     final source = _ref.read(librarySourceProvider);
     state = state.copyWith(isRemoving: true, clearErrorMessage: true);
+    AppLogger.i(
+      'AniListSync',
+      'remove start sourceMediaId=${_target.sourceMediaId} resolvedMediaId=${state.resolvedMediaId ?? -1}',
+    );
     try {
       if (source == LibrarySource.local) {
         await _ref
@@ -432,6 +476,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         scoreDraft: 0,
         lastSyncedAt: DateTime.now(),
       );
+      AppLogger.i(
+        'AniListSync',
+        'remove success sourceMediaId=${_target.sourceMediaId}',
+      );
       return true;
     } catch (e, st) {
       AppLogger.w('AniListSync', 'Remove failed', error: e, stackTrace: st);
@@ -447,6 +495,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
     required int episodeNumber,
     required String mediaTitle,
   }) async {
+    AppLogger.i(
+      'AniListSync',
+      'autoAdvance trigger sourceMediaId=${_target.sourceMediaId} episode=$episodeNumber mediaTitle="$mediaTitle"',
+    );
     final source = _ref.read(librarySourceProvider);
     if (source == LibrarySource.local) {
       try {
@@ -469,6 +521,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         _ref.invalidate(localLibraryEntriesProvider);
         _ref.invalidate(mediaListProvider(_target.sourceMediaId));
         _ref.read(librarySyncBumpProvider.notifier).state++;
+        AppLogger.i(
+          'AniListSync',
+          'autoAdvance success local sourceMediaId=${_target.sourceMediaId} progress=$clamped',
+        );
         return true;
       } catch (_) {
         return false;
@@ -502,6 +558,10 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       );
       _ref.invalidate(mediaListProvider(mediaId));
       _ref.read(librarySyncBumpProvider.notifier).state++;
+      AppLogger.i(
+        'AniListSync',
+        'autoAdvance success anilist sourceMediaId=${_target.sourceMediaId} resolvedMediaId=$mediaId progress=$clamped',
+      );
       return true;
     } catch (e, st) {
       AppLogger.w(
@@ -528,7 +588,14 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
     state = state.copyWith(isResolvingId: true, clearErrorMessage: true);
     try {
       if (_target.sourceMediaId > 0) {
-        await _persistResolvedMediaId(_target.sourceMediaId);
+        await _persistResolvedMediaId(
+          _target.sourceMediaId,
+          includeTitleKeys: false,
+        );
+        AppLogger.i(
+          'AniListSync',
+          'using source media id directly: ${_target.sourceMediaId}',
+        );
         state = state.copyWith(
           resolvedMediaId: _target.sourceMediaId,
           isResolvingId: false,
@@ -555,8 +622,16 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       final chosen = _pickBestMatch(results);
       final resolved = chosen?.id ?? 0;
       if (resolved > 0) {
-        await _persistResolvedMediaId(resolved);
+        await _persistResolvedMediaId(
+          resolved,
+          includeTitleKeys: true,
+        );
       }
+      AppLogger.i(
+        'AniListSync',
+        'resolved media id by title: sourceMediaId=${_target.sourceMediaId} '
+            'query="$query" resolved=$resolved',
+      );
       state = state.copyWith(resolvedMediaId: resolved, isResolvingId: false);
       return resolved;
     } catch (e, st) {
@@ -604,10 +679,13 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
     return Hive.openBox<dynamic>(_idMapBoxName);
   }
 
-  List<String> _cacheKeys() {
+  List<String> _cacheKeys({bool includeTitleKeys = true}) {
     final out = <String>[];
     if (_target.sourceMediaId > 0) {
       out.add('source:${_target.sourceMediaId}');
+    }
+    if (!includeTitleKeys) {
+      return out.toSet().toList(growable: false);
     }
     final titles = <String>[
       _target.title,
@@ -623,18 +701,37 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
 
   Future<int> _mappedMediaIdFromCache() async {
     final box = await _idMapBox();
-    for (final key in _cacheKeys()) {
+    final keys = _cacheKeys(includeTitleKeys: _target.sourceMediaId <= 0);
+    for (final key in keys) {
       final value = (box.get(key) as num?)?.toInt() ?? 0;
-      if (value > 0) return value;
+      if (value > 0) {
+        AppLogger.i(
+          'AniListSync',
+          'id-map hit key="$key" -> $value',
+        );
+        return value;
+      }
     }
+    AppLogger.d(
+      'AniListSync',
+      'id-map miss sourceMediaId=${_target.sourceMediaId} keys=${keys.join(',')}',
+    );
     return 0;
   }
 
-  Future<void> _persistResolvedMediaId(int mediaId) async {
+  Future<void> _persistResolvedMediaId(
+    int mediaId, {
+    required bool includeTitleKeys,
+  }) async {
     final box = await _idMapBox();
-    for (final key in _cacheKeys()) {
+    final keys = _cacheKeys(includeTitleKeys: includeTitleKeys);
+    for (final key in keys) {
       await box.put(key, mediaId);
     }
+    AppLogger.i(
+      'AniListSync',
+      'id-map write mediaId=$mediaId includeTitleKeys=$includeTitleKeys keys=${keys.join(',')}',
+    );
   }
 }
 
