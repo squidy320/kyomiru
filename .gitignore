@@ -49,3 +49,7 @@ app-example
 !/ios
 /ios/*
 !/ios/Podfile
+
+# local comparison clones
+/mangayomi_ref_20260308/
+/mangayomi_ref_*/
