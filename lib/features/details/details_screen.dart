@@ -70,6 +70,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   final ValueNotifier<AsyncValue<EpisodeLoadResult>> _episodeState =
       ValueNotifier<AsyncValue<EpisodeLoadResult>>(const AsyncLoading());
   EpisodeQuery? _episodeLoadQuery;
+  bool _trackingSheetOpen = false;
 
   SoraRuntime get _sora => ref.read(soraRuntimeProvider);
   int get _currentMediaId => _activeMediaId ?? widget.mediaId;
@@ -820,6 +821,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   }
 
   Future<void> _openTrackingSheet(AniListMedia media, String? token) async {
+    if (_trackingSheetOpen) return;
+    _trackingSheetOpen = true;
     hapticTap();
     AppLogger.i(
       'TrackingUI',
@@ -828,36 +831,41 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final source = ref.read(librarySourceProvider);
     final target = media.toTrackingTarget();
     if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => FractionallySizedBox(
-        heightFactor: 0.82,
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF10131F),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: source == LibrarySource.anilist &&
-                      (token == null || token.isEmpty)
-                  ? const Center(
-                      child: Text(
-                        'Connect AniList to manage list, score, and progress.',
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => FractionallySizedBox(
+          heightFactor: 0.82,
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF10131F),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: source == LibrarySource.anilist &&
+                        (token == null || token.isEmpty)
+                    ? const Center(
+                        child: Text(
+                          'Connect AniList to manage list, score, and progress.',
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        child:
+                            _TrackingPane(token: token, media: media, target: target),
                       ),
-                    )
-                  : SingleChildScrollView(
-                      child: _TrackingPane(token: token, media: media, target: target),
-                    ),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _trackingSheetOpen = false;
+    }
   }
 
   Future<void> _handleBookmarkTap(

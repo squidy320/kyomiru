@@ -1552,11 +1552,17 @@ class AniListClient {
     }
     final inflight = _inflightTrackingLoads[key];
     if (inflight != null) {
+      if (!force) {
+        AppLogger.d(
+          'AniListTracking',
+          'trackingEntry joining inflight request mediaId=$mediaId',
+        );
+        return inflight;
+      }
       AppLogger.d(
         'AniListTracking',
-        'trackingEntry joining inflight request mediaId=$mediaId',
+        'trackingEntry bypassing inflight request because force=true mediaId=$mediaId',
       );
-      return inflight;
     }
     final loadFuture = _loadTrackingEntryNetwork(
       key: key,
@@ -1569,7 +1575,9 @@ class AniListClient {
     try {
       return await loadFuture;
     } finally {
-      _inflightTrackingLoads.remove(key);
+      if (identical(_inflightTrackingLoads[key], loadFuture)) {
+        _inflightTrackingLoads.remove(key);
+      }
     }
   }
 
