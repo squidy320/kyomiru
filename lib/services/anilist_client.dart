@@ -522,6 +522,7 @@ class AniListClient {
 
     return _serialize(() async {
       final isAnonymous = token == null || token.isEmpty;
+      final isMutation = query.toLowerCase().contains('mutation');
       if (isAnonymous && DateTime.now().isBefore(_anonymousCooldownUntil)) {
         AppLogger.w(
           'AniList',
@@ -564,6 +565,17 @@ class AniListClient {
           final body = response.data is Map<String, dynamic>
               ? response.data as Map<String, dynamic>
               : jsonDecode(response.data.toString()) as Map<String, dynamic>;
+
+          if (status == 429 && isMutation) {
+            const delayMs = 8000;
+            _nextAllowedAt =
+                DateTime.now().add(const Duration(milliseconds: delayMs));
+            AppLogger.w(
+              'AniList',
+              'GraphQL 429 op=$operation on mutation; failing fast and cooling down ${delayMs}ms',
+            );
+            throw Exception('AniList GraphQL HTTP 429 (mutation cooldown)');
+          }
 
           if (status == 429 && attempts < 4) {
             final delayMs = 1200 * attempts;

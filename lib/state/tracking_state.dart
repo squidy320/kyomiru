@@ -445,6 +445,9 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
         error: e,
         stackTrace: st,
       );
+      final message = e.toString().contains('429')
+          ? 'AniList rate-limited. Please wait a few seconds and retry.'
+          : 'Sync Failed';
       state = state.copyWith(
         isSaving: false,
         statusDraft: previous.status,
@@ -456,7 +459,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
           progress: previous.progress.clamp(0, state.maxEpisodes),
           score: previous.score,
         ),
-        errorMessage: 'Sync Failed',
+        errorMessage: message,
       );
       return false;
     }
