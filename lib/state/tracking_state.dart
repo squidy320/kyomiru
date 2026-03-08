@@ -250,14 +250,20 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       var entry = futures[0] as AniListTrackingEntry?;
       var availability = futures[1] as AniListEpisodeAvailability?;
 
-      // If this id looks like a default/planning stub, try resolving by title
-      // against the user's actual AniList library and switch to that id.
-      if ((entry?.status ?? '') == 'PLANNING' && (entry?.progress ?? 0) == 0) {
+      // If this id looks stale/non-watching for the current title, resolve
+      // against the user's CURRENT/REPEATING library and switch when matched.
+      final statusUpper = (entry?.status ?? '').toUpperCase();
+      final shouldTryLibraryResolver = entry == null ||
+          (statusUpper == 'PLANNING' && (entry?.progress ?? 0) == 0) ||
+          (statusUpper.isNotEmpty &&
+              statusUpper != 'CURRENT' &&
+              statusUpper != 'REPEATING');
+      if (shouldTryLibraryResolver) {
         final libraryMatchId = await _resolveMediaIdFromUserLibrary(token);
         if (libraryMatchId > 0 && libraryMatchId != mediaId) {
           AppLogger.w(
             'AniListSync',
-            'direct id appears stale/wrong (PLANNING/0); switching by title match '
+            'direct id appears stale/wrong for current title; switching by title match '
                 'sourceMediaId=${_target.sourceMediaId} oldMediaId=$mediaId newMediaId=$libraryMatchId',
           );
           final switched = await Future.wait<dynamic>([

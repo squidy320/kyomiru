@@ -2893,6 +2893,17 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     }
   }
 
+  String _effectiveScoreFormat({
+    required String? reportedFormat,
+    required double scoreValue,
+  }) {
+    final f = (reportedFormat ?? '').trim().toUpperCase();
+    if (f.isNotEmpty) return f;
+    // Fallback when Viewer.scoreFormat is temporarily unavailable.
+    if (scoreValue > 10) return 'POINT_100';
+    return 'POINT_10_DECIMAL';
+  }
+
   @override
   Widget build(BuildContext context) {
     final source = ref.watch(librarySourceProvider);
@@ -2900,7 +2911,10 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final scoreFormatAsync = ref.watch(trackingScoreFormatProvider);
     final sync = ref.watch(aniListTrackingProvider(widget.target));
     final notifier = ref.read(aniListTrackingProvider(widget.target).notifier);
-    final scoreFormat = scoreFormatAsync.valueOrNull ?? 'POINT_10_DECIMAL';
+    final scoreFormat = _effectiveScoreFormat(
+      reportedFormat: scoreFormatAsync.valueOrNull,
+      scoreValue: sync.scoreDraft,
+    );
     final isLocked = sync.isFetching || sync.isResolvingId;
     final isSyncing = sync.isSaving || sync.isRemoving;
     final bg = meAsync.valueOrNull?.bannerImage ?? widget.media.bannerImage;

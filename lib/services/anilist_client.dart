@@ -1585,9 +1585,10 @@ class AniListClient {
       return null;
     }
 
+    final viewerId = (await me(token)).id;
     const q = r'''
-      query TrackingEntry($mediaId: Int) {
-        MediaList(mediaId: $mediaId, type: ANIME) {
+      query TrackingEntry($mediaId: Int, $userId: Int) {
+        MediaList(mediaId: $mediaId, type: ANIME, userId: $userId) {
           id
           status
           progress
@@ -1604,7 +1605,10 @@ class AniListClient {
         final data = await _graphql(
           query: q,
           token: token,
-          variables: {'mediaId': mediaId},
+          variables: {
+            'mediaId': mediaId,
+            'userId': viewerId,
+          },
         );
         final raw = data['MediaList'];
         final entry = raw is! Map<String, dynamic>
@@ -1616,7 +1620,7 @@ class AniListClient {
         );
         AppLogger.i(
           'AniListTracking',
-          'trackingEntry network success mediaId=$mediaId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1} score=${entry?.score ?? -1}',
+          'trackingEntry network success mediaId=$mediaId userId=$viewerId status=${entry?.status ?? 'null'} progress=${entry?.progress ?? -1} score=${entry?.score ?? -1}',
         );
         return entry;
       } catch (e, st) {
