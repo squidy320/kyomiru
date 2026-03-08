@@ -43,7 +43,12 @@ jobs:
           cache: true
 
       - name: Flutter Pub Get
+        working-directory: .
         run: flutter pub get
+
+      - name: Flutter Precache (macOS)
+        working-directory: .
+        run: flutter precache --macos
 
       - name: Build Windows (Release)
         run: flutter build windows --release
@@ -103,10 +108,7 @@ jobs:
 
       - name: CocoaPods Install (macOS)
         shell: bash
-        run: |
-          cd macos
-          pod repo update
-          pod install
+        run: cd macos && pod repo update && pod install
 
       - name: Build macOS (Release)
         run: flutter build macos --release
