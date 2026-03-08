@@ -2946,6 +2946,12 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final wideLandscape =
         mq.size.width >= 900 && mq.orientation == Orientation.landscape;
     final xShift = wideLandscape ? 40.0 : 0.0;
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 1450), () {
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true).maybePop();
+      }),
+    );
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -2966,70 +2972,77 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
               ),
               child: Transform.translate(
                 offset: Offset(xShift, 0),
-                child: FadeTransition(
-                  opacity: fade,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.94, end: 1).animate(fade),
-                    child: Container(
-                      constraints: const BoxConstraints(maxWidth: 440),
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: (success
-                                    ? const Color(0xFF22C55E)
-                                    : const Color(0xFFF87171))
-                                .withValues(alpha: 0.24),
-                            blurRadius: 26,
-                            spreadRadius: 0.5,
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [Color(0xCC131827), Color(0xB9161A2A)],
-                              ),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.24),
-                                width: 0.5,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  success
-                                      ? Icons.check_circle_rounded
-                                      : Icons.error_rounded,
-                                  size: 18,
-                                  color: success
+                child: MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    textScaler: const TextScaler.linear(1.0),
+                  ),
+                  child: FadeTransition(
+                    opacity: fade,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.94, end: 1).animate(fade),
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 380),
+                        decoration: BoxDecoration(
+                          boxShadow: [
+                            BoxShadow(
+                              color: (success
                                       ? const Color(0xFF22C55E)
-                                      : const Color(0xFFF87171),
+                                      : const Color(0xFFF87171))
+                                  .withValues(alpha: 0.24),
+                              blurRadius: 20,
+                              spreadRadius: 0.4,
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 9,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [Color(0xCC131827), Color(0xB9161A2A)],
                                 ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    message,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.2,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.24),
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    success
+                                        ? Icons.check_circle_rounded
+                                        : Icons.error_rounded,
+                                    size: 16,
+                                    color: success
+                                        ? const Color(0xFF22C55E)
+                                        : const Color(0xFFF87171),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      message,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.2,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -3043,10 +3056,6 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
         );
       },
     );
-    await Future<void>.delayed(const Duration(milliseconds: 1450));
-    if (mounted) {
-      Navigator.of(context, rootNavigator: true).maybePop();
-    }
   }
 
   Widget _liquidSlider({
