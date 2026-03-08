@@ -345,9 +345,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final controller = VideoController(
         player,
         configuration: VideoControllerConfiguration(
-          // Force GPU video output on Windows to keep texture rendering smooth
-          // during live window resizing.
-          vo: Platform.isWindows ? 'gpu-next' : null,
+          // Keep Windows on hardware accelerated texture output, but use
+          // broadly compatible mpv options to avoid black-screen regressions.
+          vo: Platform.isWindows ? 'gpu' : null,
           hwdec: Platform.isWindows ? 'auto-safe' : null,
           enableHardwareAcceleration: true,
         ),
@@ -475,8 +475,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('video-sync', 'audio');
       await setProp('audio-pitch-correction', 'yes');
       if (Platform.isWindows) {
-        await setProp('vo', 'gpu-next');
-        await setProp('hwdec', 'dxva2-copy');
+        await setProp('vo', 'gpu');
+        await setProp('hwdec', 'auto-safe');
       } else if (Platform.isMacOS) {
         await setProp('hwdec', 'videotoolbox');
       } else {

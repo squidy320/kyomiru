@@ -224,11 +224,7 @@ class _AniListLoginWebViewScreenState
     try {
       final client = ref.read(anilistClientProvider);
       _desktopAuthState = _randomState();
-      _loopbackServer = await HttpServer.bind(
-        InternetAddress.loopbackIPv4,
-        _desktopLoopbackPort,
-        shared: true,
-      );
+      _loopbackServer = await _bindDesktopLoopbackServer();
       _desktopRedirectUri = 'http://localhost:${_loopbackServer!.port}';
       AppLogger.i(
         'AniListAuth',
@@ -255,6 +251,23 @@ class _AniListLoginWebViewScreenState
             'http://localhost:$_desktopLoopbackPort. Close other app using '
             'that port and retry.';
       });
+    }
+  }
+
+  Future<HttpServer> _bindDesktopLoopbackServer() async {
+    try {
+      return await HttpServer.bind(
+        InternetAddress.anyIPv6,
+        _desktopLoopbackPort,
+        shared: true,
+        v6Only: false,
+      );
+    } catch (_) {
+      return HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        _desktopLoopbackPort,
+        shared: true,
+      );
     }
   }
 
