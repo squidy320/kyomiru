@@ -92,7 +92,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   VideoController? _mediaKitVideoController;
   final SimplePip _simplePip = SimplePip();
   static const MethodChannel _iosPipChannel = MethodChannel('kyomiru/ios_pip');
-  final bool _enablePip = true;
+  final bool _enablePip = !Platform.isIOS;
 
   Timer? _persistTimer;
   Timer? _uiPollTimer;
@@ -150,6 +150,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double? opStart;
   double? opEnd;
 
+  Future<void> _enterFullscreenPlayerMode() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  Future<void> _restoreSystemUiAndOrientation() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -157,16 +170,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final settings = ref.read(appSettingsProvider);
     _selectedQuality = settings.defaultQuality;
     _selectedSubtitle = settings.defaultAudio;
-    unawaited(
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
-    );
+    unawaited(_enterFullscreenPlayerMode());
     _progressStore = ref.read(progressStoreProvider);
     _skipAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 480),
     );
     WidgetsBinding.instance.addObserver(this);
-    if (Platform.isIOS) {
+    if (Platform.isIOS && _enablePip) {
       _iosPipChannel.setMethodCallHandler(_handleIosPipCallback);
     }
     unawaited(WakelockPlus.enable());
@@ -187,26 +198,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
       }
       unawaited(_persistProgress());
-      if (playing && !_iosPipActive) {
+      if (Platform.isAndroid && playing && !_iosPipActive) {
         AppLogger.i(
           'PlayerPiP',
           'auto-enter attempt state=$state platform=${Platform.operatingSystem}',
         );
         unawaited(togglePiP());
       }
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_enterFullscreenPlayerMode());
     }
   }
 
   Future<void> _initPip() async {
     if (!_enablePip) return;
     try {
-      bool supported = false;
-      if (Platform.isAndroid) {
-        supported = await SimplePip.isPipAvailable;
-      } else if (Platform.isIOS) {
-        supported =
-            await _iosPipChannel.invokeMethod<bool>('isAvailable') ?? false;
-      }
+      final supported = Platform.isAndroid ? await SimplePip.isPipAvailable : false;
       AppLogger.i(
         'PlayerPiP',
         'availability platform=${Platform.operatingSystem} supported=$supported',
@@ -1289,52 +1296,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _enterPip() async {
-    if (!_enablePip) return;
-    if (Platform.isAndroid && !_pipSupported) return;
+    if (!_enablePip || !Platform.isAndroid || !_pipSupported) return;
     try {
-      if (Platform.isAndroid) {
-        AppLogger.i('PlayerPiP', 'enter requested android');
-        await _simplePip.enterPipMode(
-          seamlessResize: true,
-        );
-        AppLogger.i('PlayerPiP', 'enter dispatched android');
-        return;
-      }
-      if (Platform.isIOS) {
-        final supported =
-            await _iosPipChannel.invokeMethod<bool>('isAvailable') ?? false;
-        if (!supported) {
-          _pipSupported = false;
-          if (mounted) setState(() {});
-          AppLogger.w('PlayerPiP', 'enter blocked ios unsupported');
-          return;
-        }
-        if (!_pipSupported) {
-          _pipSupported = true;
-          if (mounted) setState(() {});
-        }
-        final url = _activePlaybackUrl();
-        if (url == null || url.trim().isEmpty) {
-          AppLogger.w('PlayerPiP', 'enter blocked ios missing active url');
-          return;
-        }
-        AppLogger.i(
-          'PlayerPiP',
-          'enter requested ios url=${url.length > 80 ? '${url.substring(0, 80)}...' : url}',
-        );
-        final started = await _iosPipChannel.invokeMethod<bool>('enterPip', {
-          'url': url.trim(),
-          'headers': _activePlaybackHeaders(),
-          'positionMs': (_currentSec * 1000).round(),
-          'speed': _selectedPlaybackSpeed,
-        });
-        AppLogger.i('PlayerPiP', 'enter result ios started=$started');
-        if (started == true) {
-          await _mediaKitPlayer?.pause();
-          _isMediaKitPlaying = false;
-          _iosPipActive = true;
-        }
-      }
+      AppLogger.i('PlayerPiP', 'enter requested android');
+      await _simplePip.enterPipMode(
+        seamlessResize: true,
+      );
+      AppLogger.i('PlayerPiP', 'enter dispatched android');
     } catch (e, st) {
       AppLogger.w('PlayerPiP', 'enter failed', error: e, stackTrace: st);
     }
@@ -1609,6 +1577,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return _hasActiveAniSkipWindow ? 'Skip Intro' : 'Skip 85s';
   }
 
+  String _playerEpisodeLabel() {
+    final explicit = widget.episodeTitle.trim();
+    if (explicit.isNotEmpty) return explicit;
+    final media = widget.mediaTitle?.trim();
+    if (media != null && media.isNotEmpty) {
+      return '$media - Episode ${widget.episodeNumber}';
+    }
+    return 'Episode ${widget.episodeNumber}';
+  }
+
   Future<void> _handleDynamicSkip() async {
     if (_hasActiveAniSkipWindow) {
       await _skipIntro();
@@ -1852,7 +1830,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await _mediaKitPlayer?.pause();
       await _disposeControllers();
     } catch (_) {}
-    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    unawaited(_restoreSystemUiAndOrientation());
     if (!mounted) return;
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
@@ -1922,7 +1900,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final mediaKit = _mediaKitPlayer;
     _mediaKitPlayer = null;
     _mediaKitVideoController = null;
-    if (Platform.isIOS) {
+    if (Platform.isIOS && _enablePip) {
       _iosPipChannel.setMethodCallHandler(null);
     }
     unawaited(_setPlaybackSpeed(_selectedPlaybackSpeed));
@@ -1931,7 +1909,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _skipAnimationController.dispose();
     unawaited(WakelockPlus.disable());
     unawaited(_clearPlaybackCaches());
-    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    unawaited(_restoreSystemUiAndOrientation());
     super.dispose();
   }
 
@@ -2087,7 +2065,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                     ),
                                   ),
                                 ),
-                                if (_pipSupported || Platform.isIOS) ...[
+                                if (_pipSupported) ...[
                                   const SizedBox(width: 8),
                                   Material(
                                     color: const Color(0xFA1E1E1E),
@@ -2152,6 +2130,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                 ? Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          _playerEpisodeLabel(),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Colors.white.withValues(alpha: 0.88),
+                                            fontSize: MediaQuery.sizeOf(context).width < 600
+                                                ? 12
+                                                : 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
                                       LayoutBuilder(
                                         builder: (context, c) {
                                           final compact = c.maxWidth < 460;

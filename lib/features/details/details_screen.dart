@@ -1182,7 +1182,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       final local = await ref
           .read(downloadControllerProvider.notifier)
           .getLocalEpisodeByMedia(media.id, ep.number);
-      if (local != null) {
+      final manualLocal = local ??
+          await ref
+              .read(downloadControllerProvider.notifier)
+              .getLocalEpisodeByTitle(media.title.best, ep.number);
+      if (manualLocal != null) {
         if (!context.mounted) return;
         navigator.push(
           MaterialPageRoute(
@@ -1190,7 +1194,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
               mediaId: media.id,
               episodeNumber: ep.number,
               episodeTitle: _episodePlaybackTitle(media, ep.number),
-              sourceUrl: local.path,
+              sourceUrl: manualLocal.path,
               isLocal: true,
               backgroundImageUrl: media.cover.best ?? media.bannerImage,
               mediaTitle: media.title.best,
@@ -3264,7 +3268,12 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     required double scoreValue,
   }) {
     final f = (reportedFormat ?? '').trim().toUpperCase();
-    if (f.isNotEmpty) return f;
+    if (f.isNotEmpty) {
+      if ((f == 'POINT_10' || f == 'POINT_10_DECIMAL') && scoreValue > 10) {
+        return 'POINT_100';
+      }
+      return f;
+    }
     // Fallback when Viewer.scoreFormat is temporarily unavailable.
     if (scoreValue > 10) return 'POINT_100';
     return 'POINT_10_DECIMAL';
@@ -3286,10 +3295,19 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     final bg = meAsync.valueOrNull?.bannerImage ?? widget.media.bannerImage;
     final maxEp = sync.maxEpisodes > 0 ? sync.maxEpisodes : 9999;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Stack(
-        children: [
+    return Material(
+      type: MaterialType.transparency,
+      child: DefaultTextStyle(
+        style: (Theme.of(context).textTheme.bodyMedium ??
+                const TextStyle(fontSize: 14))
+            .copyWith(
+          color: Colors.white,
+          decoration: TextDecoration.none,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            children: [
           if (bg != null)
             Positioned.fill(
               child: KyomiruImageCache.image(bg, fit: BoxFit.cover),
@@ -3525,7 +3543,9 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
               ],
             ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

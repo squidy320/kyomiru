@@ -78,11 +78,9 @@ final continueWatchingNotifierProvider = FutureProvider.family<
   final released = (info.latestReleasedEpisode > 0)
       ? info.latestReleasedEpisode
       : info.availableEpisodes;
-  var normalizedProgress = query.lastCompleted;
-  if (released > 0 && normalizedProgress > released) {
-    final rem = normalizedProgress % released;
-    normalizedProgress = rem == 0 ? released : rem;
-  }
+  final normalizedProgress = released > 0
+      ? query.lastCompleted.clamp(0, released)
+      : query.lastCompleted;
   final unseen = (released - normalizedProgress).clamp(0, 9999);
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
@@ -129,11 +127,8 @@ final libraryWatchingNotifierProvider = FutureProvider.family<
   final released = (info.latestReleasedEpisode > 0)
       ? info.latestReleasedEpisode
       : info.availableEpisodes;
-  var normalizedProgress = query.progress;
-  if (released > 0 && normalizedProgress > released) {
-    final rem = normalizedProgress % released;
-    normalizedProgress = rem == 0 ? released : rem;
-  }
+  final normalizedProgress =
+      released > 0 ? query.progress.clamp(0, released) : query.progress;
   final unseen = (released - normalizedProgress).clamp(0, 9999);
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
@@ -982,40 +977,45 @@ class _AnimePosterCard extends StatelessWidget {
             Positioned(
               top: 8,
               left: 8,
-              child: LiquidGlass.withOwnLayer(
-                settings: kyomiruLiquidGlassSettings(isOledBlack: true),
-                shape: const LiquidRoundedSuperellipse(borderRadius: 999),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.34),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.38),
-                      width: 0.5,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xCC263046), Color(0xB11A2234)],
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.44),
+                    width: 0.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF60A5FA).withValues(alpha: 0.22),
+                      blurRadius: 12,
                     ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.notifications_active_rounded,
-                        size: 11,
-                        color: Color(0xFF93C5FD),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.notifications_active_rounded,
+                      size: 11,
+                      color: Color(0xFF93C5FD),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      unwatchedBadgeText!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        unwatchedBadgeText!,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1279,7 +1279,7 @@ class _ContinueWatchingCard extends ConsumerWidget {
     );
     final notifier = notifierAsync.valueOrNull;
     final unseen = notifier?.unseen ?? 0;
-    final showUnseen = unseen > 0 && notifier?.status == 'RELEASING';
+    final showUnseen = unseen > 0;
     final globalProgressTotal = (notifier?.totalAvailable ?? 0) > 0
         ? notifier!.totalAvailable
         : entry.episodeNumber;

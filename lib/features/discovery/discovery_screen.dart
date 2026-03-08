@@ -492,7 +492,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 child: GlassContainer(
                   borderRadius: 16,
                   child: TextField(
@@ -520,7 +520,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
             if (showingSearch)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(108, 18, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
                   child: _searching
                       ? const _DiscoverySkeleton()
                       : _HorizontalSection(
@@ -533,7 +533,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               for (final section in sections.where((s) => s.items.isNotEmpty))
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(108, 18, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
                     child: _WideCarouselSection(
                       title: section.title,
                       items: section.items,
@@ -1044,7 +1044,7 @@ class _WideHeroBanner extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: EdgeInsets.fromLTRB(108, topInset + 20, 24, 24),
+            padding: EdgeInsets.fromLTRB(20, topInset + 20, 24, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

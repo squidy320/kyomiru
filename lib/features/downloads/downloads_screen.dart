@@ -628,9 +628,13 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
     DownloadItem item,
   ) async {
     hapticTap();
-    final localFile = await ref
-        .read(downloadControllerProvider.notifier)
-        .getLocalEpisodeByMedia(item.mediaId, item.episode);
+    final dm = ref.read(downloadControllerProvider.notifier);
+    final localFile = await dm.getLocalEpisodeByMedia(item.mediaId, item.episode) ??
+        await dm.getLocalEpisodeByTitle(item.animeTitle, item.episode);
+    int? malId;
+    try {
+      malId = (await ref.read(anilistClientProvider).mediaDetails(item.mediaId)).idMal;
+    } catch (_) {}
     if (!context.mounted) return;
     final local = localFile?.path;
     final exists = local != null && local.isNotEmpty;
@@ -644,6 +648,7 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
           headers: item.headers,
           isLocal: exists,
           mediaTitle: item.animeTitle,
+          malId: malId,
         ),
       ),
     );
@@ -1025,9 +1030,13 @@ class _DownloadedEpisodeTile extends ConsumerWidget {
     DownloadItem item,
   ) async {
     hapticTap();
-    final localFile = await ref
-        .read(downloadControllerProvider.notifier)
-        .getLocalEpisodeByMedia(item.mediaId, item.episode);
+    final dm = ref.read(downloadControllerProvider.notifier);
+    final localFile = await dm.getLocalEpisodeByMedia(item.mediaId, item.episode) ??
+        await dm.getLocalEpisodeByTitle(item.animeTitle, item.episode);
+    int? malId;
+    try {
+      malId = (await ref.read(anilistClientProvider).mediaDetails(item.mediaId)).idMal;
+    } catch (_) {}
     if (!context.mounted) return;
     final local = localFile?.path;
     final exists = local != null && local.isNotEmpty;
@@ -1041,6 +1050,7 @@ class _DownloadedEpisodeTile extends ConsumerWidget {
           headers: item.headers,
           isLocal: exists,
           mediaTitle: item.animeTitle,
+          malId: malId,
         ),
       ),
     );

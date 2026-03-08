@@ -439,6 +439,49 @@ class DownloadController extends StateNotifier<DownloadState> {
     return null;
   }
 
+  Future<File?> getLocalEpisodeByTitle(String animeTitle, int episode) async {
+    final root = await _downloadsRoot();
+    final safeTitle = _safe(animeTitle);
+    final animeDir = Directory(p.join(root.path, safeTitle));
+    if (!await animeDir.exists()) return null;
+
+    final directCandidates = <String>[
+      p.join(animeDir.path, 'Episode $episode.m3u8'),
+      p.join(animeDir.path, 'Episode $episode.mp4'),
+      p.join(animeDir.path, 'Episode $episode.mkv'),
+      p.join(animeDir.path, 'Episode $episode.ts'),
+    ];
+    for (final candidate in directCandidates) {
+      final file = File(candidate);
+      if (await file.exists()) return file;
+    }
+
+    final episodeDir = Directory(p.join(animeDir.path, 'Episode $episode'));
+    if (!await episodeDir.exists()) return null;
+    final nestedCandidates = <String>[
+      p.join(episodeDir.path, 'Episode $episode.m3u8'),
+      p.join(episodeDir.path, 'Episode $episode.mp4'),
+      p.join(episodeDir.path, 'Episode $episode.mkv'),
+      p.join(episodeDir.path, 'Episode $episode.ts'),
+    ];
+    for (final candidate in nestedCandidates) {
+      final file = File(candidate);
+      if (await file.exists()) return file;
+    }
+
+    try {
+      final entities = await episodeDir.list().toList();
+      for (final entity in entities) {
+        if (entity is! File) continue;
+        final ext = p.extension(entity.path).toLowerCase();
+        if (ext == '.mp4' || ext == '.mkv' || ext == '.m3u8' || ext == '.ts') {
+          return entity;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<File?> getLocalEpisodeArtworkByMedia(int mediaId, int episode) async {
     final item = state.items['$mediaId:$episode'];
     if (item == null) return null;

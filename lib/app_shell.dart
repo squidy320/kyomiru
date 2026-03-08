@@ -108,8 +108,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
   bool _offlineMode = false;
-  _DockEdge _wideDockEdge = _DockEdge.left;
-  double _wideDockFactor = 0.34;
+  _DockEdge _wideDockEdge = _DockEdge.top;
+  double _wideDockFactor = 0.5;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   ProviderSubscription<AuthState>? _authSub;
 
@@ -436,6 +436,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                     final viewPadding = MediaQuery.viewPaddingOf(context);
                     final size =
                         Size(constraints.maxWidth, constraints.maxHeight);
+                    final isIosTablet = Platform.isIOS &&
+                        MediaQuery.sizeOf(context).shortestSide >= 600;
                     final rect = _wideDockRect(size, viewPadding);
                     final dock = _MagneticWideNavDock(
                       edge: _wideDockEdge,
@@ -450,6 +452,19 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                       isOledBlack: settings.isOledBlack,
                       activeGlowColor: ambientColor,
                     );
+                    if (isIosTablet) {
+                      const dockW = 358.0;
+                      const dockH = 74.0;
+                      final top = viewPadding.top + 12;
+                      final left = ((size.width - dockW) / 2).clamp(12.0, size.width - dockW - 12);
+                      return Positioned(
+                        left: left,
+                        top: top,
+                        width: dockW,
+                        height: dockH,
+                        child: dock,
+                      );
+                    }
                     return Positioned.fromRect(
                       rect: rect,
                       child: LongPressDraggable<int>(
@@ -916,13 +931,13 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                     child: const _LibraryContinueWatchingShelf(),
                   ),
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(108, 10, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
                     child: SizedBox(
                       height: 36,
                       child: ListView.separated(
@@ -943,7 +958,7 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                   if (section.items.isNotEmpty) ...[
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(108, 18, 20, 0),
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
                         child: Text(
                           section.title,
                           style: const TextStyle(
@@ -955,7 +970,7 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                     ),
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(108, 12, 20, 0),
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                         child: SizedBox(
                           height: _wideCardHeight,
                           child: ListView.separated(
@@ -1086,7 +1101,7 @@ class _LibraryWideHero extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: EdgeInsets.fromLTRB(108, topInset + 20, 24, 24),
+            padding: EdgeInsets.fromLTRB(20, topInset + 20, 24, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
