@@ -1,8 +1,12 @@
+import 'dart:io';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/haptics.dart';
+import '../../core/glass_widgets.dart';
 import '../../services/cache_service.dart';
 import '../../services/sora_extension_loader.dart';
 import '../../state/app_settings_state.dart';
@@ -14,21 +18,56 @@ import 'debug_logs_screen.dart';
 import 'library_preferences_screen.dart';
 import 'player_settings_screen.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late final SoraExtensionLoader _loader;
+  late Future<_ExtensionLoadState> _extensionFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loader = SoraExtensionLoader();
+    _extensionFuture = _loadExtensionState();
+  }
+
+  Future<_ExtensionLoadState> _loadExtensionState() async {
+    try {
+      final manifest = await _loader.loadOfficialAnimePahe();
+      final label = manifest.name ?? manifest.id;
+      return _ExtensionLoadState.loaded(label);
+    } on DioException {
+      return _ExtensionLoadState.failed();
+    } on SocketException {
+      return _ExtensionLoadState.failed();
+    } catch (_) {
+      return _ExtensionLoadState.failed();
+    }
+  }
+
+  void _retryExtensionLoad() {
+    setState(() {
+      _extensionFuture = _loadExtensionState();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
     final librarySource = ref.watch(librarySourceProvider);
     final cacheStatsAsync = ref.watch(cacheStatsProvider);
-    final loader = SoraExtensionLoader();
     final connected = auth.token != null && auth.token!.isNotEmpty;
 
     return SafeArea(
       child: FutureBuilder(
-        future: loader.loadOfficialAnimePahe(),
+        future: _extensionFuture,
         builder: (context, snap) {
+          final extensionState = snap.data;
           return ListView(
             padding: const EdgeInsets.fromLTRB(10, 12, 10, 100),
             children: [
@@ -94,40 +133,69 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.source_outlined),
-                    title: const Text('Library Source'),
-                    subtitle: Text(
-                      librarySource == LibrarySource.anilist
-                          ? 'AniList'
-                          : 'Local',
-                    ),
-                    trailing: SizedBox(
-                      width: 200,
-                      child: CupertinoSlidingSegmentedControl<LibrarySource>(
-                        groupValue: librarySource,
-                        children: const {
-                          LibrarySource.anilist: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 8),
-                            child: Text('AniList'),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(right: 16),
+                          child: Icon(Icons.source_outlined),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Library Source',
+                                style: Theme.of(context).textTheme.titleMedium,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                librarySource == LibrarySource.anilist
+                                    ? 'AniList'
+                                    : 'Local',
+                                style: Theme.of(context).textTheme.bodySmall,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
-                          LibrarySource.local: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 8),
-                            child: Text('Local'),
+                        ),
+                        const SizedBox(width: 12),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minWidth: 132,
+                            maxWidth: 176,
                           ),
-                        },
-                        onValueChanged: (value) {
-                          if (value == null) return;
-                          hapticTap();
-                          ref
-                              .read(appSettingsProvider.notifier)
-                              .setLibrarySource(
-                                value == LibrarySource.local
-                                    ? 'Local'
-                                    : 'AniList',
-                              );
-                        },
-                      ),
+                          child: CupertinoSlidingSegmentedControl<LibrarySource>(
+                            groupValue: librarySource,
+                            children: const {
+                              LibrarySource.anilist: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8),
+                                child: Text('AniList'),
+                              ),
+                              LibrarySource.local: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8),
+                                child: Text('Local'),
+                              ),
+                            },
+                            onValueChanged: (value) {
+                              if (value == null) return;
+                              hapticTap();
+                              ref
+                                  .read(appSettingsProvider.notifier)
+                                  .setLibrarySource(
+                                    value == LibrarySource.local
+                                        ? 'Local'
+                                        : 'AniList',
+                                  );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   _row(
@@ -195,14 +263,41 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   ListTile(
                     title: const Text('Source extension'),
-                    subtitle: Text(
-                      snap.connectionState == ConnectionState.waiting
-                          ? 'Loading source extension...'
-                          : snap.hasError
-                              ? 'Extension load error: ${snap.error}'
-                              : 'AnimePahe extension: ${(snap.data as dynamic).name ?? (snap.data as dynamic).id}',
-                    ),
+                    subtitle: Text(snap.connectionState == ConnectionState.waiting
+                        ? 'Loading source extension...'
+                        : extensionState?.isLoaded == true
+                            ? 'AnimePahe extension: ${extensionState!.label}'
+                            : 'Extension unavailable'),
                   ),
+                  if (snap.connectionState != ConnectionState.waiting &&
+                      extensionState?.isLoaded != true)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+                      child: GlassCard(
+                        borderRadius: 14,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.wifi_off_rounded,
+                              color: Colors.amber.shade200,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Unable to connect to the extension server. Please check your internet connection.',
+                                style: TextStyle(fontSize: 12.5),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            FilledButton.tonal(
+                              onPressed: _retryExtensionLoad,
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ListTile(
                     title: const Text('Logout AniList'),
                     trailing: const Icon(Icons.logout),
@@ -237,5 +332,23 @@ class SettingsScreen extends ConsumerWidget {
         onTap();
       },
     );
+  }
+}
+
+class _ExtensionLoadState {
+  const _ExtensionLoadState._({
+    required this.isLoaded,
+    this.label,
+  });
+
+  final bool isLoaded;
+  final String? label;
+
+  factory _ExtensionLoadState.loaded(String label) {
+    return _ExtensionLoadState._(isLoaded: true, label: label);
+  }
+
+  factory _ExtensionLoadState.failed() {
+    return const _ExtensionLoadState._(isLoaded: false);
   }
 }
