@@ -59,6 +59,14 @@ class _EscapeIntent extends Intent {
   const _EscapeIntent();
 }
 
+class _SeekForwardSmallIntent extends Intent {
+  const _SeekForwardSmallIntent();
+}
+
+class _SeekBackSmallIntent extends Intent {
+  const _SeekBackSmallIntent();
+}
+
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
     super.key,
@@ -150,6 +158,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _verticalStartValue = 1.0;
   double _virtualBrightness = 1.0;
   bool _isMediaKitPlaying = false;
+  bool _desktopHoveringSurface = false;
+  bool _manualNextInFlight = false;
+  double _volumeLevel = 1.0;
   int _lastSurfaceWidth = 0;
   int _lastSurfaceHeight = 0;
   late final AnimationController _skipAnimationController;
@@ -164,6 +175,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   double? opStart;
   double? opEnd;
+
+  bool get _isDesktopPlatform =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   Future<void> _enterFullscreenPlayerMode() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -181,6 +195,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   @override
   void initState() {
     super.initState();
+    if (_isDesktopPlatform) {
+      _overlayVisible = false;
+    }
     AppLogger.i('PlayerPiP', 'init platform=${Platform.operatingSystem}');
     final settings = ref.read(appSettingsProvider);
     _selectedQuality = settings.defaultQuality;
@@ -458,6 +475,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('video-sync', 'audio');
       await setProp('audio-pitch-correction', 'yes');
       if (Platform.isWindows) {
+        await setProp('vo', 'gpu-next');
         await setProp('hwdec', 'dxva2-copy');
       } else if (Platform.isMacOS) {
         await setProp('hwdec', 'videotoolbox');
@@ -535,6 +553,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       if (!mounted || mk == null) return;
       final state = mk.state;
       _isMediaKitPlaying = state.playing;
+      _volumeLevel = (state.volume / 100.0).clamp(0.0, 1.0);
       setState(() {
         _durationSec = state.duration.inMilliseconds <= 0
             ? 0
@@ -841,6 +860,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     _autoNextTriggered = true;
     final nextEpisode = widget.episodeNumber + 1;
+    await _openNextEpisode(nextEpisode);
+  }
+
+  Future<void> _playNextEpisodeManual() async {
+    if (_manualNextInFlight) return;
+    _manualNextInFlight = true;
+    try {
+      await _openNextEpisode(widget.episodeNumber + 1);
+    } finally {
+      _manualNextInFlight = false;
+    }
+  }
+
+  Future<void> _openNextEpisode(int nextEpisode) async {
+    final mediaTitle = widget.mediaTitle;
+    if (mediaTitle == null || mediaTitle.trim().isEmpty) {
+      _autoNextTriggered = false;
+      return;
+    }
     final downloader = ref.read(downloadControllerProvider.notifier);
     final localNext =
         await downloader.getLocalEpisodeByMedia(widget.mediaId, nextEpisode);
@@ -988,6 +1026,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _scheduleOverlayAutoHide() {
+    if (_isDesktopPlatform) return;
     _overlayHideTimer?.cancel();
     _overlayHideTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
@@ -1007,6 +1046,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   void _handleSurfaceTap() {
+    if (_isDesktopPlatform) return;
     if (_isControlsLocked) return;
     if (_overlayVisible) {
       setState(() => _overlayVisible = false);
@@ -1866,6 +1906,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await _mediaKitPlayer?.pause();
       await _disposeControllers();
     } catch (_) {}
+    if (_isDesktopPlatform) {
+      try {
+        final fullscreen = await windowManager.isFullScreen();
+        if (fullscreen) {
+          await windowManager.setFullScreen(false);
+        }
+      } catch (_) {}
+    }
     unawaited(_restoreSystemUiAndOrientation());
     if (!mounted) return;
     final navigator = Navigator.of(context);
@@ -1966,9 +2014,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final current = mk.state.volume;
     if (current <= 0.01) {
       await mk.setVolume(100);
+      _volumeLevel = 1.0;
     } else {
       await mk.setVolume(0);
+      _volumeLevel = 0.0;
     }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _setVolumeLevel(double value) async {
+    final mk = _mediaKitPlayer;
+    if (mk == null) return;
+    final clamped = value.clamp(0.0, 1.0);
+    _volumeLevel = clamped;
+    await mk.setVolume(clamped * 100.0);
+    if (mounted) setState(() {});
   }
 
   Future<void> _toggleFullscreenDesktop() async {
@@ -1995,8 +2055,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
         SingleActivator(LogicalKeyboardKey.space): _TogglePlayIntent(),
-        SingleActivator(LogicalKeyboardKey.arrowRight): _SeekForwardIntent(),
-        SingleActivator(LogicalKeyboardKey.arrowLeft): _SeekBackIntent(),
+        SingleActivator(LogicalKeyboardKey.arrowRight):
+            _SeekForwardSmallIntent(),
+        SingleActivator(LogicalKeyboardKey.arrowLeft): _SeekBackSmallIntent(),
+        SingleActivator(LogicalKeyboardKey.keyL): _SeekForwardIntent(),
+        SingleActivator(LogicalKeyboardKey.keyJ): _SeekBackIntent(),
         SingleActivator(LogicalKeyboardKey.keyF): _ToggleFullscreenIntent(),
         SingleActivator(LogicalKeyboardKey.f11): _ToggleFullscreenIntent(),
         SingleActivator(LogicalKeyboardKey.keyM): _ToggleMuteIntent(),
@@ -2004,6 +2067,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
+          _SeekForwardSmallIntent: CallbackAction<_SeekForwardSmallIntent>(
+            onInvoke: (_) {
+              unawaited(_seekRelative(const Duration(seconds: 5)));
+              return null;
+            },
+          ),
+          _SeekBackSmallIntent: CallbackAction<_SeekBackSmallIntent>(
+            onInvoke: (_) {
+              unawaited(_seekRelative(const Duration(seconds: -5)));
+              return null;
+            },
+          ),
           _TogglePlayIntent: CallbackAction<_TogglePlayIntent>(
             onInvoke: (_) {
               unawaited(_togglePlayPause());
@@ -2036,19 +2111,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           ),
           _EscapeIntent: CallbackAction<_EscapeIntent>(
             onInvoke: (_) {
-              if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-                unawaited(() async {
-                  final isFullscreen = await windowManager.isFullScreen();
-                  if (isFullscreen) {
-                    await windowManager.setFullScreen(false);
-                    return;
-                  }
-                  if (!mounted) return;
-                  await Navigator.of(context).maybePop();
-                }());
-                return null;
-              }
-              unawaited(Navigator.of(context).maybePop());
+              unawaited(_closePlayer());
               return null;
             },
           ),
@@ -2116,29 +2179,68 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     )
                   else if (_mediaKitVideoController != null)
                     Positioned.fill(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _handleSurfaceTap,
-                        onDoubleTapDown: _handleDoubleTapSkip,
-                        onLongPressStart: _handleLongPressStart,
-                        onLongPressEnd: _handleLongPressEnd,
-                        onHorizontalDragStart: _handleHorizontalSeekStart,
-                        onHorizontalDragUpdate: _handleHorizontalSeekUpdate,
-                        onHorizontalDragEnd: (_) => _handleHorizontalSeekEnd(),
-                        onHorizontalDragCancel: _handleHorizontalSeekEnd,
-                        onVerticalDragStart: _handleVerticalAdjustStart,
-                        onVerticalDragUpdate: _handleVerticalAdjustUpdate,
-                        onVerticalDragEnd: _handleVerticalAdjustEnd,
-                        onVerticalDragCancel: _handleVerticalAdjustEnd,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            return _buildAdaptivePlayerSurface(constraints);
-                          },
+                      child: MouseRegion(
+                        onEnter: (_) {
+                          if (!_isDesktopPlatform) return;
+                          _desktopHoveringSurface = true;
+                          if (!_overlayVisible && mounted) {
+                            setState(() => _overlayVisible = true);
+                          }
+                        },
+                        onExit: (_) {
+                          if (!_isDesktopPlatform) return;
+                          _desktopHoveringSurface = false;
+                          if (mounted && !_isControlsLocked) {
+                            setState(() => _overlayVisible = false);
+                          }
+                        },
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _isDesktopPlatform ? null : _handleSurfaceTap,
+                          onDoubleTapDown:
+                              _isDesktopPlatform ? null : _handleDoubleTapSkip,
+                          onLongPressStart:
+                              _isDesktopPlatform ? null : _handleLongPressStart,
+                          onLongPressEnd:
+                              _isDesktopPlatform ? null : _handleLongPressEnd,
+                          onHorizontalDragStart: _isDesktopPlatform
+                              ? null
+                              : _handleHorizontalSeekStart,
+                          onHorizontalDragUpdate: _isDesktopPlatform
+                              ? null
+                              : _handleHorizontalSeekUpdate,
+                          onHorizontalDragEnd: _isDesktopPlatform
+                              ? null
+                              : (_) => _handleHorizontalSeekEnd(),
+                          onHorizontalDragCancel: _isDesktopPlatform
+                              ? null
+                              : _handleHorizontalSeekEnd,
+                          onVerticalDragStart: _isDesktopPlatform
+                              ? null
+                              : _handleVerticalAdjustStart,
+                          onVerticalDragUpdate: _isDesktopPlatform
+                              ? null
+                              : _handleVerticalAdjustUpdate,
+                          onVerticalDragEnd: _isDesktopPlatform
+                              ? null
+                              : _handleVerticalAdjustEnd,
+                          onVerticalDragCancel: _isDesktopPlatform
+                              ? null
+                              : _handleVerticalAdjustEnd,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              return _buildAdaptivePlayerSurface(constraints);
+                            },
+                          ),
                         ),
                       ),
                     ),
                   AnimatedOpacity(
-                    opacity: _overlayVisible ? 1 : 0,
+                    opacity: (_isDesktopPlatform
+                            ? (_desktopHoveringSurface || _isControlsLocked)
+                            : _overlayVisible)
+                        ? 1
+                        : 0,
                     duration: const Duration(milliseconds: 220),
                     child: IgnorePointer(
                       ignoring: !_overlayVisible || _isControlsLocked,
@@ -2188,41 +2290,42 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                               ],
                             ),
                           ),
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              ignoring: !_overlayVisible,
-                              child: Center(
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Material(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.45),
-                                      shape: const CircleBorder(),
-                                      child: InkWell(
-                                        onTap: () {
-                                          hapticTap();
-                                          _togglePlayPause();
-                                        },
-                                        customBorder: const CircleBorder(),
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(22),
-                                          child: Icon(
-                                            isPlaying
-                                                ? Icons.pause_rounded
-                                                : Icons.play_arrow_rounded,
-                                            color: Colors.white,
-                                            size: 44,
+                          if (!_isDesktopPlatform)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                ignoring: !_overlayVisible,
+                                child: Center(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Material(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.45),
+                                        shape: const CircleBorder(),
+                                        child: InkWell(
+                                          onTap: () {
+                                            hapticTap();
+                                            _togglePlayPause();
+                                          },
+                                          customBorder: const CircleBorder(),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(22),
+                                            child: Icon(
+                                              isPlaying
+                                                  ? Icons.pause_rounded
+                                                  : Icons.play_arrow_rounded,
+                                              color: Colors.white,
+                                              size: 44,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
                           Positioned(
                             left: 12,
                             right: 12,
@@ -2279,6 +2382,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                             ),
                                           ];
                                           final rightControls = <Widget>[
+                                            if (_isDesktopPlatform) ...[
+                                              _controlPillButton(
+                                                icon: isPlaying
+                                                    ? Icons.pause_rounded
+                                                    : Icons.play_arrow_rounded,
+                                                label: isPlaying
+                                                    ? 'Pause'
+                                                    : 'Play',
+                                                onTap: _togglePlayPause,
+                                              ),
+                                              const SizedBox(width: 6),
+                                            ],
+                                            if (_isDesktopPlatform) ...[
+                                              _controlPillButton(
+                                                icon: Icons.skip_next_rounded,
+                                                label: 'Next',
+                                                onTap: _playNextEpisodeManual,
+                                              ),
+                                              const SizedBox(width: 6),
+                                            ],
                                             _controlPillButton(
                                               icon: Icons.skip_next_rounded,
                                               label: compact
@@ -2324,6 +2447,42 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                             children: [
                                               ...leftControls,
                                               const Spacer(),
+                                              if (_isDesktopPlatform) ...[
+                                                const Icon(
+                                                  Icons.volume_up_rounded,
+                                                  color: Colors.white70,
+                                                  size: 16,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                SizedBox(
+                                                  width: 120,
+                                                  child: SliderTheme(
+                                                    data:
+                                                        SliderTheme.of(context)
+                                                            .copyWith(
+                                                      thumbShape:
+                                                          const RoundSliderThumbShape(
+                                                              enabledThumbRadius:
+                                                                  6),
+                                                      overlayShape:
+                                                          SliderComponentShape
+                                                              .noOverlay,
+                                                      trackHeight: 3,
+                                                    ),
+                                                    child: Slider(
+                                                      value: _volumeLevel,
+                                                      min: 0,
+                                                      max: 1,
+                                                      onChanged: (v) {
+                                                        unawaited(
+                                                          _setVolumeLevel(v),
+                                                        );
+                                                      },
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                              ],
                                               ...rightControls,
                                             ],
                                           );

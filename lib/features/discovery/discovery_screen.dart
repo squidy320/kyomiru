@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +22,8 @@ const double _kCardWidth = 152;
 const double _kCardHeight = 232;
 const Color _kDiscoveryBaseColor = Color(0xFF090B13);
 final discoverySearchFocusRequestProvider = StateProvider<int>((ref) => 0);
+final discoveryDesktopSearchQueryProvider =
+    StateProvider<String?>((ref) => null);
 
 double _phoneHeroHeight(BuildContext context) {
   final w = MediaQuery.sizeOf(context).width;
@@ -67,6 +70,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   bool _searching = false;
   int _heroIndex = 0;
   int _lastFocusRequestTick = -1;
+  String? _lastExternalDesktopQuery;
   String? _lastAmbientHeroKey;
   final Map<String, Color> _ambientColorCache = <String, Color>{};
 
@@ -188,6 +192,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
   Widget build(BuildContext context) {
     super.build(context);
     final focusRequestTick = ref.watch(discoverySearchFocusRequestProvider);
+    final externalDesktopQuery = ref.watch(discoveryDesktopSearchQueryProvider);
     if (focusRequestTick != _lastFocusRequestTick) {
       _lastFocusRequestTick = focusRequestTick;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -195,6 +200,17 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
         if (_searchFocus.canRequestFocus) {
           _searchFocus.requestFocus();
         }
+      });
+    }
+    if (externalDesktopQuery != null &&
+        externalDesktopQuery != _lastExternalDesktopQuery) {
+      _lastExternalDesktopQuery = externalDesktopQuery;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_search.text != externalDesktopQuery) {
+          _search.text = externalDesktopQuery;
+        }
+        _onSearchChanged(externalDesktopQuery);
       });
     }
     final settings = ref.watch(appSettingsProvider);
@@ -490,33 +506,34 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                         Navigator.of(context).push(_detailsRoute(heroMedia.id)),
               ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                child: GlassContainer(
-                  borderRadius: 16,
-                  child: TextField(
-                    controller: _search,
-                    focusNode: _searchFocus,
-                    onChanged: _onSearchChanged,
-                    decoration: InputDecoration(
-                      hintText: 'Search anime...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _search.text.isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                hapticTap();
-                                _search.clear();
-                                setState(() => _searchResults = const []);
-                              },
-                              icon: const Icon(Icons.close),
-                            ),
+            if (!Platform.isWindows)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: GlassContainer(
+                    borderRadius: 16,
+                    child: TextField(
+                      controller: _search,
+                      focusNode: _searchFocus,
+                      onChanged: _onSearchChanged,
+                      decoration: InputDecoration(
+                        hintText: 'Search anime...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _search.text.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  hapticTap();
+                                  _search.clear();
+                                  setState(() => _searchResults = const []);
+                                },
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
             if (showingSearch)
               SliverToBoxAdapter(
                 child: Padding(

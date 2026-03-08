@@ -297,6 +297,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
 
   void _openSearch() {
     _onItemTapped(1);
+    ref.read(discoveryDesktopSearchQueryProvider.notifier).state =
+        _desktopSearchController.text.trim();
     ref.read(discoverySearchFocusRequestProvider.notifier).state++;
   }
 

@@ -27,18 +27,18 @@ class _AniListLoginWebViewScreenState
     defaultValue: 'LwVZw1mcI7iWatIXJfhcSg9FmYSH3MY7zPNu3XAL',
   );
   static const _redirectUri = 'kyomiru://auth';
-  static const _windowsLoopbackPort = 4321;
+  static const _desktopLoopbackPort = 4321;
   WebViewController? _controller;
   HttpServer? _loopbackServer;
-  String _windowsRedirectUri = 'http://localhost:$_windowsLoopbackPort';
-  String _windowsAuthState = '';
+  String _desktopRedirectUri = 'http://localhost:$_desktopLoopbackPort';
+  String _desktopAuthState = '';
 
   String _error = '';
   bool _completed = false;
   bool _authInFlight = false;
-  bool _windowsBrowserOpenAttempted = false;
+  bool _desktopBrowserOpenAttempted = false;
 
-  bool get _useWindowsLoopbackAuth => Platform.isWindows;
+  bool get _useDesktopLoopbackAuth => Platform.isWindows || Platform.isMacOS;
 
   @override
   Widget build(BuildContext context) {
@@ -62,8 +62,8 @@ class _AniListLoginWebViewScreenState
             ),
           const LinearProgressIndicator(minHeight: 1),
           Expanded(
-            child: _useWindowsLoopbackAuth
-                ? _buildWindowsLoopbackBody(context)
+            child: _useDesktopLoopbackAuth
+                ? _buildDesktopLoopbackBody(context)
                 : WebViewWidget(controller: _controller!),
           ),
         ],
@@ -74,8 +74,8 @@ class _AniListLoginWebViewScreenState
   @override
   void initState() {
     super.initState();
-    if (_useWindowsLoopbackAuth) {
-      unawaited(_startWindowsLoopbackFlow());
+    if (_useDesktopLoopbackAuth) {
+      unawaited(_startDesktopLoopbackFlow());
       return;
     }
     _initWebViewFlow();
@@ -87,7 +87,7 @@ class _AniListLoginWebViewScreenState
     super.dispose();
   }
 
-  Widget _buildWindowsLoopbackBody(BuildContext context) {
+  Widget _buildDesktopLoopbackBody(BuildContext context) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
@@ -106,8 +106,8 @@ class _AniListLoginWebViewScreenState
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Windows OAuth uses a local callback server at '
-                    '$_windowsRedirectUri.',
+                    'Desktop OAuth uses a local callback server at '
+                    '$_desktopRedirectUri.',
                     style: const TextStyle(color: Colors.white70),
                   ),
                   const SizedBox(height: 8),
@@ -121,7 +121,7 @@ class _AniListLoginWebViewScreenState
                     children: [
                       Expanded(
                         child: GlassButton(
-                          onPressed: () => unawaited(_startWindowsLoopbackFlow(
+                          onPressed: () => unawaited(_startDesktopLoopbackFlow(
                             forceRestart: true,
                           )),
                           child: const Text(
@@ -213,46 +213,46 @@ class _AniListLoginWebViewScreenState
       ..loadRequest(Uri.parse(authUrl));
   }
 
-  Future<void> _startWindowsLoopbackFlow({bool forceRestart = false}) async {
+  Future<void> _startDesktopLoopbackFlow({bool forceRestart = false}) async {
     if (_completed) return;
-    if (_windowsBrowserOpenAttempted && !forceRestart) return;
-    _windowsBrowserOpenAttempted = true;
+    if (_desktopBrowserOpenAttempted && !forceRestart) return;
+    _desktopBrowserOpenAttempted = true;
     if (forceRestart) {
       setState(() => _error = '');
       await _closeLoopbackServer();
     }
     try {
       final client = ref.read(anilistClientProvider);
-      _windowsAuthState = _randomState();
+      _desktopAuthState = _randomState();
       _loopbackServer = await HttpServer.bind(
         InternetAddress.loopbackIPv4,
-        _windowsLoopbackPort,
+        _desktopLoopbackPort,
         shared: true,
       );
-      _windowsRedirectUri = 'http://localhost:${_loopbackServer!.port}';
+      _desktopRedirectUri = 'http://localhost:${_loopbackServer!.port}';
       AppLogger.i(
         'AniListAuth',
-        'Windows loopback server listening on $_windowsRedirectUri',
+        'Desktop loopback server listening on $_desktopRedirectUri',
       );
       unawaited(_listenForLoopbackRequests(_loopbackServer!));
       final authUrl = client.buildAuthUrl(
         clientId: _clientId,
-        redirectUri: _windowsRedirectUri,
-        state: _windowsAuthState,
+        redirectUri: _desktopRedirectUri,
+        state: _desktopAuthState,
         useCodeFlow: true,
       );
       await _openExternalBrowser(authUrl);
     } catch (e, st) {
       AppLogger.e(
         'AniListAuth',
-        'Windows loopback auth init failed',
+        'Desktop loopback auth init failed',
         error: e,
         stackTrace: st,
       );
       if (!mounted) return;
       setState(() {
-        _error = 'Failed to start Windows OAuth callback server on '
-            'http://localhost:$_windowsLoopbackPort. Close other app using '
+        _error = 'Failed to start Desktop OAuth callback server on '
+            'http://localhost:$_desktopLoopbackPort. Close other app using '
             'that port and retry.';
       });
     }
@@ -293,7 +293,7 @@ class _AniListLoginWebViewScreenState
         continue;
       }
       final callbackState = (query['state'] ?? '').trim();
-      if (_windowsAuthState.isNotEmpty && callbackState != _windowsAuthState) {
+      if (_desktopAuthState.isNotEmpty && callbackState != _desktopAuthState) {
         setState(() {
           _error = 'AniList auth failed: invalid state from callback.';
         });
@@ -301,7 +301,7 @@ class _AniListLoginWebViewScreenState
       }
       final code = (query['code'] ?? '').trim();
       if (code.isEmpty) continue;
-      await _completeWindowsLoopbackLogin(code);
+      await _completeDesktopLoopbackLogin(code);
     }
   }
 
@@ -324,7 +324,7 @@ class _AniListLoginWebViewScreenState
 ''';
   }
 
-  Future<void> _completeWindowsLoopbackLogin(String code) async {
+  Future<void> _completeDesktopLoopbackLogin(String code) async {
     if (_completed || _authInFlight) return;
     _authInFlight = true;
     try {
@@ -333,7 +333,7 @@ class _AniListLoginWebViewScreenState
                 clientId: _clientId,
                 clientSecret: _clientSecret,
                 code: code,
-                redirectUri: _windowsRedirectUri,
+                redirectUri: _desktopRedirectUri,
               );
       _completed = true;
       await ref.read(authControllerProvider.notifier).setToken(exchanged);
@@ -342,7 +342,7 @@ class _AniListLoginWebViewScreenState
     } catch (e, st) {
       AppLogger.e(
         'AniListAuth',
-        'Windows loopback login failed',
+        'Desktop loopback login failed',
         error: e,
         stackTrace: st,
       );

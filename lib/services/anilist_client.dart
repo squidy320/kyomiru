@@ -445,8 +445,11 @@ class AniListClient {
           'code': code,
         },
         options: Options(
-          contentType: Headers.formUrlEncodedContentType,
-          headers: const {'Accept': 'application/json'},
+          contentType: Headers.jsonContentType,
+          headers: const {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
           validateStatus: (_) => true,
         ),
       );
@@ -1769,7 +1772,8 @@ class AniListClient {
     required String token,
     required int mediaId,
   }) async {
-    AppLogger.i('AniListTracking', 'deleteTrackingEntry request mediaId=$mediaId');
+    AppLogger.i(
+        'AniListTracking', 'deleteTrackingEntry request mediaId=$mediaId');
     final existing = await trackingEntry(token, mediaId);
     if (existing == null || existing.id <= 0) return true;
     const q = r'''
@@ -1907,7 +1911,8 @@ class AniListClient {
     if (_discoveryTrendingCache?.value.isNotEmpty ?? false) {
       trending = _discoveryTrendingCache!.value;
     } else {
-      final persistedTrending = _readQueryCache('discoveryTrending', maxAge: null);
+      final persistedTrending =
+          _readQueryCache('discoveryTrending', maxAge: null);
       if (persistedTrending != null) {
         final rows = (persistedTrending['items'] as List? ?? const [])
             .whereType<Map>()
@@ -1920,7 +1925,8 @@ class AniListClient {
     if (_discoverySectionsCache?.value.isNotEmpty ?? false) {
       sections = _discoverySectionsCache!.value;
     } else {
-      final persistedSections = _readQueryCache('discoverySections', maxAge: null);
+      final persistedSections =
+          _readQueryCache('discoverySections', maxAge: null);
       if (persistedSections != null) {
         sections = _parseDiscoverySections(persistedSections);
       }
@@ -1931,9 +1937,7 @@ class AniListClient {
   }
 
   List<AniListLibrarySection> _parseLibrarySections(Map<String, dynamic> data) {
-    return (data['sections'] as List? ?? const [])
-        .whereType<Map>()
-        .map((e) {
+    return (data['sections'] as List? ?? const []).whereType<Map>().map((e) {
       final map = Map<String, dynamic>.from(e);
       final title = (map['title'] ?? 'Section').toString();
       final items = (map['items'] as List? ?? const [])
@@ -1947,9 +1951,7 @@ class AniListClient {
 
   List<AniListDiscoverySection> _parseDiscoverySections(
       Map<String, dynamic> data) {
-    return (data['sections'] as List? ?? const [])
-        .whereType<Map>()
-        .map((e) {
+    return (data['sections'] as List? ?? const []).whereType<Map>().map((e) {
       final map = Map<String, dynamic>.from(e);
       final title = (map['title'] ?? 'Section').toString();
       final items = (map['items'] as List? ?? const [])
