@@ -469,12 +469,22 @@ class DownloadController extends StateNotifier<DownloadState> {
     return ext == '.m3u8' || ext == '.mp4' || ext == '.mkv' || ext == '.ts';
   }
 
+  int? detectEpisodeNumberFromFilePath(String path) {
+    return _extractEpisodeNumberFromLocalPath(path);
+  }
+
   int? _extractEpisodeNumberFromLocalPath(String path) {
     final normalized = path.replaceAll('\\', '/');
-    final byDir = RegExp(r'/episode\s*[_\- ]?(\d+)(?:/|$)', caseSensitive: false)
+    final byDir = RegExp(
+      r'/episode\s*[_\- ]?\(?\s*(\d+)\s*\)?(?:/|$)',
+      caseSensitive: false,
+    )
         .firstMatch(normalized)
         ?.group(1);
-    final byName = RegExp(r'(?:episode|ep)\s*[_\- ]?(\d+)', caseSensitive: false)
+    final byName = RegExp(
+      r'(?:episode|ep)\s*[_\- ]?\(?\s*(\d+)\s*\)?',
+      caseSensitive: false,
+    )
         .firstMatch(p.basenameWithoutExtension(normalized))
         ?.group(1);
     final fallback = RegExp(r'(^|[^0-9])(\d{1,4})([^0-9]|$)')

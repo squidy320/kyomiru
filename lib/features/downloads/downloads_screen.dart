@@ -240,17 +240,15 @@ Future<void> _importLocalEpisodeFlow({
   final picked = await FilePicker.platform.pickFiles(
     type: FileType.custom,
     allowedExtensions: const ['mp4', 'mkv'],
-    allowMultiple: false,
+    allowMultiple: true,
     withData: false,
   );
   if (!context.mounted || picked == null || picked.files.isEmpty) return;
-  final path = picked.files.single.path;
-  if (path == null || path.trim().isEmpty) return;
-  final lower = path.toLowerCase();
-  if (!(lower.endsWith('.mp4') || lower.endsWith('.mkv'))) {
-    _showDownloadsGlassAlert(context, 'Unsupported File Format');
-    return;
-  }
+  final files = picked.files
+      .map((f) => f.path?.trim() ?? '')
+      .where((p) => p.isNotEmpty)
+      .toList(growable: false);
+  if (files.isEmpty) return;
 
   _DownloadedSeries selected = fixedSeries ?? seriesOptions.first;
   final ctrl = TextEditingController(text: '1');
@@ -303,12 +301,21 @@ Future<void> _importLocalEpisodeFlow({
                       selected.title,
                       style: const TextStyle(color: Colors.white70),
                     ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: ctrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Episode Number'),
-                  ),
+                  if (files.length == 1) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: ctrl,
+                      keyboardType: TextInputType.number,
+                      decoration:
+                          const InputDecoration(labelText: 'Episode Number'),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      '${files.length} files selected. Episode numbers will be auto-detected from file names.',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -332,20 +339,46 @@ Future<void> _importLocalEpisodeFlow({
     },
   );
   if (!context.mounted || confirmed != true) return;
-  final ep = int.tryParse(ctrl.text.trim()) ?? 0;
+  final dm = ref.read(downloadControllerProvider.notifier);
+  final parsed = <({String path, int episode})>[];
+  for (final path in files) {
+    final lower = path.toLowerCase();
+    if (!(lower.endsWith('.mp4') || lower.endsWith('.mkv'))) {
+      continue;
+    }
+    final ep = dm.detectEpisodeNumberFromFilePath(path);
+    if (ep != null && ep > 0) parsed.add((path: path, episode: ep));
+  }
+  final manualEpisode = int.tryParse(ctrl.text.trim()) ?? 0;
   ctrl.dispose();
-  if (ep <= 0) return;
+  if (parsed.isEmpty && files.length == 1 && manualEpisode > 0) {
+    parsed.add((path: files.first, episode: manualEpisode));
+  }
+  if (parsed.isEmpty) {
+    _showDownloadsGlassAlert(context, 'Unsupported File Format');
+    return;
+  }
 
   try {
-    await ref.read(downloadControllerProvider.notifier).importLocalEpisode(
-          mediaId: selected.mediaId,
-          episode: ep,
-          animeTitle: selected.title,
-          absoluteFilePath: path,
-          coverImageUrl: selected.coverUrl,
-        );
+    var imported = 0;
+    for (final item in parsed) {
+      await dm.importLocalEpisode(
+        mediaId: selected.mediaId,
+        episode: item.episode,
+        animeTitle: selected.title,
+        absoluteFilePath: item.path,
+        coverImageUrl: selected.coverUrl,
+      );
+      imported++;
+    }
     if (!context.mounted) return;
-    _showDownloadsGlassAlert(context, 'Imported Episode $ep');
+    final skipped = files.length - parsed.length;
+    _showDownloadsGlassAlert(
+      context,
+      skipped > 0
+          ? 'Imported $imported episode(s), skipped $skipped'
+          : 'Imported $imported episode(s)',
+    );
   } on UnsupportedError {
     if (!context.mounted) return;
     _showDownloadsGlassAlert(context, 'Unsupported File Format');

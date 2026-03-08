@@ -1373,32 +1373,63 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['mp4', 'mkv'],
-      allowMultiple: false,
+      allowMultiple: true,
       withData: false,
     );
     if (!mounted || picked == null || picked.files.isEmpty) return;
-    final path = picked.files.single.path;
-    if (path == null || path.trim().isEmpty) return;
-    final ext = path.toLowerCase();
-    if (!(ext.endsWith('.mp4') || ext.endsWith('.mkv'))) {
+    final dm = ref.read(downloadControllerProvider.notifier);
+    final files = picked.files
+        .map((f) => f.path?.trim() ?? '')
+        .where((p) => p.isNotEmpty)
+        .toList(growable: false);
+    if (files.isEmpty) return;
+
+    final parsed = <({String path, int episode})>[];
+    var unsupported = 0;
+    for (final path in files) {
+      final lower = path.toLowerCase();
+      if (!(lower.endsWith('.mp4') || lower.endsWith('.mkv'))) {
+        unsupported++;
+        continue;
+      }
+      final ep = dm.detectEpisodeNumberFromFilePath(path);
+      if (ep != null && ep > 0) {
+        parsed.add((path: path, episode: ep));
+      }
+    }
+
+    if (parsed.isEmpty && files.length == 1 && unsupported == 0) {
+      final episode = await _showImportEpisodeNumberDialog(
+        animeTitle: media.title.best,
+        suggestedEpisode:
+            (_episodeState.value.valueOrNull?.episodes.length ?? 0) + 1,
+      );
+      if (!mounted || episode == null || episode <= 0) return;
+      parsed.add((path: files.first, episode: episode));
+    }
+    if (parsed.isEmpty) {
       _showFloatingGlassAlert('Unsupported File Format');
       return;
     }
 
-    final episode = await _showImportEpisodeNumberDialog(
-      animeTitle: media.title.best,
-      suggestedEpisode: (_episodeState.value.valueOrNull?.episodes.length ?? 0) + 1,
-    );
-    if (!mounted || episode == null || episode <= 0) return;
+    var imported = 0;
     try {
-      await ref.read(downloadControllerProvider.notifier).importLocalEpisode(
-            mediaId: media.id,
-            episode: episode,
-            animeTitle: media.title.best,
-            absoluteFilePath: path,
-            coverImageUrl: media.cover.best ?? media.bannerImage,
-          );
-      _showFloatingGlassAlert('Imported Episode $episode');
+      for (final item in parsed) {
+        await dm.importLocalEpisode(
+          mediaId: media.id,
+          episode: item.episode,
+          animeTitle: media.title.best,
+          absoluteFilePath: item.path,
+          coverImageUrl: media.cover.best ?? media.bannerImage,
+        );
+        imported++;
+      }
+      final skipped = files.length - parsed.length;
+      _showFloatingGlassAlert(
+        skipped > 0
+            ? 'Imported $imported episode(s), skipped $skipped'
+            : 'Imported $imported episode(s)',
+      );
       setState(() {});
     } on UnsupportedError {
       _showFloatingGlassAlert('Unsupported File Format');

@@ -609,7 +609,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   List<String> _qualityOptionsForAudio(String audio) {
     if (_sourceCatalog.isEmpty) {
-      return <String>['Auto', '1080p', '720p', '480p', '360p'];
+      return <String>['Auto', '1080p', '720p', '360p'];
     }
     final audioKey = _audioKey(audio);
     var pool = _sourceCatalog.where((s) => _audioKey(s.subOrDub) == audioKey).toList();

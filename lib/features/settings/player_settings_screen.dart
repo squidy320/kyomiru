@@ -12,7 +12,7 @@ class PlayerSettingsScreen extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
 
-    const qualityOptions = <String>['1080p', '720p', '480p', '360p', 'auto'];
+    const qualityOptions = <String>['1080p', '720p', '360p', 'auto'];
     const audioOptions = <String>['Sub', 'Dub', 'Any'];
     const seekOptions = <int>[5, 10, 15];
     final qualityValue = qualityOptions.contains(settings.defaultQuality)

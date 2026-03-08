@@ -74,11 +74,6 @@ class StreamsSettingsScreen extends ConsumerWidget {
                           onTap: () => controller.setDefaultQuality('720p'),
                         ),
                         chip(
-                          label: '480p',
-                          selected: settings.defaultQuality == '480p',
-                          onTap: () => controller.setDefaultQuality('480p'),
-                        ),
-                        chip(
                           label: '360p',
                           selected: settings.defaultQuality == '360p',
                           onTap: () => controller.setDefaultQuality('360p'),

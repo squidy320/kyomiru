@@ -631,7 +631,7 @@ class SoraRuntime {
 
         final title = (item['title'] ?? '').toString().toLowerCase();
         final qualityNum =
-            RegExp(r'(360|480|720|1080)').firstMatch(title)?.group(1);
+            RegExp(r'(360|720|1080)').firstMatch(title)?.group(1);
         final quality = qualityNum == null ? 'auto' : '${qualityNum}p';
         final subOrDub = _audioLabelFromHints([
           title,
@@ -712,7 +712,7 @@ class SoraRuntime {
       }
       final q = int.tryParse(_attr(tag, 'data-resolution') ?? '') ??
           (int.tryParse(
-                  RegExp(r'(360|480|720|1080)').firstMatch(tag)?.group(1) ??
+                  RegExp(r'(360|720|1080)').firstMatch(tag)?.group(1) ??
                       '') ??
               0);
       final a = _audioLabelFromHints([
@@ -741,10 +741,10 @@ class SoraRuntime {
         continue;
       }
       final q = int.tryParse(
-              RegExp(r'(360|480|720|1080)').firstMatch(inner)?.group(1) ??
+              RegExp(r'(360|720|1080)').firstMatch(inner)?.group(1) ??
                   '') ??
           int.tryParse(
-                  RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1) ??
+                  RegExp(r'(360|720|1080)').firstMatch(url)?.group(1) ??
                       '') ??
           0;
       final a = _audioLabelFromHints([inner, url]);
@@ -757,7 +757,7 @@ class SoraRuntime {
       final url = m.group(0) ?? '';
       if (url.isEmpty) continue;
       final q = int.tryParse(
-              RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1) ?? '') ??
+              RegExp(r'(360|720|1080)').firstMatch(url)?.group(1) ?? '') ??
           0;
       candidates.add(
         _LocalSource(
@@ -774,7 +774,7 @@ class SoraRuntime {
     for (final m in inlineM3u8Regex.allMatches(html)) {
       final url = _sanitizeStreamUrl(m.group(0) ?? '');
       if (url.isEmpty) continue;
-      final q = RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1);
+      final q = RegExp(r'(360|720|1080)').firstMatch(url)?.group(1);
       out.add(
         SoraSource(
           url: url,
@@ -796,7 +796,7 @@ class SoraRuntime {
     for (final m in inlineMp4Regex.allMatches(html)) {
       final url = _sanitizeStreamUrl(m.group(0) ?? '');
       if (url.isEmpty) continue;
-      final q = RegExp(r'(360|480|720|1080)').firstMatch(url)?.group(1);
+      final q = RegExp(r'(360|720|1080)').firstMatch(url)?.group(1);
       out.add(
         SoraSource(
           url: url,
