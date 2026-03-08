@@ -62,6 +62,10 @@ class ProgressStore {
     );
   }
 
+  Future<void> remove(int mediaId, int episode) async {
+    await _box.delete(_key(mediaId, episode));
+  }
+
   List<MapEntry<int, EpisodeProgress>> allForMedia(int mediaId) {
     final prefix = '$mediaId:';
     final out = <MapEntry<int, EpisodeProgress>>[];

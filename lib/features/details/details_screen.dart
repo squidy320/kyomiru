@@ -34,6 +34,16 @@ class _SourceLoadFailure implements Exception {
   final bool providerDown;
 }
 
+final anilistWatchedProgressProvider =
+    FutureProvider.family<int, int>((ref, mediaId) async {
+  final auth = ref.watch(authControllerProvider);
+  final token = auth.token;
+  if (token == null || token.isEmpty) return 0;
+  final entry =
+      await ref.watch(anilistClientProvider).trackingEntry(token, mediaId);
+  return (entry?.progress ?? 0).clamp(0, 99999);
+});
+
 class DetailsScreen extends ConsumerStatefulWidget {
   const DetailsScreen({super.key, required this.mediaId});
 
@@ -1561,6 +1571,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         final media = snap.data!;
         _manualMatch ??= _readSavedMatch(media.id);
         final trackingEntryAsync = ref.watch(mediaListProvider(media.id));
+        final watchedProgressAsync = ref.watch(anilistWatchedProgressProvider(media.id));
+        final anilistWatchedThrough = watchedProgressAsync.valueOrNull ?? 0;
         final inAnyList = trackingEntryAsync.valueOrNull != null;
         final trackingResolved = trackingEntryAsync.hasValue;
         final episodeQuery = EpisodeQuery(
@@ -1614,6 +1626,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             episodeThumbFor: (episodeNumber) =>
                 _episodeThumbnailUrl(media, episodeNumber),
             fallbackImage: media.bannerImage ?? media.cover.best,
+            anilistWatchedThrough: anilistWatchedThrough,
           );
         }
         return Scaffold(
@@ -2014,6 +2027,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                 _episodeSpecificTitle(media, ep.number),
                                 ep.number,
                               );
+                              final watchedInAniList =
+                                  anilistWatchedThrough > 0 &&
+                                  ep.number <= anilistWatchedThrough;
 
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
@@ -2070,12 +2086,17 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                             overflow:
                                                                 TextOverflow
                                                                     .ellipsis,
-                                                            style:
-                                                                const TextStyle(
+                                                            style: TextStyle(
                                                               fontSize: 14,
                                                               fontWeight:
                                                                   FontWeight
                                                                       .w700,
+                                                              color: Colors.white
+                                                                  .withValues(
+                                                                alpha: watchedInAniList
+                                                                    ? 0.52
+                                                                    : 1.0,
+                                                              ),
                                                             ),
                                                           ),
                                                         ),
@@ -2093,12 +2114,6 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                                   ],
                                                 ),
                                               ),
-                                              const SizedBox(width: 6),
-                                              ProgressRing(
-                                                percent: pct,
-                                                size: 46,
-                                              ),
-                                              const SizedBox(width: 2),
                                             ],
                                           ),
                                           Positioned(
@@ -2541,6 +2556,7 @@ class _WideDetailsScaffold extends StatelessWidget {
     required this.onDownloadEpisode,
     required this.episodeTitleFor,
     required this.episodeThumbFor,
+    required this.anilistWatchedThrough,
     this.fallbackImage,
   });
 
@@ -2561,6 +2577,7 @@ class _WideDetailsScaffold extends StatelessWidget {
   final ValueChanged<SoraEpisode> onDownloadEpisode;
   final String Function(int episodeNumber) episodeTitleFor;
   final String? Function(int episodeNumber) episodeThumbFor;
+  final int anilistWatchedThrough;
   final String? fallbackImage;
 
   @override
@@ -2820,6 +2837,9 @@ class _WideDetailsScaffold extends StatelessWidget {
                               const SizedBox(width: 10),
                           itemBuilder: (context, index) {
                             final ep = episodes[index];
+                            final watchedInAniList =
+                                anilistWatchedThrough > 0 &&
+                                ep.number <= anilistWatchedThrough;
                             final episodeName = episodeTitleFor(ep.number)
                                 .replaceFirst(
                                   RegExp(
@@ -2897,10 +2917,15 @@ class _WideDetailsScaffold extends StatelessWidget {
                                                     : episodeName,
                                                 maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                   fontWeight: FontWeight.w700,
                                                   fontSize: 13,
-                                                  color: Colors.white,
+                                                  color:
+                                                      Colors.white.withValues(
+                                                    alpha: watchedInAniList
+                                                        ? 0.52
+                                                        : 1.0,
+                                                  ),
                                                 ),
                                               ),
                                             ],

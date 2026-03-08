@@ -989,21 +989,32 @@ class _AnimePosterCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.10),
+                    color: Colors.black.withValues(alpha: 0.34),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.22),
+                      color: Colors.white.withValues(alpha: 0.38),
                       width: 0.5,
                     ),
                   ),
-                  child: Text(
-                    unwatchedBadgeText!,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.2,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.notifications_active_rounded,
+                        size: 11,
+                        color: Color(0xFF93C5FD),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        unwatchedBadgeText!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

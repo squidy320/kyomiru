@@ -8,10 +8,21 @@ import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
 import '../../models/anilist_models.dart';
 import '../../services/download_manager.dart';
+import '../../state/auth_state.dart';
 import '../player/player_screen.dart';
 
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
+
+final anilistDownloadedWatchedProgressProvider =
+    FutureProvider.family<int, int>((ref, mediaId) async {
+  final auth = ref.watch(authControllerProvider);
+  final token = auth.token;
+  if (token == null || token.isEmpty) return 0;
+  final entry =
+      await ref.watch(anilistClientProvider).trackingEntry(token, mediaId);
+  return (entry?.progress ?? 0).clamp(0, 99999);
+});
 
 class DownloadsScreen extends ConsumerStatefulWidget {
   const DownloadsScreen({super.key});
@@ -675,7 +686,7 @@ class _WideSeriesChip extends StatelessWidget {
   }
 }
 
-class _DownloadedEpisodeWideCard extends StatelessWidget {
+class _DownloadedEpisodeWideCard extends ConsumerWidget {
   const _DownloadedEpisodeWideCard({
     required this.item,
     required this.onPlay,
@@ -687,7 +698,13 @@ class _DownloadedEpisodeWideCard extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final watchedThrough =
+        ref.watch(anilistDownloadedWatchedProgressProvider(item.mediaId))
+            .valueOrNull ??
+            0;
+    final watchedInAniList =
+        watchedThrough > 0 && item.episode <= watchedThrough;
     final ratio = (item.lastDurationMs > 0)
         ? (item.lastPositionMs / item.lastDurationMs).clamp(0.0, 1.0)
         : 0.0;
@@ -743,10 +760,13 @@ class _DownloadedEpisodeWideCard extends StatelessWidget {
                 '${item.animeTitle} - Episode ${item.episode}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 15,
                   height: 1.15,
+                  color: Colors.white.withValues(
+                    alpha: watchedInAniList ? 0.52 : 1.0,
+                  ),
                 ),
               ),
             ),
@@ -889,6 +909,12 @@ class _DownloadedEpisodeTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final watchedThrough =
+        ref.watch(anilistDownloadedWatchedProgressProvider(item.mediaId))
+            .valueOrNull ??
+            0;
+    final watchedInAniList =
+        watchedThrough > 0 && item.episode <= watchedThrough;
     final size =
         _formatBytes(item.totalBytes > 0 ? item.totalBytes : item.downloadedBytes);
     final ratio = (item.lastDurationMs > 0)
@@ -955,9 +981,12 @@ class _DownloadedEpisodeTile extends ConsumerWidget {
               children: [
                 Text(
                   'Episode ${item.episode}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
+                    color: Colors.white.withValues(
+                      alpha: watchedInAniList ? 0.52 : 1.0,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 2),

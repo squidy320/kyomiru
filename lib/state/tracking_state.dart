@@ -254,7 +254,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       // against the user's CURRENT/REPEATING library and switch when matched.
       final statusUpper = (entry?.status ?? '').toUpperCase();
       final shouldTryLibraryResolver = entry == null ||
-          (statusUpper == 'PLANNING' && (entry?.progress ?? 0) == 0) ||
+          (statusUpper == 'PLANNING' && entry.progress == 0) ||
           (statusUpper.isNotEmpty &&
               statusUpper != 'CURRENT' &&
               statusUpper != 'REPEATING');
@@ -581,8 +581,13 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       'AniListSync',
       'autoAdvance trigger sourceMediaId=${_target.sourceMediaId} episode=$episodeNumber mediaTitle="$mediaTitle"',
     );
+    final token = _resolveToken(null);
+    final allowAniList =
+        token != null &&
+        token.isNotEmpty &&
+        _ref.read(appSettingsProvider).autoSyncProgressToAniList;
     final source = _ref.read(librarySourceProvider);
-    if (source == LibrarySource.local) {
+    if (!allowAniList && source == LibrarySource.local) {
       try {
         final current = await _ref
             .read(localLibraryStoreProvider)
@@ -613,9 +618,7 @@ class AniListTrackingController extends StateNotifier<AniListTrackingSyncState> 
       }
     }
 
-    final token = _resolveToken(null);
-    if (token == null || token.isEmpty) return false;
-    if (!_ref.read(appSettingsProvider).autoSyncProgressToAniList) return false;
+    if (!allowAniList) return false;
 
     try {
       final mediaId = state.resolvedMediaId ?? await _resolveAniListMediaId();

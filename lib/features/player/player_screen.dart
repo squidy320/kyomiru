@@ -353,6 +353,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           widget.resumePositionMs ??
           saved?.positionMs ??
           0;
+      if (saved != null && saved.percent >= 0.90) {
+        initialPositionMs = 0;
+      }
       if (saved != null && saved.positionMs > initialPositionMs) {
         initialPositionMs = saved.positionMs;
       }
@@ -360,7 +363,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         final downloadItem = ref
             .read(downloadControllerProvider)
             .item(widget.mediaId, widget.episodeNumber);
-        initialPositionMs = downloadItem?.lastPositionMs ?? 0;
+        final localRatio = (downloadItem != null && downloadItem.lastDurationMs > 0)
+            ? (downloadItem.lastPositionMs / downloadItem.lastDurationMs)
+            : 0.0;
+        initialPositionMs = localRatio >= 0.90
+            ? 0
+            : (downloadItem?.lastPositionMs ?? 0);
       }
       if (initialPositionMs > 0) {
         await player.seek(Duration(milliseconds: initialPositionMs));
@@ -415,6 +423,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('demuxer-max-bytes', isHls ? '100663296' : '50331648');
       await setProp('demuxer-readahead-secs', isHls ? '35' : '12');
       await setProp('cache-secs', isHls ? '40' : '12');
+      await setProp('video-sync', 'audio');
+      await setProp('audio-pitch-correction', 'yes');
     } catch (_) {}
   }
 
@@ -1098,14 +1108,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _persistProgress() async {
-    int durationMs = 0;
-    int positionMs = 0;
-    if (_mediaKitPlayer != null && _durationSec > 0) {
-      durationMs = (_durationSec * 1000).round();
-      positionMs = (_currentSec * 1000).round();
-    } else {
+    final mk = _mediaKitPlayer;
+    if (mk == null) {
       return;
     }
+    final state = mk.state;
+    final durationMs = state.duration.inMilliseconds;
+    final positionMs = state.position.inMilliseconds;
+    if (durationMs <= 0 || positionMs < 0) return;
 
     await _progressStore.write(
       mediaId: widget.mediaId,
@@ -1159,6 +1169,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final ratio = (positionMs / durationMs).clamp(0.0, 1.0);
     final store = ref.read(watchHistoryStoreProvider);
     if (ratio >= 0.90) {
+      await _progressStore.remove(widget.mediaId, widget.episodeNumber);
+      if (widget.isLocal) {
+        await ref
+            .read(downloadControllerProvider.notifier)
+            .setLocalPlaybackPosition(
+              widget.mediaId,
+              widget.episodeNumber,
+              positionMs: 0,
+              durationMs: durationMs,
+            );
+      }
       await store.remove(
         mediaId: widget.mediaId,
         episodeNumber: widget.episodeNumber,
@@ -1383,26 +1404,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
 
       final now = mk.state.position;
-      if (wasPlaying) {
-        await mk.pause();
-      }
-
-      // Hard clock reset prevents cases where audio rate applies but
-      // decoded video timeline lags behind on certain HLS streams.
-      await mk.setRate(1.0);
-      if (now > Duration.zero) {
-        await mk.seek(now);
-      }
       await mk.setRate(target);
 
-      if (wasPlaying) {
-        await mk.play();
+      // Re-seek to anchor both clocks to the same timestamp.
+      if (now > Duration.zero) {
+        await mk.seek(now);
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await mk.seek(now);
       }
 
-      // One more exact seek after playback resumes to lock A/V sync.
-      if (now > Duration.zero) {
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-        await mk.seek(now);
+      if (wasPlaying && !mk.state.playing) {
+        await mk.play();
       }
     } catch (_) {}
   }
