@@ -12,11 +12,18 @@ class PlayerSettingsScreen extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final controller = ref.read(appSettingsProvider.notifier);
 
-    const qualityOptions = <String>['1080p', '720p', '480p', 'Auto'];
+    const qualityOptions = <String>['1080p', '720p', '480p', '360p', 'auto'];
+    const audioOptions = <String>['Sub', 'Dub', 'Any'];
     const seekOptions = <int>[5, 10, 15];
+    final qualityValue = qualityOptions.contains(settings.defaultQuality)
+        ? settings.defaultQuality
+        : 'auto';
+    final audioValue = audioOptions.contains(settings.defaultAudio)
+        ? settings.defaultAudio
+        : 'Sub';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Player')),
+      appBar: AppBar(title: const Text('Player & Quality')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
         children: [
@@ -27,14 +34,12 @@ class PlayerSettingsScreen extends ConsumerWidget {
                 title: const Text('Default Video Quality'),
                 subtitle: Text(settings.defaultQuality),
                 trailing: DropdownButton<String>(
-                  value: qualityOptions.contains(settings.defaultQuality)
-                      ? settings.defaultQuality
-                      : 'Auto',
+                  value: qualityValue,
                   items: qualityOptions
                       .map(
                         (q) => DropdownMenuItem<String>(
                           value: q,
-                          child: Text(q),
+                          child: Text(q == 'auto' ? 'Auto' : q),
                         ),
                       )
                       .toList(),
@@ -43,6 +48,33 @@ class PlayerSettingsScreen extends ConsumerWidget {
                     controller.setDefaultQuality(value);
                   },
                 ),
+              ),
+              ListTile(
+                title: const Text('Default Audio'),
+                subtitle: Text(audioValue),
+                trailing: DropdownButton<String>(
+                  value: audioValue,
+                  items: audioOptions
+                      .map(
+                        (a) => DropdownMenuItem<String>(
+                          value: a,
+                          child: Text(a),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    controller.setDefaultAudio(value);
+                  },
+                ),
+              ),
+              SwitchListTile.adaptive(
+                title: const Text('Choose Stream Every Time'),
+                subtitle: const Text(
+                  'Show stream picker on every Play/Download action',
+                ),
+                value: settings.chooseStreamEveryTime,
+                onChanged: controller.setChooseStreamEveryTime,
               ),
               ListTile(
                 title: const Text('Double Tap to Seek'),

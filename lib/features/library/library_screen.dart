@@ -41,11 +41,13 @@ class _ContinueWatchingNotifierMeta {
   const _ContinueWatchingNotifierMeta({
     required this.unseen,
     required this.totalAvailable,
+    required this.normalizedProgress,
     required this.status,
   });
 
   final int unseen;
   final int totalAvailable;
+  final int normalizedProgress;
   final String status;
 }
 
@@ -58,6 +60,7 @@ final continueWatchingNotifierProvider = FutureProvider.family<
     return const _ContinueWatchingNotifierMeta(
       unseen: 0,
       totalAvailable: 0,
+      normalizedProgress: 0,
       status: '',
     );
   }
@@ -68,16 +71,23 @@ final continueWatchingNotifierProvider = FutureProvider.family<
     return const _ContinueWatchingNotifierMeta(
       unseen: 0,
       totalAvailable: 0,
+      normalizedProgress: 0,
       status: '',
     );
   }
-  final latestReleased = info.latestReleasedEpisode;
-  final unseen = info.status == 'RELEASING'
-      ? (latestReleased - query.lastCompleted).clamp(0, 9999)
-      : 0;
+  final released = (info.latestReleasedEpisode > 0)
+      ? info.latestReleasedEpisode
+      : info.availableEpisodes;
+  var normalizedProgress = query.lastCompleted;
+  if (released > 0 && normalizedProgress > released) {
+    final rem = normalizedProgress % released;
+    normalizedProgress = rem == 0 ? released : rem;
+  }
+  final unseen = (released - normalizedProgress).clamp(0, 9999);
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
-    totalAvailable: info.availableEpisodes,
+    totalAvailable: released,
+    normalizedProgress: normalizedProgress,
     status: info.status,
   );
 });
@@ -101,6 +111,7 @@ final libraryWatchingNotifierProvider = FutureProvider.family<
     return const _ContinueWatchingNotifierMeta(
       unseen: 0,
       totalAvailable: 0,
+      normalizedProgress: 0,
       status: '',
     );
   }
@@ -111,16 +122,23 @@ final libraryWatchingNotifierProvider = FutureProvider.family<
     return const _ContinueWatchingNotifierMeta(
       unseen: 0,
       totalAvailable: 0,
+      normalizedProgress: 0,
       status: '',
     );
   }
-  final latestReleased = info.latestReleasedEpisode;
-  final unseen = info.status == 'RELEASING'
-      ? (latestReleased - query.progress).clamp(0, 9999)
-      : 0;
+  final released = (info.latestReleasedEpisode > 0)
+      ? info.latestReleasedEpisode
+      : info.availableEpisodes;
+  var normalizedProgress = query.progress;
+  if (released > 0 && normalizedProgress > released) {
+    final rem = normalizedProgress % released;
+    normalizedProgress = rem == 0 ? released : rem;
+  }
+  final unseen = (released - normalizedProgress).clamp(0, 9999);
   return _ContinueWatchingNotifierMeta(
     unseen: unseen,
-    totalAvailable: info.availableEpisodes,
+    totalAvailable: released,
+    normalizedProgress: normalizedProgress,
     status: info.status,
   );
 });
@@ -591,7 +609,7 @@ class _LocalLibrarySection extends StatelessWidget {
                   },
                   child: Consumer(
                     builder: (context, ref, _) {
-                      int? unseenCount;
+                      String? unwatchedBadgeText;
                       if (isWatchingSection) {
                         final notifier = ref.watch(
                           libraryWatchingNotifierProvider(
@@ -602,16 +620,15 @@ class _LocalLibrarySection extends StatelessWidget {
                           ),
                         );
                         final meta = notifier.valueOrNull;
-                        if (meta != null &&
-                            meta.status == 'RELEASING' &&
-                            meta.unseen > 0) {
-                          unseenCount = meta.unseen;
+                        if (meta != null && meta.totalAvailable > 0) {
+                          unwatchedBadgeText =
+                              '${meta.unseen}/${meta.totalAvailable}';
                         }
                       }
                       return _AnimePosterCard(
                         media: media,
                         progressText: progressText,
-                        unseenCount: unseenCount,
+                        unwatchedBadgeText: unwatchedBadgeText,
                       );
                     },
                   ),
@@ -854,7 +871,7 @@ class _LibrarySection extends StatelessWidget {
                   },
                   child: Consumer(
                     builder: (context, ref, _) {
-                      int? unseenCount;
+                      String? unwatchedBadgeText;
                       if (_showProgress) {
                         final notifier = ref.watch(
                           libraryWatchingNotifierProvider(
@@ -862,10 +879,9 @@ class _LibrarySection extends StatelessWidget {
                           ),
                         );
                         final meta = notifier.valueOrNull;
-                        if (meta != null &&
-                            meta.status == 'RELEASING' &&
-                            meta.unseen > 0) {
-                          unseenCount = meta.unseen;
+                        if (meta != null && meta.totalAvailable > 0) {
+                          unwatchedBadgeText =
+                              '${meta.unseen}/${meta.totalAvailable}';
                         }
                       }
                       final card = _AnimePosterCard(
@@ -877,7 +893,7 @@ class _LibrarySection extends StatelessWidget {
                                 (e.media.episodes ?? 0) > 0
                             ? (e.progress / (e.media.episodes!)).clamp(0.0, 1.0)
                             : null,
-                        unseenCount: unseenCount,
+                        unwatchedBadgeText: unwatchedBadgeText,
                       );
                       if (!(_showProgress && verifyingTracking)) {
                         return card;
@@ -904,13 +920,13 @@ class _AnimePosterCard extends StatelessWidget {
     required this.media,
     this.progressText,
     this.progressFraction,
-    this.unseenCount,
+    this.unwatchedBadgeText,
   });
 
   final AniListMedia media;
   final String? progressText;
   final double? progressFraction;
-  final int? unseenCount;
+  final String? unwatchedBadgeText;
 
   @override
   Widget build(BuildContext context) {
@@ -959,32 +975,39 @@ class _AnimePosterCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if ((unseenCount ?? 0) > 0) ...[
-                  const SizedBox(height: 6),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.22),
-                        width: 0.5,
-                      ),
-                    ),
-                    child: Text(
-                      '+${unseenCount!}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
+          if ((unwatchedBadgeText ?? '').isNotEmpty)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: LiquidGlass.withOwnLayer(
+                settings: kyomiruLiquidGlassSettings(isOledBlack: true),
+                shape: const LiquidRoundedSuperellipse(borderRadius: 999),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Text(
+                    unwatchedBadgeText!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if ((progressFraction ?? 0) > 0)
             Positioned(
               left: 0,

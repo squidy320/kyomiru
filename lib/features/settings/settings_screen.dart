@@ -12,7 +12,6 @@ import 'account_data_settings_screen.dart';
 import 'appearance_settings_screen.dart';
 import 'debug_logs_screen.dart';
 import 'player_settings_screen.dart';
-import 'streams_settings_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -20,7 +19,6 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
-    final settings = ref.watch(appSettingsProvider);
     final librarySource = ref.watch(librarySourceProvider);
     final cacheStatsAsync = ref.watch(cacheStatsProvider);
     final loader = SoraExtensionLoader();
@@ -61,23 +59,13 @@ class SettingsScreen extends ConsumerWidget {
                   _row(
                     context,
                     icon: Icons.play_circle_outline,
-                    title: 'Player',
-                    subtitle: 'Playback controls and behavior',
+                    title: 'Player & Quality',
+                    subtitle:
+                        'Playback, quality, audio, and stream picker behavior',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const PlayerSettingsScreen(),
                       ),
-                    ),
-                  ),
-                  _row(
-                    context,
-                    icon: Icons.view_list_outlined,
-                    title: 'Library & Streams',
-                    subtitle:
-                        'Default: ${settings.preferredQuality} ${settings.preferredAudio.toUpperCase()}${settings.chooseStreamEveryTime ? ' - Ask every time' : ''}',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const StreamsSettingsScreen()),
                     ),
                   ),
                   _row(

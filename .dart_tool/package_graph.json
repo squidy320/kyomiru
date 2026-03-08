@@ -5,7 +5,7 @@
   "packages": [
     {
       "name": "kyomiru_flutter",
-      "version": "1.0.0+1",
+      "version": "1.0.0+2",
       "dependencies": [
         "cached_network_image",
         "connectivity_plus",
