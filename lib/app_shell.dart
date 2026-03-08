@@ -119,6 +119,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   ProviderSubscription<AuthState>? _authSub;
   final TextEditingController _desktopSearchController =
       TextEditingController();
+  bool _desktopRailExpanded = true;
 
   static const _pages = <Widget>[
     _UnifiedLibraryTab(),
@@ -157,13 +158,10 @@ class _AppTabsState extends ConsumerState<AppTabs> {
 
   Future<void> _handleDesktopDrop(List<XFile> files) async {
     if (!_isDesktop || files.isEmpty || !mounted) return;
-    final candidates = files
-        .map((f) => f.path)
-        .where((path) {
-          final lower = path.toLowerCase();
-          return lower.endsWith('.mp4') || lower.endsWith('.mkv');
-        })
-        .toList(growable: false);
+    final candidates = files.map((f) => f.path).where((path) {
+      final lower = path.toLowerCase();
+      return lower.endsWith('.mp4') || lower.endsWith('.mkv');
+    }).toList(growable: false);
     if (candidates.isEmpty) return;
 
     final dm = ref.read(downloadControllerProvider.notifier);
@@ -405,7 +403,13 @@ class _AppTabsState extends ConsumerState<AppTabs> {
         _DesktopExpandedRail(
           index: safeIndex,
           unread: unread,
+          expanded: _desktopRailExpanded,
           onTap: _onItemTapped,
+          onToggleExpanded: () {
+            setState(() {
+              _desktopRailExpanded = !_desktopRailExpanded;
+            });
+          },
         ),
         Expanded(
           child: IndexedStack(
@@ -612,7 +616,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
                       const dockW = 358.0;
                       const dockH = 74.0;
                       final top = viewPadding.top + 12;
-                      final left = ((size.width - dockW) / 2).clamp(12.0, size.width - dockW - 12);
+                      final left = ((size.width - dockW) / 2)
+                          .clamp(12.0, size.width - dockW - 12);
                       return Positioned(
                         left: left,
                         top: top,
@@ -742,7 +747,8 @@ class _DesktopLiquidTitleBarState extends State<_DesktopLiquidTitleBar> {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.26),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 0.5),
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.18), width: 0.5),
       ),
       child: Row(
         children: [
@@ -834,85 +840,88 @@ class _DesktopExpandedRail extends StatelessWidget {
   const _DesktopExpandedRail({
     required this.index,
     required this.unread,
+    required this.expanded,
     required this.onTap,
+    required this.onToggleExpanded,
   });
 
   final int index;
   final int unread;
+  final bool expanded;
   final ValueChanged<int> onTap;
+  final VoidCallback onToggleExpanded;
 
   @override
   Widget build(BuildContext context) {
-    final items = <(int i, IconData icon, String label)>[
-      (0, CupertinoIcons.book_fill, 'Library'),
-      (1, CupertinoIcons.compass_fill, 'Discovery'),
-      (2, CupertinoIcons.bell_fill, 'Alerts'),
-      (3, CupertinoIcons.arrow_down_circle_fill, 'Downloads'),
-      (4, CupertinoIcons.gear, 'Settings'),
+    final destinations = <NavigationRailDestination>[
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.book_fill, size: 19),
+        label: Text('Library'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.compass_fill, size: 19),
+        label: Text('Discovery'),
+      ),
+      NavigationRailDestination(
+        icon: Badge(
+          isLabelVisible: unread > 0,
+          smallSize: 8,
+          child: const Icon(CupertinoIcons.bell_fill, size: 19),
+        ),
+        label: const Text('Alerts'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.arrow_down_circle_fill, size: 19),
+        label: Text('Downloads'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.gear, size: 19),
+        label: Text('Settings'),
+      ),
     ];
     return Container(
-      width: 228,
+      width: expanded ? 228 : 86,
       margin: const EdgeInsets.fromLTRB(12, 0, 10, 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: Colors.black.withValues(alpha: 0.30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16), width: 0.5),
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.16), width: 0.5),
       ),
-      child: Column(
-        children: [
-          const SizedBox(height: 12),
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => onTap(item.$1),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: index == item.$1
-                        ? const Color(0xFF4F46E5).withValues(alpha: 0.35)
-                        : Colors.transparent,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(item.$2, size: 19),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          item.$3,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      if (item.$1 == 2 && unread > 0)
-                        Container(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: Colors.redAccent,
-                          ),
-                          child: Text(
-                            '$unread',
-                            style: const TextStyle(
-                                fontSize: 11, fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                    ],
-                  ),
+      child: NavigationRail(
+        selectedIndex: index,
+        extended: expanded,
+        minExtendedWidth: 214,
+        backgroundColor: Colors.transparent,
+        groupAlignment: -0.9,
+        indicatorColor: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+        selectedIconTheme: const IconThemeData(color: Colors.white),
+        unselectedIconTheme:
+            IconThemeData(color: Colors.white.withValues(alpha: 0.72)),
+        selectedLabelTextStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withValues(alpha: 0.72),
+        ),
+        leading: IconButton(
+          tooltip: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+          onPressed: onToggleExpanded,
+          icon: Icon(expanded ? Icons.menu_open_rounded : Icons.menu_rounded),
+        ),
+        trailing: expanded
+            ? const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'Desktop mode',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
                 ),
-              ),
-            ),
-          const Spacer(),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(12, 8, 12, 12),
-            child: Text(
-              'Desktop mode',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-          ),
-        ],
+              )
+            : null,
+        destinations: destinations,
+        onDestinationSelected: onTap,
       ),
     );
   }

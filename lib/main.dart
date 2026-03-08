@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 
@@ -97,6 +99,54 @@ class KyomiruShaderWarmUp extends ShaderWarmUp {
     final paintB = Paint()..color = const Color(0x80000000);
     canvas.drawRect(const Rect.fromLTWH(0, 0, 128, 128), paintA);
     canvas.drawCircle(const Offset(64, 64), 32, paintB);
+  }
+}
+
+class _DesktopWindowStatePersistence with WindowListener {
+  _DesktopWindowStatePersistence(this._prefs);
+
+  final SharedPreferences _prefs;
+  Timer? _saveDebounce;
+
+  static const _keyX = 'desktop_window_x';
+  static const _keyY = 'desktop_window_y';
+  static const _keyW = 'desktop_window_w';
+  static const _keyH = 'desktop_window_h';
+
+  Future<void> restore() async {
+    final x = _prefs.getDouble(_keyX);
+    final y = _prefs.getDouble(_keyY);
+    final w = _prefs.getDouble(_keyW);
+    final h = _prefs.getDouble(_keyH);
+    if (x == null || y == null || w == null || h == null) return;
+    final width = w.clamp(900.0, 3840.0);
+    final height = h.clamp(600.0, 2160.0);
+    // If stale coordinates were saved (monitor disconnected), recenter.
+    if (x < -10000 || y < -10000 || x > 100000 || y > 100000) {
+      await windowManager.setSize(Size(width, height));
+      await windowManager.center();
+      return;
+    }
+    await windowManager.setBounds(Rect.fromLTWH(x, y, width, height));
+  }
+
+  @override
+  void onWindowMove() => _scheduleSave();
+
+  @override
+  void onWindowResize() => _scheduleSave();
+
+  void _scheduleSave() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 350), () async {
+      try {
+        final b = await windowManager.getBounds();
+        await _prefs.setDouble(_keyX, b.left);
+        await _prefs.setDouble(_keyY, b.top);
+        await _prefs.setDouble(_keyW, b.width);
+        await _prefs.setDouble(_keyH, b.height);
+      } catch (_) {}
+    });
   }
 }
 
@@ -245,8 +295,10 @@ Future<void> _runOneTimeMigrations() async {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogger.initializeSessionFileLogging();
+  _DesktopWindowStatePersistence? desktopWindowPersistence;
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
+    await Window.initialize();
     const options = WindowOptions(
       minimumSize: Size(900, 600),
       size: Size(1280, 800),
@@ -257,6 +309,32 @@ Future<void> main() async {
       backgroundColor: Colors.transparent,
     );
     await windowManager.waitUntilReadyToShow(options, () async {
+      try {
+        if (Platform.isWindows) {
+          await Window.setEffect(
+            effect: WindowEffect.mica,
+            dark: true,
+            color: Colors.transparent,
+          );
+        } else if (Platform.isMacOS) {
+          await Window.setEffect(
+            effect: WindowEffect.sidebar,
+            color: Colors.transparent,
+          );
+        }
+      } catch (e, st) {
+        AppLogger.w(
+          'Boot',
+          'Window acrylic/vibrancy setup failed',
+          error: e,
+          stackTrace: st,
+        );
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      desktopWindowPersistence = _DesktopWindowStatePersistence(prefs);
+      windowManager.addListener(desktopWindowPersistence!);
+      await desktopWindowPersistence!.restore();
       await windowManager.show();
       await windowManager.focus();
     });

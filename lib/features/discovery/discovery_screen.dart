@@ -1109,36 +1109,42 @@ class _WideCarouselSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 302,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return SizedBox(
-                width: 220,
-                child: _HoverPosterTile(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = (width / 220).floor().clamp(3, 8);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: items.length,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
+                childAspectRatio: 220 / 302,
+              ),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(_detailsRoute(item.id));
                   },
                   child: _AnimePosterCard(media: item),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }

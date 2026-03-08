@@ -92,6 +92,9 @@ jobs:
       - name: Flutter Pub Get
         run: flutter pub get
 
+      - name: Generate macOS Flutter Config (config-only)
+        run: flutter build macos --config-only
+
       - name: Pre-build Check (macOS Podfile modular headers)
         shell: bash
         run: |
@@ -106,9 +109,13 @@ jobs:
           fi
           echo "Podfile check passed."
 
-      - name: CocoaPods Install (macOS)
+      - name: Install macOS Pods
         shell: bash
-        run: cd macos && pod repo update && pod install
+        run: |
+          flutter pub get
+          flutter build macos --config-only
+          cd macos
+          pod install
 
       - name: Build macOS (Release)
         run: flutter build macos --release

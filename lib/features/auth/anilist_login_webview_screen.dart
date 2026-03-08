@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -25,11 +27,18 @@ class _AniListLoginWebViewScreenState
     defaultValue: 'LwVZw1mcI7iWatIXJfhcSg9FmYSH3MY7zPNu3XAL',
   );
   static const _redirectUri = 'kyomiru://auth';
-  late final WebViewController _controller;
+  static const _windowsLoopbackPort = 4321;
+  WebViewController? _controller;
+  HttpServer? _loopbackServer;
+  String _windowsRedirectUri = 'http://localhost:$_windowsLoopbackPort';
+  String _windowsAuthState = '';
 
   String _error = '';
   bool _completed = false;
   bool _authInFlight = false;
+  bool _windowsBrowserOpenAttempted = false;
+
+  bool get _useWindowsLoopbackAuth => Platform.isWindows;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +61,11 @@ class _AniListLoginWebViewScreenState
                   Text(_error, style: const TextStyle(color: Colors.redAccent)),
             ),
           const LinearProgressIndicator(minHeight: 1),
-          Expanded(child: WebViewWidget(controller: _controller)),
+          Expanded(
+            child: _useWindowsLoopbackAuth
+                ? _buildWindowsLoopbackBody(context)
+                : WebViewWidget(controller: _controller!),
+          ),
         ],
       ),
     );
@@ -61,6 +74,74 @@ class _AniListLoginWebViewScreenState
   @override
   void initState() {
     super.initState();
+    if (_useWindowsLoopbackAuth) {
+      unawaited(_startWindowsLoopbackFlow());
+      return;
+    }
+    _initWebViewFlow();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_closeLoopbackServer());
+    super.dispose();
+  }
+
+  Widget _buildWindowsLoopbackBody(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: GlassCard(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Continue AniList Login In Browser',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Windows OAuth uses a local callback server at '
+                    '$_windowsRedirectUri.',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Set your AniList app Redirect URL to '
+                    '"http://localhost:4321" to complete login.',
+                    style: TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GlassButton(
+                          onPressed: () => unawaited(_startWindowsLoopbackFlow(
+                            forceRestart: true,
+                          )),
+                          child: const Text(
+                            'Open Browser Login',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _initWebViewFlow() {
     final client = ref.read(anilistClientProvider);
     final state = _randomState();
 
@@ -88,7 +169,7 @@ class _AniListLoginWebViewScreenState
             // Some WebView implementations can miss fragment redirects in URL callbacks.
             try {
               final href = await _controller
-                  .runJavaScriptReturningResult('window.location.href');
+                  ?.runJavaScriptReturningResult('window.location.href');
               final cleanHref = href.toString().replaceAll('"', '');
               if (cleanHref.isNotEmpty) {
                 await _maybeHandleCallback(cleanHref,
@@ -130,6 +211,154 @@ class _AniListLoginWebViewScreenState
         ),
       )
       ..loadRequest(Uri.parse(authUrl));
+  }
+
+  Future<void> _startWindowsLoopbackFlow({bool forceRestart = false}) async {
+    if (_completed) return;
+    if (_windowsBrowserOpenAttempted && !forceRestart) return;
+    _windowsBrowserOpenAttempted = true;
+    if (forceRestart) {
+      setState(() => _error = '');
+      await _closeLoopbackServer();
+    }
+    try {
+      final client = ref.read(anilistClientProvider);
+      _windowsAuthState = _randomState();
+      _loopbackServer = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        _windowsLoopbackPort,
+        shared: true,
+      );
+      _windowsRedirectUri = 'http://localhost:${_loopbackServer!.port}';
+      AppLogger.i(
+        'AniListAuth',
+        'Windows loopback server listening on $_windowsRedirectUri',
+      );
+      unawaited(_listenForLoopbackRequests(_loopbackServer!));
+      final authUrl = client.buildAuthUrl(
+        clientId: _clientId,
+        redirectUri: _windowsRedirectUri,
+        state: _windowsAuthState,
+        useCodeFlow: true,
+      );
+      await _openExternalBrowser(authUrl);
+    } catch (e, st) {
+      AppLogger.e(
+        'AniListAuth',
+        'Windows loopback auth init failed',
+        error: e,
+        stackTrace: st,
+      );
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to start Windows OAuth callback server on '
+            'http://localhost:$_windowsLoopbackPort. Close other app using '
+            'that port and retry.';
+      });
+    }
+  }
+
+  Future<void> _openExternalBrowser(String url) async {
+    AppLogger.i('AniListAuth', 'Opening external browser for AniList auth');
+    if (Platform.isWindows) {
+      await Process.start(
+        'rundll32',
+        ['url.dll,FileProtocolHandler', url],
+        runInShell: true,
+      );
+      return;
+    }
+    await Process.start('open', [url], runInShell: true);
+  }
+
+  Future<void> _listenForLoopbackRequests(HttpServer server) async {
+    await for (final request in server) {
+      final uri = request.uri;
+      final query = uri.queryParameters;
+      final html = _buildLoopbackHtml(query.containsKey('error'));
+      request.response
+        ..headers.contentType = ContentType.html
+        ..statusCode = 200
+        ..write(html);
+      await request.response.close();
+
+      if (_completed) continue;
+      final err = (query['error'] ?? '').trim();
+      final errDesc = (query['error_description'] ?? '').trim();
+      if (err.isNotEmpty) {
+        setState(() {
+          _error = 'AniList auth error: $err'
+              '${errDesc.isNotEmpty ? ' - $errDesc' : ''}';
+        });
+        continue;
+      }
+      final callbackState = (query['state'] ?? '').trim();
+      if (_windowsAuthState.isNotEmpty && callbackState != _windowsAuthState) {
+        setState(() {
+          _error = 'AniList auth failed: invalid state from callback.';
+        });
+        continue;
+      }
+      final code = (query['code'] ?? '').trim();
+      if (code.isEmpty) continue;
+      await _completeWindowsLoopbackLogin(code);
+    }
+  }
+
+  String _buildLoopbackHtml(bool hasError) {
+    final title = hasError ? 'Kyomiru Login Failed' : 'Kyomiru Login Complete';
+    final subtitle = hasError
+        ? 'You can close this tab and retry in the app.'
+        : 'You can close this tab and return to Kyomiru.';
+    return '''
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>$title</title></head>
+  <body style="background:#0b1020;color:#fff;font-family:Segoe UI,Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;">
+    <div style="max-width:520px;padding:28px;border-radius:14px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2)">
+      <h2 style="margin:0 0 12px 0;">$title</h2>
+      <p style="margin:0;color:rgba(255,255,255,0.85)">$subtitle</p>
+    </div>
+  </body>
+</html>
+''';
+  }
+
+  Future<void> _completeWindowsLoopbackLogin(String code) async {
+    if (_completed || _authInFlight) return;
+    _authInFlight = true;
+    try {
+      final exchanged =
+          await ref.read(anilistClientProvider).exchangeCodeForToken(
+                clientId: _clientId,
+                clientSecret: _clientSecret,
+                code: code,
+                redirectUri: _windowsRedirectUri,
+              );
+      _completed = true;
+      await ref.read(authControllerProvider.notifier).setToken(exchanged);
+      await _closeLoopbackServer();
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e, st) {
+      AppLogger.e(
+        'AniListAuth',
+        'Windows loopback login failed',
+        error: e,
+        stackTrace: st,
+      );
+      if (mounted) {
+        setState(() => _error = e.toString());
+      }
+    } finally {
+      _authInFlight = false;
+    }
+  }
+
+  Future<void> _closeLoopbackServer() async {
+    try {
+      await _loopbackServer?.close(force: true);
+    } catch (_) {}
+    _loopbackServer = null;
   }
 
   Future<void> _completeLogin(String callbackUrl) async {

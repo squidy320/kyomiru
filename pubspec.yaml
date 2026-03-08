@@ -36,6 +36,7 @@ dependencies:
   shared_preferences: ^2.5.2
   path: ^1.9.1
   window_manager: ^0.4.3
+  flutter_acrylic: ^1.1.4
   desktop_drop: ^0.4.4
   cross_file: ^0.3.4+2
 dev_dependencies:

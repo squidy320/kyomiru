@@ -13,6 +13,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../core/app_logger.dart';
 import '../../core/haptics.dart';
@@ -52,6 +53,10 @@ class _ToggleFullscreenIntent extends Intent {
 
 class _ToggleMuteIntent extends Intent {
   const _ToggleMuteIntent();
+}
+
+class _EscapeIntent extends Intent {
+  const _EscapeIntent();
 }
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -145,6 +150,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _verticalStartValue = 1.0;
   double _virtualBrightness = 1.0;
   bool _isMediaKitPlaying = false;
+  int _lastSurfaceWidth = 0;
+  int _lastSurfaceHeight = 0;
   late final AnimationController _skipAnimationController;
   final BaseCacheManager _playbackCache = DefaultCacheManager();
   final Dio _hlsProbeDio = Dio(
@@ -221,7 +228,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Future<void> _initPip() async {
     if (!_enablePip) return;
     try {
-      final supported = Platform.isAndroid ? await SimplePip.isPipAvailable : false;
+      final supported =
+          Platform.isAndroid ? await SimplePip.isPipAvailable : false;
       AppLogger.i(
         'PlayerPiP',
         'availability platform=${Platform.operatingSystem} supported=$supported',
@@ -317,7 +325,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           pitch: true,
         ),
       );
-      final controller = VideoController(player);
+      final controller = VideoController(
+        player,
+        configuration: VideoControllerConfiguration(
+          // Force GPU video output on Windows to keep texture rendering smooth
+          // during live window resizing.
+          vo: Platform.isWindows ? 'gpu-next' : null,
+          hwdec: Platform.isWindows ? 'auto-safe' : null,
+          enableHardwareAcceleration: true,
+        ),
+      );
       _mediaKitPlayer = player;
       _mediaKitVideoController = controller;
       _isHlsPlayback = isHls;
@@ -378,12 +395,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         final downloadItem = ref
             .read(downloadControllerProvider)
             .item(widget.mediaId, widget.episodeNumber);
-        final localRatio = (downloadItem != null && downloadItem.lastDurationMs > 0)
-            ? (downloadItem.lastPositionMs / downloadItem.lastDurationMs)
-            : 0.0;
-        initialPositionMs = localRatio >= 0.90
-            ? 0
-            : (downloadItem?.lastPositionMs ?? 0);
+        final localRatio =
+            (downloadItem != null && downloadItem.lastDurationMs > 0)
+                ? (downloadItem.lastPositionMs / downloadItem.lastDurationMs)
+                : 0.0;
+        initialPositionMs =
+            localRatio >= 0.90 ? 0 : (downloadItem?.lastPositionMs ?? 0);
       }
       if (initialPositionMs > 0) {
         await player.seek(Duration(milliseconds: initialPositionMs));
@@ -583,22 +600,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     required String desiredQuality,
   }) {
     if (_sourceCatalog.isEmpty) return null;
-    final ranked = [..._sourceCatalog]
-      ..sort((a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
+    final ranked = [..._sourceCatalog]..sort(
+        (a, b) => _qualityRank(b.quality).compareTo(_qualityRank(a.quality)));
     final wantedAudio = _audioKey(desiredAudio);
     final wantedQuality = desiredQuality.trim().toLowerCase();
     final wantedRank = _qualityRank(wantedQuality);
 
     List<SoraSource> pool = ranked;
     if (wantedAudio != 'any') {
-      final byAudio = ranked.where((s) => _audioKey(s.subOrDub) == wantedAudio).toList();
+      final byAudio =
+          ranked.where((s) => _audioKey(s.subOrDub) == wantedAudio).toList();
       if (byAudio.isNotEmpty) pool = byAudio;
     }
 
     if (wantedQuality != 'auto') {
       final exact = pool.where((s) {
         final q = s.quality.toLowerCase();
-        return q.contains(wantedQuality) || (wantedRank > 0 && _qualityRank(q) == wantedRank);
+        return q.contains(wantedQuality) ||
+            (wantedRank > 0 && _qualityRank(q) == wantedRank);
       }).toList();
       if (exact.isNotEmpty) return exact.first;
     }
@@ -627,16 +646,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       return <String>['Auto', '1080p', '720p', '360p'];
     }
     final audioKey = _audioKey(audio);
-    var pool = _sourceCatalog.where((s) => _audioKey(s.subOrDub) == audioKey).toList();
+    var pool =
+        _sourceCatalog.where((s) => _audioKey(s.subOrDub) == audioKey).toList();
     if (pool.isEmpty) {
       pool = [..._sourceCatalog];
     }
-    final qualityValues = pool.map((s) => _prettyQuality(s.quality)).toSet().toList()
-      ..sort((a, b) {
-        if (a == 'Auto') return -1;
-        if (b == 'Auto') return 1;
-        return _qualityRank(b).compareTo(_qualityRank(a));
-      });
+    final qualityValues =
+        pool.map((s) => _prettyQuality(s.quality)).toSet().toList()
+          ..sort((a, b) {
+            if (a == 'Auto') return -1;
+            if (b == 'Auto') return 1;
+            return _qualityRank(b).compareTo(_qualityRank(a));
+          });
     return qualityValues;
   }
 
@@ -1858,6 +1879,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Widget _buildAdaptivePlayerSurface(BoxConstraints constraints) {
     final mediaKit = _mediaKitVideoController;
     if (mediaKit != null) {
+      if (Platform.isWindows) {
+        final width = constraints.maxWidth.floor();
+        final height = constraints.maxHeight.floor();
+        if (width > 0 &&
+            height > 0 &&
+            (width != _lastSurfaceWidth || height != _lastSurfaceHeight)) {
+          _lastSurfaceWidth = width;
+          _lastSurfaceHeight = height;
+          unawaited(mediaKit.setSize(width: width, height: height));
+        }
+      }
       return Center(
         child: SizedBox(
           width: constraints.maxWidth,
@@ -1940,6 +1972,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   Future<void> _toggleFullscreenDesktop() async {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final currentlyFullscreen = await windowManager.isFullScreen();
+      await windowManager.setFullScreen(!currentlyFullscreen);
+      return;
+    }
     await _enterFullscreenPlayerMode();
   }
 
@@ -1961,7 +1998,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         SingleActivator(LogicalKeyboardKey.arrowRight): _SeekForwardIntent(),
         SingleActivator(LogicalKeyboardKey.arrowLeft): _SeekBackIntent(),
         SingleActivator(LogicalKeyboardKey.keyF): _ToggleFullscreenIntent(),
+        SingleActivator(LogicalKeyboardKey.f11): _ToggleFullscreenIntent(),
         SingleActivator(LogicalKeyboardKey.keyM): _ToggleMuteIntent(),
+        SingleActivator(LogicalKeyboardKey.escape): _EscapeIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -1992,6 +2031,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           _ToggleMuteIntent: CallbackAction<_ToggleMuteIntent>(
             onInvoke: (_) {
               unawaited(_toggleMute());
+              return null;
+            },
+          ),
+          _EscapeIntent: CallbackAction<_EscapeIntent>(
+            onInvoke: (_) {
+              if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+                unawaited(() async {
+                  final isFullscreen = await windowManager.isFullScreen();
+                  if (isFullscreen) {
+                    await windowManager.setFullScreen(false);
+                    return;
+                  }
+                  if (!mounted) return;
+                  await Navigator.of(context).maybePop();
+                }());
+                return null;
+              }
+              unawaited(Navigator.of(context).maybePop());
               return null;
             },
           ),
@@ -2181,8 +2238,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                            color: Colors.white.withValues(alpha: 0.88),
-                                            fontSize: MediaQuery.sizeOf(context).width < 600
+                                            color: Colors.white
+                                                .withValues(alpha: 0.88),
+                                            fontSize: MediaQuery.sizeOf(context)
+                                                        .width <
+                                                    600
                                                 ? 12
                                                 : 13,
                                             fontWeight: FontWeight.w700,
