@@ -667,86 +667,98 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             backgroundColor: Colors.transparent,
             insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
             child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xD9151826),
-                            Color(0xCC0B0E18),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.22),
-                          width: 0.5,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Download Range',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.2,
+              child: Material(
+                type: MaterialType.transparency,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: DefaultTextStyle(
+                    style: (Theme.of(context).textTheme.bodyMedium ??
+                            const TextStyle(fontSize: 14))
+                        .copyWith(
+                      color: Colors.white,
+                      decoration: TextDecoration.none,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xD9151826),
+                                Color(0xCC0B0E18),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.22),
+                              width: 0.5,
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          Row(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _rangePickerPill(
-                                label: 'Start Episode',
-                                value: start,
-                                onDec: () => setDialogState(() {
-                                  start = (start - 1).clamp(minEpisode, end);
-                                }),
-                                onInc: () => setDialogState(() {
-                                  start = (start + 1).clamp(minEpisode, end);
-                                }),
+                              const Text(
+                                'Download Range',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.2,
+                                ),
                               ),
-                              const SizedBox(width: 10),
-                              _rangePickerPill(
-                                label: 'End Episode',
-                                value: end,
-                                onDec: () => setDialogState(() {
-                                  end = (end - 1).clamp(start, maxEpisode);
-                                }),
-                                onInc: () => setDialogState(() {
-                                  end = (end + 1).clamp(start, maxEpisode);
-                                }),
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  _rangePickerPill(
+                                    label: 'Start Episode',
+                                    value: start,
+                                    onDec: () => setDialogState(() {
+                                      start = (start - 1).clamp(minEpisode, end);
+                                    }),
+                                    onInc: () => setDialogState(() {
+                                      start = (start + 1).clamp(minEpisode, end);
+                                    }),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _rangePickerPill(
+                                    label: 'End Episode',
+                                    value: end,
+                                    onDec: () => setDialogState(() {
+                                      end = (end - 1).clamp(start, maxEpisode);
+                                    }),
+                                    onInc: () => setDialogState(() {
+                                      end = (end + 1).clamp(start, maxEpisode);
+                                    }),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  _LiquidActionButton(
+                                    label: 'Cancel',
+                                    onTap: () => Navigator.of(context).pop(),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _LiquidActionButton(
+                                    label: 'Apply',
+                                    isPrimary: true,
+                                    onTap: () {
+                                      Navigator.of(context)
+                                          .pop((start: start, end: end));
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              _LiquidActionButton(
-                                label: 'Cancel',
-                                onTap: () => Navigator.of(context).pop(),
-                              ),
-                              const SizedBox(width: 10),
-                              _LiquidActionButton(
-                                label: 'Apply',
-                                isPrimary: true,
-                                onTap: () {
-                                  Navigator.of(context).pop((start: start, end: end));
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -1002,54 +1014,66 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 child: Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: maxWidth,
-                        maxHeight: mq.size.height * 0.84,
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(24),
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0xD9151826),
-                                  Color(0xCF0B0E18),
-                                ],
-                              ),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.22),
-                                width: 0.5,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.46),
-                                  blurRadius: 32,
-                                  spreadRadius: 2,
-                                ),
-                              ],
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                              child: source == LibrarySource.anilist &&
-                                      (token == null || token.isEmpty)
-                                  ? const Center(
-                                      child: Text(
-                                        'Connect AniList to manage list, score, and progress.',
-                                      ),
-                                    )
-                                  : SingleChildScrollView(
-                                      child: _TrackingPane(
-                                        token: token,
-                                        media: media,
-                                        target: target,
-                                      ),
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: maxWidth,
+                          maxHeight: mq.size.height * 0.84,
+                        ),
+                        child: DefaultTextStyle(
+                          style: (Theme.of(context).textTheme.bodyMedium ??
+                                  const TextStyle(fontSize: 14))
+                              .copyWith(
+                            color: Colors.white,
+                            decoration: TextDecoration.none,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(24),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(24),
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      Color(0xD9151826),
+                                      Color(0xCF0B0E18),
+                                    ],
+                                  ),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.22),
+                                    width: 0.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.46),
+                                      blurRadius: 32,
+                                      spreadRadius: 2,
                                     ),
+                                  ],
+                                ),
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                                  child: source == LibrarySource.anilist &&
+                                          (token == null || token.isEmpty)
+                                      ? const Center(
+                                          child: Text(
+                                            'Connect AniList to manage list, score, and progress.',
+                                          ),
+                                        )
+                                      : SingleChildScrollView(
+                                          child: _TrackingPane(
+                                            token: token,
+                                            media: media,
+                                            target: target,
+                                          ),
+                                        ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -2919,6 +2943,9 @@ class _TrackingPane extends ConsumerStatefulWidget {
 }
 
 class _TrackingPaneState extends ConsumerState<_TrackingPane> {
+  OverlayEntry? _trackingAlertEntry;
+  Timer? _trackingAlertTimer;
+
   @override
   void initState() {
     super.initState();
@@ -2927,6 +2954,14 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
           .read(aniListTrackingProvider(widget.target).notifier)
           .prepare(tokenOverride: widget.token, forceRefresh: true),
     );
+  }
+
+  @override
+  void dispose() {
+    _trackingAlertTimer?.cancel();
+    _trackingAlertEntry?.remove();
+    _trackingAlertEntry = null;
+    super.dispose();
   }
 
   String _lastSyncedLabel(DateTime? at) {
@@ -2942,25 +2977,16 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     bool success = true,
   }) async {
     if (!mounted) return;
+    _trackingAlertTimer?.cancel();
+    _trackingAlertEntry?.remove();
+    _trackingAlertEntry = null;
     final mq = MediaQuery.of(context);
     final wideLandscape =
         mq.size.width >= 900 && mq.orientation == Orientation.landscape;
     final xShift = wideLandscape ? 40.0 : 0.0;
-    unawaited(
-      Future<void>.delayed(const Duration(milliseconds: 1450), () {
-        if (!mounted) return;
-        Navigator.of(context, rootNavigator: true).maybePop();
-      }),
-    );
-    await showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'Tracking Alert',
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 260),
-      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-      transitionBuilder: (context, anim, _, __) {
-        final fade = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _trackingAlertEntry = OverlayEntry(
+      builder: (overlayContext) {
         return IgnorePointer(
           child: Align(
             alignment: Alignment.bottomCenter,
@@ -2973,76 +2999,81 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
               child: Transform.translate(
                 offset: Offset(xShift, 0),
                 child: MediaQuery(
-                  data: MediaQuery.of(context).copyWith(
+                  data: MediaQuery.of(overlayContext).copyWith(
                     textScaler: const TextScaler.linear(1.0),
                   ),
-                  child: FadeTransition(
-                    opacity: fade,
-                    child: ScaleTransition(
-                      scale: Tween<double>(begin: 0.94, end: 1).animate(fade),
-                      child: Container(
-                        constraints: const BoxConstraints(maxWidth: 380),
-                        decoration: BoxDecoration(
-                          boxShadow: [
-                            BoxShadow(
-                              color: (success
-                                      ? const Color(0xFF22C55E)
-                                      : const Color(0xFFF87171))
-                                  .withValues(alpha: 0.24),
-                              blurRadius: 20,
-                              spreadRadius: 0.4,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.94, end: 1),
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, v, child) {
+                      return Opacity(
+                        opacity: v.clamp(0.0, 1.0),
+                        child: Transform.scale(scale: v, child: child),
+                      );
+                    },
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 380),
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: (success
+                                    ? const Color(0xFF22C55E)
+                                    : const Color(0xFFF87171))
+                                .withValues(alpha: 0.24),
+                            blurRadius: 20,
+                            spreadRadius: 0.4,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 9,
                             ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 9,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xCC131827), Color(0xB9161A2A)],
                               ),
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [Color(0xCC131827), Color(0xB9161A2A)],
-                                ),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.24),
-                                  width: 0.5,
-                                ),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.24),
+                                width: 0.5,
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    success
-                                        ? Icons.check_circle_rounded
-                                        : Icons.error_rounded,
-                                    size: 16,
-                                    color: success
-                                        ? const Color(0xFF22C55E)
-                                        : const Color(0xFFF87171),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      message,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 0.2,
-                                      ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  success
+                                      ? Icons.check_circle_rounded
+                                      : Icons.error_rounded,
+                                  size: 16,
+                                  color: success
+                                      ? const Color(0xFF22C55E)
+                                      : const Color(0xFFF87171),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    message,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
                                     ),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -3056,6 +3087,12 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
         );
       },
     );
+    overlay.insert(_trackingAlertEntry!);
+    _trackingAlertTimer = Timer(const Duration(milliseconds: 1450), () {
+      _trackingAlertEntry?.remove();
+      _trackingAlertEntry = null;
+      _trackingAlertTimer = null;
+    });
   }
 
   Widget _liquidSlider({
