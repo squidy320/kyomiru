@@ -182,6 +182,13 @@ class _AniListLoginWebViewScreenState
           },
           onWebResourceError: (error) {
             AppLogger.w('AniListAuth', 'Web resource error', error: error);
+            final description = error.description.trim();
+            if (!mounted) return;
+            setState(() {
+              _error = description.isEmpty
+                  ? 'Login failed to load. Check internet/DNS and retry.'
+                  : 'Login failed: $description';
+            });
           },
           onUrlChange: (change) async {
             final url = change.url ?? '';

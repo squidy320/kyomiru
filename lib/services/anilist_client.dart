@@ -66,6 +66,7 @@ class AniListClient {
 
   static const authEndpoint = 'https://anilist.co/api/v2/oauth/authorize';
   static const graphqlEndpoint = 'https://graphql.anilist.co';
+  static const graphqlFallbackEndpoint = 'https://anilist.co/graphql';
   static const tokenEndpoint = 'https://anilist.co/api/v2/oauth/token';
 
   final List<Future<void> Function()> _serialQueue = [];
@@ -545,25 +546,56 @@ class AniListClient {
           AppLogger.d('AniList',
               'GraphQL request op=$operation hasToken=${token != null && token.isNotEmpty}');
 
-          final response = await _dio.post(
-            graphqlEndpoint,
-            data: {
-              'query': query,
-              'variables': variables ?? <String, dynamic>{},
+          Response<dynamic>? response;
+          DioException? endpointError;
+          final endpoints = <String>[graphqlEndpoint, graphqlFallbackEndpoint];
+          final options = Options(
+            headers: {
+              if (token != null && token.isNotEmpty)
+                'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
             },
-            options: Options(
-              headers: {
-                if (token != null && token.isNotEmpty)
-                  'Authorization': 'Bearer $token',
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              extra: {
-                if (token != null && token.isNotEmpty) 'anilistToken': token,
-              },
-              validateStatus: (_) => true,
-            ),
+            extra: {
+              if (token != null && token.isNotEmpty) 'anilistToken': token,
+            },
+            validateStatus: (_) => true,
           );
+
+          for (final endpoint in endpoints) {
+            try {
+              response = await _dio.post(
+                endpoint,
+                data: {
+                  'query': query,
+                  'variables': variables ?? <String, dynamic>{},
+                },
+                options: options,
+              );
+              if (endpoint != graphqlEndpoint) {
+                AppLogger.w(
+                  'AniList',
+                  'GraphQL primary endpoint failed earlier; fallback endpoint succeeded',
+                );
+              }
+              break;
+            } on DioException catch (e) {
+              final msg = (e.message ?? '').toLowerCase();
+              final isHostLookupFailure = msg.contains('failed host lookup');
+              endpointError = e;
+              if (!isHostLookupFailure || endpoint == endpoints.last) {
+                rethrow;
+              }
+              AppLogger.w(
+                'AniList',
+                'GraphQL host lookup failed for $endpoint; retrying fallback endpoint',
+              );
+            }
+          }
+
+          if (response == null) {
+            throw endpointError ?? Exception('AniList GraphQL request failed');
+          }
 
           final status = response.statusCode ?? 0;
           final body = response.data is Map<String, dynamic>
