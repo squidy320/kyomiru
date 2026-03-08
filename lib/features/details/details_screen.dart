@@ -589,49 +589,172 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
         );
   }
 
+  Widget _rangePickerPill({
+    required String label,
+    required int value,
+    required VoidCallback onDec,
+    required VoidCallback onInc,
+  }) {
+    return Expanded(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0x552A2F46), Color(0x4421283D)],
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.24),
+                width: 0.5,
+              ),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFBAC2DA),
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _RangeStepButton(icon: Icons.remove_rounded, onTap: onDec),
+                    Text(
+                      '$value',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    _RangeStepButton(icon: Icons.add_rounded, onTap: onInc),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<({int start, int end})?> _pickEpisodeRange(
     int minEpisode,
     int maxEpisode,
   ) async {
-    final startController = TextEditingController(text: '$minEpisode');
-    final endController = TextEditingController(text: '$maxEpisode');
+    var start = minEpisode;
+    var end = maxEpisode;
     return showDialog<({int start, int end})>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select Range'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: startController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Start Episode'),
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final mq = MediaQuery.of(context);
+          final maxWidth = mq.size.width >= 1024 ? 560.0 : 500.0;
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xD9151826),
+                            Color(0xCC0B0E18),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Download Range',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              _rangePickerPill(
+                                label: 'Start Episode',
+                                value: start,
+                                onDec: () => setDialogState(() {
+                                  start = (start - 1).clamp(minEpisode, end);
+                                }),
+                                onInc: () => setDialogState(() {
+                                  start = (start + 1).clamp(minEpisode, end);
+                                }),
+                              ),
+                              const SizedBox(width: 10),
+                              _rangePickerPill(
+                                label: 'End Episode',
+                                value: end,
+                                onDec: () => setDialogState(() {
+                                  end = (end - 1).clamp(start, maxEpisode);
+                                }),
+                                onInc: () => setDialogState(() {
+                                  end = (end + 1).clamp(start, maxEpisode);
+                                }),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              _LiquidActionButton(
+                                label: 'Cancel',
+                                onTap: () => Navigator.of(context).pop(),
+                              ),
+                              const SizedBox(width: 10),
+                              _LiquidActionButton(
+                                label: 'Apply',
+                                isPrimary: true,
+                                onTap: () {
+                                  Navigator.of(context).pop((start: start, end: end));
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: endController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'End Episode'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final start =
-                  int.tryParse(startController.text.trim()) ?? minEpisode;
-              final end = int.tryParse(endController.text.trim()) ?? maxEpisode;
-              final clampedStart = start.clamp(minEpisode, maxEpisode);
-              final clampedEnd = end.clamp(clampedStart, maxEpisode);
-              Navigator.of(context).pop((start: clampedStart, end: clampedEnd));
-            },
-            child: const Text('Apply'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -859,36 +982,85 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final target = media.toTrackingTarget();
     if (!mounted) return;
     try {
-      await showModalBottomSheet<void>(
+      await showGeneralDialog<void>(
         context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => FractionallySizedBox(
-          heightFactor: 0.82,
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF10131F),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: source == LibrarySource.anilist &&
-                        (token == null || token.isEmpty)
-                    ? const Center(
-                        child: Text(
-                          'Connect AniList to manage list, score, and progress.',
-                        ),
-                      )
-                    : SingleChildScrollView(
-                        child:
-                            _TrackingPane(token: token, media: media, target: target),
+        barrierDismissible: true,
+        barrierLabel: 'Tracking',
+        barrierColor: Colors.black.withValues(alpha: 0.46),
+        transitionDuration: const Duration(milliseconds: 240),
+        pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+        transitionBuilder: (context, anim, _, __) {
+          final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+          final mq = MediaQuery.of(context);
+          final width = mq.size.width;
+          final maxWidth = width >= 1024 ? 720.0 : 620.0;
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+              child: SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: maxWidth,
+                        maxHeight: mq.size.height * 0.84,
                       ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(24),
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color(0xD9151826),
+                                  Color(0xCF0B0E18),
+                                ],
+                              ),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.22),
+                                width: 0.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.46),
+                                  blurRadius: 32,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                              child: source == LibrarySource.anilist &&
+                                      (token == null || token.isEmpty)
+                                  ? const Center(
+                                      child: Text(
+                                        'Connect AniList to manage list, score, and progress.',
+                                      ),
+                                    )
+                                  : SingleChildScrollView(
+                                      child: _TrackingPane(
+                                        token: token,
+                                        media: media,
+                                        target: target,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       );
     } finally {
       _trackingSheetOpen = false;
@@ -2765,6 +2937,118 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
     return 'Last synced: $h:$m:$s';
   }
 
+  Future<void> _showLiquidTrackingAlert({
+    required String message,
+    bool success = true,
+  }) async {
+    if (!mounted) return;
+    final mq = MediaQuery.of(context);
+    final wideLandscape =
+        mq.size.width >= 900 && mq.orientation == Orientation.landscape;
+    final xShift = wideLandscape ? 40.0 : 0.0;
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Tracking Alert',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (context, anim, _, __) {
+        final fade = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return IgnorePointer(
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16 + (wideLandscape ? 84 : 0),
+                right: 16,
+                bottom: 26,
+              ),
+              child: Transform.translate(
+                offset: Offset(xShift, 0),
+                child: FadeTransition(
+                  opacity: fade,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.94, end: 1).animate(fade),
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: (success
+                                    ? const Color(0xFF22C55E)
+                                    : const Color(0xFFF87171))
+                                .withValues(alpha: 0.24),
+                            blurRadius: 26,
+                            spreadRadius: 0.5,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xCC131827), Color(0xB9161A2A)],
+                              ),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.24),
+                                width: 0.5,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  success
+                                      ? Icons.check_circle_rounded
+                                      : Icons.error_rounded,
+                                  size: 18,
+                                  color: success
+                                      ? const Color(0xFF22C55E)
+                                      : const Color(0xFFF87171),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    message,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 1450));
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).maybePop();
+    }
+  }
+
   Widget _liquidSlider({
     required double value,
     required double max,
@@ -3017,6 +3301,19 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                                 ChoiceChip(
                                   label: Text(s),
                                   selected: sync.statusDraft == s,
+                                  selectedColor: Colors.white,
+                                  backgroundColor:
+                                      Colors.white.withValues(alpha: 0.08),
+                                  side: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.24),
+                                    width: 0.5,
+                                  ),
+                                  labelStyle: TextStyle(
+                                    color: sync.statusDraft == s
+                                        ? const Color(0xFF121727)
+                                        : Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                   onSelected: (_) {
                                     unawaited(notifier.requestStatus(s));
                                   },
@@ -3071,47 +3368,46 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                   child: Wrap(
                     spacing: 8,
                     children: [
-                      FilledButton.tonalIcon(
+                      _LiquidActionButton(
+                        label: 'Remove from List',
+                        icon: Icons.playlist_remove_rounded,
                         onPressed: isLocked || isSyncing
                             ? null
                             : () async {
                                 final removed =
                                     await notifier.remove(tokenOverride: widget.token);
                                 if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      removed
-                                          ? 'Removed from list.'
-                                          : 'Could not remove from list.',
-                                    ),
+                                unawaited(
+                                  _showLiquidTrackingAlert(
+                                    message: removed
+                                        ? 'Removed from list'
+                                        : 'Could not remove from list',
+                                    success: removed,
                                   ),
                                 );
                               },
-                        icon: const Icon(Icons.playlist_remove_rounded),
-                        label: const Text('Remove from List'),
                       ),
-                      FilledButton.tonalIcon(
+                      _LiquidActionButton(
+                        label: isSyncing ? 'Syncing...' : 'Save',
+                        icon: Icons.save_outlined,
+                        isPrimary: true,
                         onPressed: isLocked || isSyncing
                             ? null
                             : () async {
                                 final ok =
                                     await notifier.commit(tokenOverride: widget.token);
                                 if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      ok
-                                          ? (source == LibrarySource.local
-                                              ? 'Saved locally.'
-                                              : 'Tracking updated.')
-                                          : 'Sync Failed',
-                                    ),
+                                unawaited(
+                                  _showLiquidTrackingAlert(
+                                    message: ok
+                                        ? (source == LibrarySource.local
+                                            ? 'Saved locally'
+                                            : 'Tracking updated')
+                                        : 'Sync Failed',
+                                    success: ok,
                                   ),
                                 );
                               },
-                        icon: const Icon(Icons.save_outlined),
-                        label: Text(isSyncing ? 'Syncing...' : 'Save'),
                       ),
                     ],
                   ),
@@ -3148,6 +3444,113 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LiquidActionButton extends StatelessWidget {
+  const _LiquidActionButton({
+    required this.label,
+    this.icon,
+    this.onPressed,
+    this.onTap,
+    this.isPrimary = false,
+  });
+
+  final String label;
+  final IconData? icon;
+  final VoidCallback? onPressed;
+  final VoidCallback? onTap;
+  final bool isPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    final action = onPressed ?? onTap;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: action,
+            child: Ink(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isPrimary
+                      ? const [Color(0xC65F63FF), Color(0xB04D52E8)]
+                      : const [Color(0x5A2A2F46), Color(0x4521283D)],
+                ),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.24),
+                  width: 0.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 18, color: Colors.white),
+                    const SizedBox(width: 8),
+                  ],
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RangeStepButton extends StatelessWidget {
+  const _RangeStepButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onTap,
+            child: Ink(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.24),
+                  width: 0.5,
+                ),
+              ),
+              child: Icon(icon, size: 16, color: Colors.white),
+            ),
+          ),
+        ),
       ),
     );
   }
