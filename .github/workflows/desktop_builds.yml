@@ -51,13 +51,17 @@ jobs:
       - name: Archive Windows Artifacts
         shell: pwsh
         run: |
-          $source = "build/windows/runner/Release/*"
           $dest = "kyomiru-windows-release.zip"
-          if (-not (Test-Path "build/windows/runner/Release")) {
-            Write-Error "Windows release output folder not found: build/windows/runner/Release"
+          $releaseDir = $null
+          if (Test-Path "build/windows/x64/runner/Release") {
+            $releaseDir = "build/windows/x64/runner/Release"
+          } elseif (Test-Path "build/windows/runner/Release") {
+            $releaseDir = "build/windows/runner/Release"
+          } else {
+            Write-Error "Windows release output folder not found. Checked: build/windows/x64/runner/Release and build/windows/runner/Release"
             exit 1
           }
-          Compress-Archive -Path $source -DestinationPath $dest -Force
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath $dest -Force
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
