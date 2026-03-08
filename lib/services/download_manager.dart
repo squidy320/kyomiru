@@ -440,46 +440,48 @@ class DownloadController extends StateNotifier<DownloadState> {
   }
 
   Future<File?> getLocalEpisodeByTitle(String animeTitle, int episode) async {
+    final all = await getLocalEpisodeFilesByTitle(animeTitle);
+    return all[episode];
+  }
+
+  Future<Map<int, File>> getLocalEpisodeFilesByTitle(String animeTitle) async {
     final root = await _downloadsRoot();
     final safeTitle = _safe(animeTitle);
     final animeDir = Directory(p.join(root.path, safeTitle));
-    if (!await animeDir.exists()) return null;
+    if (!await animeDir.exists()) return const <int, File>{};
 
-    final directCandidates = <String>[
-      p.join(animeDir.path, 'Episode $episode.m3u8'),
-      p.join(animeDir.path, 'Episode $episode.mp4'),
-      p.join(animeDir.path, 'Episode $episode.mkv'),
-      p.join(animeDir.path, 'Episode $episode.ts'),
-    ];
-    for (final candidate in directCandidates) {
-      final file = File(candidate);
-      if (await file.exists()) return file;
-    }
-
-    final episodeDir = Directory(p.join(animeDir.path, 'Episode $episode'));
-    if (!await episodeDir.exists()) return null;
-    final nestedCandidates = <String>[
-      p.join(episodeDir.path, 'Episode $episode.m3u8'),
-      p.join(episodeDir.path, 'Episode $episode.mp4'),
-      p.join(episodeDir.path, 'Episode $episode.mkv'),
-      p.join(episodeDir.path, 'Episode $episode.ts'),
-    ];
-    for (final candidate in nestedCandidates) {
-      final file = File(candidate);
-      if (await file.exists()) return file;
-    }
-
+    final out = <int, File>{};
     try {
-      final entities = await episodeDir.list().toList();
+      final entities = await animeDir.list(recursive: true, followLinks: false).toList();
       for (final entity in entities) {
         if (entity is! File) continue;
         final ext = p.extension(entity.path).toLowerCase();
-        if (ext == '.mp4' || ext == '.mkv' || ext == '.m3u8' || ext == '.ts') {
-          return entity;
-        }
+        if (!_isPlayableLocalEpisodeExt(ext)) continue;
+        final ep = _extractEpisodeNumberFromLocalPath(entity.path);
+        if (ep == null || ep <= 0) continue;
+        out.putIfAbsent(ep, () => entity);
       }
     } catch (_) {}
-    return null;
+    return out;
+  }
+
+  bool _isPlayableLocalEpisodeExt(String ext) {
+    return ext == '.m3u8' || ext == '.mp4' || ext == '.mkv' || ext == '.ts';
+  }
+
+  int? _extractEpisodeNumberFromLocalPath(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final byDir = RegExp(r'/episode\s*[_\- ]?(\d+)(?:/|$)', caseSensitive: false)
+        .firstMatch(normalized)
+        ?.group(1);
+    final byName = RegExp(r'(?:episode|ep)\s*[_\- ]?(\d+)', caseSensitive: false)
+        .firstMatch(p.basenameWithoutExtension(normalized))
+        ?.group(1);
+    final fallback = RegExp(r'(^|[^0-9])(\d{1,4})([^0-9]|$)')
+        .firstMatch(p.basenameWithoutExtension(normalized))
+        ?.group(2);
+    final value = byDir ?? byName ?? fallback;
+    return int.tryParse(value ?? '');
   }
 
   Future<File?> getLocalEpisodeArtworkByMedia(int mediaId, int episode) async {
@@ -1069,6 +1071,14 @@ final localEpisodeArtworkFileProvider =
   return ref
       .read(downloadControllerProvider.notifier)
       .getLocalEpisodeArtworkByMedia(query.mediaId, query.episode);
+});
+
+final localEpisodeFilesByTitleProvider =
+    FutureProvider.family<Map<int, File>, String>((ref, animeTitle) async {
+  ref.watch(downloadControllerProvider);
+  return ref
+      .read(downloadControllerProvider.notifier)
+      .getLocalEpisodeFilesByTitle(animeTitle);
 });
 
 final downloadItemProvider =

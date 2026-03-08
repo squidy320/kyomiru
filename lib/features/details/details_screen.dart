@@ -44,6 +44,26 @@ final anilistWatchedProgressProvider =
   return (entry?.progress ?? 0).clamp(0, 99999);
 });
 
+List<SoraEpisode> _mergeSourceWithLocalEpisodes(
+  List<SoraEpisode> sourceEpisodes,
+  Iterable<int> localEpisodeNumbers,
+) {
+  final map = <int, SoraEpisode>{
+    for (final ep in sourceEpisodes) ep.number: ep,
+  };
+  for (final epNo in localEpisodeNumbers) {
+    if (epNo <= 0 || map.containsKey(epNo)) continue;
+    map[epNo] = SoraEpisode(
+      number: epNo,
+      session: 'local-episode-$epNo',
+      playUrl: '',
+    );
+  }
+  final out = map.values.toList()
+    ..sort((a, b) => a.number.compareTo(b.number));
+  return out;
+}
+
 class DetailsScreen extends ConsumerStatefulWidget {
   const DetailsScreen({super.key, required this.mediaId});
 
@@ -1366,7 +1386,11 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           : null;
       final EpisodeLoadResult result =
           cached ?? await ref.read(episodeProvider(episodeQuery).future);
-      final episodes = result.episodes;
+      final localFiles = await ref
+          .read(downloadControllerProvider.notifier)
+          .getLocalEpisodeFilesByTitle(media.title.best);
+      final episodes =
+          _mergeSourceWithLocalEpisodes(result.episodes, localFiles.keys);
       if (episodes.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1797,7 +1821,18 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                           );
                         }
 
-                        final episodes = data.episodes;
+                        final localFiles = ref
+                                .watch(
+                                  localEpisodeFilesByTitleProvider(
+                                    media.title.best,
+                                  ),
+                                )
+                                .valueOrNull ??
+                            const <int, File>{};
+                        final episodes = _mergeSourceWithLocalEpisodes(
+                          data.episodes,
+                          localFiles.keys,
+                        );
                         final shownCount =
                             episodes.length < _visibleEpisodeCount
                                 ? episodes.length
@@ -2541,7 +2576,7 @@ class _InlineActionPill extends StatelessWidget {
   }
 }
 
-class _WideDetailsScaffold extends StatelessWidget {
+class _WideDetailsScaffold extends ConsumerWidget {
   const _WideDetailsScaffold({
     required this.media,
     required this.description,
@@ -2585,7 +2620,7 @@ class _WideDetailsScaffold extends StatelessWidget {
   final String? fallbackImage;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final image = fallbackImage;
     final relationItems = <(String label, int id)>[
       ('Current Series', media.id),
@@ -2825,8 +2860,18 @@ class _WideDetailsScaffold extends StatelessWidget {
                           ),
                         );
                       }
-                      final episodes =
-                          asyncEpisodes.valueOrNull?.episodes ?? const [];
+                      final localFiles = ref
+                              .watch(
+                                localEpisodeFilesByTitleProvider(
+                                  media.title.best,
+                                ),
+                              )
+                              .valueOrNull ??
+                          const <int, File>{};
+                      final episodes = _mergeSourceWithLocalEpisodes(
+                        asyncEpisodes.valueOrNull?.episodes ?? const [],
+                        localFiles.keys,
+                      );
                       if (episodes.isEmpty) {
                         return const GlassCard(
                           child: Text('No episodes found for this source.'),
