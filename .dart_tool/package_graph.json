@@ -11,6 +11,7 @@
         "connectivity_plus",
         "cupertino_icons",
         "dio",
+        "file_picker",
         "flutter",
         "flutter_cache_manager",
         "flutter_riverpod",
@@ -255,6 +256,21 @@
       "dependencies": [
         "crypto",
         "meta"
+      ]
+    },
+    {
+      "name": "file_picker",
+      "version": "8.3.7",
+      "dependencies": [
+        "cross_file",
+        "ffi",
+        "flutter",
+        "flutter_plugin_android_lifecycle",
+        "flutter_web_plugins",
+        "path",
+        "plugin_platform_interface",
+        "web",
+        "win32"
       ]
     },
     {
@@ -782,6 +798,26 @@
       ]
     },
     {
+      "name": "cross_file",
+      "version": "0.3.5+2",
+      "dependencies": [
+        "meta",
+        "web"
+      ]
+    },
+    {
+      "name": "ffi",
+      "version": "2.2.0",
+      "dependencies": []
+    },
+    {
+      "name": "flutter_plugin_android_lifecycle",
+      "version": "2.0.33",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
       "name": "flutter_secure_storage_windows",
       "version": "3.1.2",
       "dependencies": [
@@ -826,11 +862,6 @@
         "flutter",
         "flutter_secure_storage_platform_interface"
       ]
-    },
-    {
-      "name": "ffi",
-      "version": "2.2.0",
-      "dependencies": []
     },
     {
       "name": "url_launcher_platform_interface",
@@ -883,14 +914,6 @@
       "name": "mime",
       "version": "2.0.0",
       "dependencies": []
-    },
-    {
-      "name": "cross_file",
-      "version": "0.3.5+2",
-      "dependencies": [
-        "meta",
-        "web"
-      ]
     },
     {
       "name": "webview_flutter_wkwebview",

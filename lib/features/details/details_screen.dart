@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
@@ -1368,6 +1369,197 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     await _downloadAllEpisodes(media, episodes);
   }
 
+  Future<void> _importLocalEpisode(AniListMedia media) async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mp4', 'mkv'],
+      allowMultiple: false,
+      withData: false,
+    );
+    if (!mounted || picked == null || picked.files.isEmpty) return;
+    final path = picked.files.single.path;
+    if (path == null || path.trim().isEmpty) return;
+    final ext = path.toLowerCase();
+    if (!(ext.endsWith('.mp4') || ext.endsWith('.mkv'))) {
+      _showFloatingGlassAlert('Unsupported File Format');
+      return;
+    }
+
+    final episode = await _showImportEpisodeNumberDialog(
+      animeTitle: media.title.best,
+      suggestedEpisode: (_episodeState.value.valueOrNull?.episodes.length ?? 0) + 1,
+    );
+    if (!mounted || episode == null || episode <= 0) return;
+    try {
+      await ref.read(downloadControllerProvider.notifier).importLocalEpisode(
+            mediaId: media.id,
+            episode: episode,
+            animeTitle: media.title.best,
+            absoluteFilePath: path,
+            coverImageUrl: media.cover.best ?? media.bannerImage,
+          );
+      _showFloatingGlassAlert('Imported Episode $episode');
+      setState(() {});
+    } on UnsupportedError {
+      _showFloatingGlassAlert('Unsupported File Format');
+    } catch (_) {
+      _showFloatingGlassAlert('Import Failed');
+    }
+  }
+
+  Future<int?> _showImportEpisodeNumberDialog({
+    required String animeTitle,
+    required int suggestedEpisode,
+  }) async {
+    final ctrl = TextEditingController(text: suggestedEpisode.toString());
+    final result = await showGeneralDialog<int>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Import Local Episode',
+      barrierColor: Colors.black.withValues(alpha: 0.46),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (context, anim, _, __) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xD9151826), Color(0xCF0B0E18)],
+                          ),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Import Local Episode',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              animeTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: ctrl,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'Episode Number',
+                                filled: true,
+                                fillColor: Colors.white.withValues(alpha: 0.08),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.20),
+                                    width: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                _LiquidActionButton(
+                                  label: 'Cancel',
+                                  onPressed: () => Navigator.of(context).pop(),
+                                ),
+                                const Spacer(),
+                                _LiquidActionButton(
+                                  label: 'Import',
+                                  icon: Icons.file_download_done_rounded,
+                                  isPrimary: true,
+                                  onPressed: () {
+                                    final value = int.tryParse(ctrl.text.trim());
+                                    Navigator.of(context).pop(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    ctrl.dispose();
+    return result;
+  }
+
+  void _showFloatingGlassAlert(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        content: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xCC131827), Color(0xB9161A2A)],
+                ),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.24),
+                  width: 0.5,
+                ),
+              ),
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _retryLastFailedSource(AniListMedia media) async {
     final ep = _lastFailedEpisode;
     if (ep == null || _sourceRequestInFlight) return;
@@ -1643,6 +1835,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
             ),
             onManualMatch: () => _handleManualMatchTap(media),
             onDownloadAll: () => _handleDownloadAllTap(media),
+            onImportLocal: () => _importLocalEpisode(media),
             onBack: () => Navigator.of(context).maybePop(),
             onSelectRelation: _switchWideMedia,
             episodeState: _episodeState,
@@ -1985,7 +2178,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                     onTap: null,
                                     showProgress: true,
                                   )
-                                else
+                                else ...[
                                   _InlineActionPill(
                                     icon: Icons.download_for_offline_outlined,
                                     label: 'Download All',
@@ -1994,6 +2187,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                                       episodes,
                                     ),
                                   ),
+                                  const SizedBox(width: 8),
+                                  _InlineActionPill(
+                                    icon: Icons.upload_file_rounded,
+                                    label: 'Import Local',
+                                    onTap: () => _importLocalEpisode(media),
+                                  ),
+                                ],
                               ],
                             ),
                             const SizedBox(height: 10),
@@ -2587,6 +2787,7 @@ class _WideDetailsScaffold extends ConsumerWidget {
     required this.onBookmark,
     required this.onManualMatch,
     required this.onDownloadAll,
+    required this.onImportLocal,
     required this.onBack,
     required this.onSelectRelation,
     required this.episodeState,
@@ -2608,6 +2809,7 @@ class _WideDetailsScaffold extends ConsumerWidget {
   final VoidCallback onBookmark;
   final VoidCallback onManualMatch;
   final VoidCallback onDownloadAll;
+  final VoidCallback onImportLocal;
   final VoidCallback onBack;
   final ValueChanged<int> onSelectRelation;
   final ValueNotifier<AsyncValue<EpisodeLoadResult>> episodeState;
@@ -2749,6 +2951,12 @@ class _WideDetailsScaffold extends ConsumerWidget {
                               icon: const Icon(
                                   Icons.download_for_offline_outlined,
                                   size: 18),
+                            ),
+                            const SizedBox(width: 8),
+                            _MiniGlassActionButton(
+                              onPressed: onImportLocal,
+                              tooltip: 'Import Local Episode',
+                              icon: const Icon(Icons.upload_file_rounded, size: 18),
                             ),
                           ],
                         ),

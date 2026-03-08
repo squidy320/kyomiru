@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../core/glass_widgets.dart';
@@ -144,9 +145,26 @@ class _DownloadsLibraryView extends ConsumerWidget {
               style: const TextStyle(color: Color(0xFFA1A8BC)),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Downloaded Library',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Downloaded Library',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: series.isEmpty
+                      ? null
+                      : () => _importLocalEpisodeFlow(
+                            context: context,
+                            ref: ref,
+                            seriesOptions: series,
+                          ),
+                  icon: const Icon(Icons.upload_file_rounded, size: 18),
+                  label: const Text('Import Local Episode'),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
             if (series.isEmpty)
@@ -211,6 +229,142 @@ class _DownloadsLibraryView extends ConsumerWidget {
       return null;
     }
   }
+}
+
+Future<void> _importLocalEpisodeFlow({
+  required BuildContext context,
+  required WidgetRef ref,
+  required List<_DownloadedSeries> seriesOptions,
+  _DownloadedSeries? fixedSeries,
+}) async {
+  final picked = await FilePicker.platform.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: const ['mp4', 'mkv'],
+    allowMultiple: false,
+    withData: false,
+  );
+  if (!context.mounted || picked == null || picked.files.isEmpty) return;
+  final path = picked.files.single.path;
+  if (path == null || path.trim().isEmpty) return;
+  final lower = path.toLowerCase();
+  if (!(lower.endsWith('.mp4') || lower.endsWith('.mkv'))) {
+    _showDownloadsGlassAlert(context, 'Unsupported File Format');
+    return;
+  }
+
+  _DownloadedSeries selected = fixedSeries ?? seriesOptions.first;
+  final ctrl = TextEditingController(text: '1');
+  final confirmed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder: (dialogContext, setState) {
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(24),
+            child: GlassCard(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Import Local Episode',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  if (fixedSeries == null)
+                    DropdownButtonFormField<int>(
+                      initialValue: selected.mediaId,
+                      decoration: const InputDecoration(labelText: 'Anime'),
+                      items: seriesOptions
+                          .map(
+                            (s) => DropdownMenuItem<int>(
+                              value: s.mediaId,
+                              child: Text(
+                                s.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (v) {
+                        if (v == null) return;
+                        final match = seriesOptions.firstWhere(
+                          (s) => s.mediaId == v,
+                          orElse: () => selected,
+                        );
+                        setState(() => selected = match);
+                      },
+                    )
+                  else
+                    Text(
+                      selected.title,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: ctrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Episode Number'),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(true),
+                        child: const Text('Import'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+  if (!context.mounted || confirmed != true) return;
+  final ep = int.tryParse(ctrl.text.trim()) ?? 0;
+  ctrl.dispose();
+  if (ep <= 0) return;
+
+  try {
+    await ref.read(downloadControllerProvider.notifier).importLocalEpisode(
+          mediaId: selected.mediaId,
+          episode: ep,
+          animeTitle: selected.title,
+          absoluteFilePath: path,
+          coverImageUrl: selected.coverUrl,
+        );
+    if (!context.mounted) return;
+    _showDownloadsGlassAlert(context, 'Imported Episode $ep');
+  } on UnsupportedError {
+    if (!context.mounted) return;
+    _showDownloadsGlassAlert(context, 'Unsupported File Format');
+  } catch (_) {
+    if (!context.mounted) return;
+    _showDownloadsGlassAlert(context, 'Import Failed');
+  }
+}
+
+void _showDownloadsGlassAlert(BuildContext context, String message) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.clearSnackBars();
+  messenger.showSnackBar(
+    SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xEE131827),
+      content: Text(message),
+    ),
+  );
 }
 
 class _DownloadedSeriesCard extends StatelessWidget {
@@ -389,6 +543,17 @@ class _DownloadedSeriesScreen extends ConsumerWidget {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _importLocalEpisodeFlow(
+                      context: context,
+                      ref: ref,
+                      seriesOptions: [series],
+                      fixedSeries: series,
+                    ),
+                    icon: const Icon(Icons.upload_file_rounded, size: 18),
+                    label: const Text('Import Local Episode'),
+                  ),
                   const SizedBox(height: 10),
                   if (done.isEmpty)
                     const GlassCard(
@@ -529,8 +694,13 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
                             ),
                             const SizedBox(width: 8),
                             _iconButton(
-                              icon: Icons.download_done_rounded,
-                              onTap: () {},
+                              icon: Icons.upload_file_rounded,
+                              onTap: () => _importLocalEpisodeFlow(
+                                context: context,
+                                ref: ref,
+                                seriesOptions: [series],
+                                fixedSeries: series,
+                              ),
                             ),
                           ],
                         ),

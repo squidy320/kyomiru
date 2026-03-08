@@ -514,6 +514,41 @@ class DownloadController extends StateNotifier<DownloadState> {
     return targets.length;
   }
 
+  Future<DownloadItem> importLocalEpisode({
+    required int mediaId,
+    required int episode,
+    required String animeTitle,
+    required String absoluteFilePath,
+    String? coverImageUrl,
+  }) async {
+    final file = File(absoluteFilePath);
+    if (!await file.exists()) {
+      throw Exception('Selected file does not exist.');
+    }
+    final ext = p.extension(file.path).toLowerCase();
+    if (!_isPlayableLocalEpisodeExt(ext) || ext == '.m3u8' || ext == '.ts') {
+      // Import flow only accepts direct local video files.
+      throw UnsupportedError('Unsupported File Format');
+    }
+    final length = await file.length();
+    final item = DownloadItem(
+      mediaId: mediaId,
+      episode: episode,
+      animeTitle: animeTitle,
+      coverImageUrl: coverImageUrl,
+      status: 'done',
+      progress: 1,
+      localFilePath: file.path,
+      sourceUrl: file.path,
+      headers: const <String, String>{},
+      downloadedBytes: length,
+      totalBytes: length,
+      speedBitsPerSecond: 0,
+    );
+    await _saveItem(item);
+    return item;
+  }
+
   void cancel(int mediaId, int episode) {
     final key = '$mediaId:$episode';
     final token = _cancelTokens[key];
