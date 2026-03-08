@@ -845,7 +845,7 @@ class AniListClient {
   }) async {
     final uid = userId ?? (await me(token)).id;
     final cacheKey = '$token:$uid';
-    final persistedKey = 'librarySections:$cacheKey';
+    final persistedKey = 'librarySections:v2:$cacheKey';
     final cached = _librarySectionsCache[cacheKey];
     if (!force && cached != null) {
       if (cached.isValid) return cached.value;
@@ -890,7 +890,7 @@ class AniListClient {
         MediaListCollection(
           userId: $userId,
           type: ANIME,
-          status_in: [CURRENT, PLANNING, COMPLETED]
+          status_in: [CURRENT, PLANNING, COMPLETED, PAUSED, DROPPED, REPEATING]
         ) {
           lists {
             name
@@ -950,6 +950,9 @@ class AniListClient {
           if (l.contains('current') || l.contains('watching')) return 0;
           if (l.contains('planning') || l.contains('plan')) return 1;
           if (l.contains('completed')) return 2;
+          if (l.contains('pause') || l.contains('hold')) return 3;
+          if (l.contains('drop')) return 4;
+          if (l.contains('repeat')) return 5;
           return 99;
         }
 
