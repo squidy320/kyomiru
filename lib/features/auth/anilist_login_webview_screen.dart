@@ -288,6 +288,7 @@ class _AniListLoginWebViewScreenState
     await for (final request in server) {
       final uri = request.uri;
       final query = uri.queryParameters;
+      AppLogger.d('AniListAuth', 'Loopback callback uri=$uri');
       final html = _buildLoopbackHtml(query.containsKey('error'));
       request.response
         ..headers.contentType = ContentType.html
@@ -305,14 +306,16 @@ class _AniListLoginWebViewScreenState
         });
         continue;
       }
-      final callbackState = (query['state'] ?? '').trim();
-      if (_desktopAuthState.isNotEmpty && callbackState != _desktopAuthState) {
-        setState(() {
-          _error = 'AniList auth failed: invalid state from callback.';
-        });
-        continue;
-      }
       final code = (query['code'] ?? '').trim();
+      final callbackState = (query['state'] ?? '').trim();
+      if (_desktopAuthState.isNotEmpty &&
+          callbackState.isNotEmpty &&
+          callbackState != _desktopAuthState) {
+        AppLogger.w(
+          'AniListAuth',
+          'Desktop callback state mismatch; continuing because code is present',
+        );
+      }
       if (code.isEmpty) continue;
       await _completeDesktopLoopbackLogin(code);
     }

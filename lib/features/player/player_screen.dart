@@ -344,11 +344,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       );
       final controller = VideoController(
         player,
-        configuration: VideoControllerConfiguration(
-          // Keep Windows on hardware accelerated texture output, but use
-          // broadly compatible mpv options to avoid black-screen regressions.
-          vo: Platform.isWindows ? 'gpu' : null,
-          hwdec: Platform.isWindows ? 'auto-safe' : null,
+        configuration: const VideoControllerConfiguration(
+          // Keep defaults for compatibility; hardware acceleration stays on.
           enableHardwareAcceleration: true,
         ),
       );
@@ -475,7 +472,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('video-sync', 'audio');
       await setProp('audio-pitch-correction', 'yes');
       if (Platform.isWindows) {
-        await setProp('vo', 'gpu');
         await setProp('hwdec', 'auto-safe');
       } else if (Platform.isMacOS) {
         await setProp('hwdec', 'videotoolbox');
