@@ -197,9 +197,28 @@ class _DownloadsLibraryView extends ConsumerWidget {
               ),
             if (activeCount > 0) ...[
               const SizedBox(height: 14),
-              const Text(
-                'Active Queue',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Active Queue',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: () async {
+                      final removed =
+                          await ref.read(downloadControllerProvider.notifier).clearQueue();
+                      if (!context.mounted) return;
+                      _showDownloadsGlassAlert(
+                        context,
+                        removed > 0 ? 'Cleared $removed queued item(s)' : 'Queue is already empty',
+                      );
+                    },
+                    icon: const Icon(Icons.clear_all_rounded, size: 18),
+                    label: const Text('Clear Queue'),
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
               ...series
@@ -390,11 +409,14 @@ Future<void> _importLocalEpisodeFlow({
 
 void _showDownloadsGlassAlert(BuildContext context, String message) {
   final messenger = ScaffoldMessenger.of(context);
+  final insets = MediaQuery.viewPaddingOf(context);
+  final safeBottom = (insets.bottom + 12).clamp(24.0, 96.0);
   messenger.clearSnackBars();
   messenger.showSnackBar(
     SnackBar(
       behavior: SnackBarBehavior.floating,
       backgroundColor: const Color(0xEE131827),
+      margin: EdgeInsets.fromLTRB(16, 0, 16, safeBottom),
       content: Text(message),
     ),
   );
@@ -765,7 +787,7 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
                     )
                   else
                     SizedBox(
-                      height: 152,
+                      height: 146,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: done.length,
@@ -773,14 +795,11 @@ class _WideDownloadedSeriesScreen extends ConsumerWidget {
                         itemBuilder: (context, index) {
                           final item = done[index];
                           return SizedBox(
-                            width: 320,
+                            width: 260,
                             child: _DownloadedEpisodeWideCard(
                               item: item,
-                              onPlay: () => _playDownloadedEpisode(
-                                context,
-                                ref,
-                                item,
-                              ),
+                              onTap: () =>
+                                  _playDownloadedEpisode(context, ref, item),
                               onDelete: () async {
                                 HapticFeedback.mediumImpact();
                                 await ref
@@ -897,12 +916,12 @@ class _WideSeriesChip extends StatelessWidget {
 class _DownloadedEpisodeWideCard extends ConsumerWidget {
   const _DownloadedEpisodeWideCard({
     required this.item,
-    required this.onPlay,
+    required this.onTap,
     required this.onDelete,
   });
 
   final DownloadItem item;
-  final VoidCallback onPlay;
+  final VoidCallback onTap;
   final VoidCallback onDelete;
 
   @override
@@ -916,84 +935,82 @@ class _DownloadedEpisodeWideCard extends ConsumerWidget {
     final ratio = (item.lastDurationMs > 0)
         ? (item.lastPositionMs / item.lastDurationMs).clamp(0.0, 1.0)
         : 0.0;
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFA1E1E1E),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _DownloadedEpisodeThumb(item: item),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.76),
-                    ],
-                    stops: const [0.46, 1.0],
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFA1E1E1E),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _DownloadedEpisodeThumb(item: item),
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.76),
+                        ],
+                        stops: const [0.46, 1.0],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            Positioned(
-              right: 8,
-              top: 8,
-              child: Row(
-                children: [
-                  _iconButton(
-                    icon: Icons.play_arrow_rounded,
-                    onTap: onPlay,
-                  ),
-                  const SizedBox(width: 6),
-                  _iconButton(
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: _iconButton(
                     icon: Icons.delete_outline_rounded,
                     onTap: onDelete,
                   ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 10,
-              right: 10,
-              bottom: 10,
-              child: Text(
-                '${item.animeTitle} - Episode ${item.episode}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
-                  height: 1.15,
-                  color: Colors.white.withValues(
-                    alpha: watchedInAniList ? 0.52 : 1.0,
+                ),
+                Positioned(
+                  left: 10,
+                  right: 10,
+                  bottom: 10,
+                  child: Text(
+                    '${item.animeTitle} - Episode ${item.episode}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      height: 1.15,
+                      color: Colors.white.withValues(
+                        alpha: watchedInAniList ? 0.52 : 1.0,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            if (ratio > 0)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  height: 2.5,
-                  color: Colors.white24,
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: ratio,
-                    child: Container(color: const Color(0xFF60A5FA)),
+                if (ratio > 0)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      height: 2.5,
+                      color: Colors.white24,
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: ratio,
+                        child: Container(color: const Color(0xFF60A5FA)),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1128,101 +1145,103 @@ class _DownloadedEpisodeTile extends ConsumerWidget {
     final ratio = (item.lastDurationMs > 0)
         ? (item.lastPositionMs / item.lastDurationMs).clamp(0.0, 1.0)
         : 0.0;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFA1E1E1E),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 136,
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _DownloadedEpisodeThumb(item: item),
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withValues(alpha: 0.42),
-                            ],
-                            stops: const [0.58, 1.0],
+        onTap: () => _playDownloadedEpisode(context, ref, item),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFA1E1E1E),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 136,
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _DownloadedEpisodeThumb(item: item),
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.42),
+                                ],
+                                stops: const [0.58, 1.0],
+                              ),
+                            ),
                           ),
+                        ),
+                        if (ratio > 0)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              height: 2.5,
+                              color: Colors.white24,
+                              child: FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: ratio,
+                                child: Container(color: const Color(0xFF60A5FA)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Episode ${item.episode}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white.withValues(
+                          alpha: watchedInAniList ? 0.52 : 1.0,
                         ),
                       ),
                     ),
-                    if (ratio > 0)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          height: 2.5,
-                          color: Colors.white24,
-                          child: FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: ratio,
-                            child: Container(color: const Color(0xFF60A5FA)),
-                          ),
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      size,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFA1A8BC),
                       ),
+                    ),
                   ],
                 ),
               ),
-            ),
+              _iconButton(
+                icon: Icons.delete_outline_rounded,
+                onTap: () async {
+                  HapticFeedback.mediumImpact();
+                  await ref
+                      .read(downloadControllerProvider.notifier)
+                      .delete(item.mediaId, item.episode);
+                },
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Episode ${item.episode}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white.withValues(
-                      alpha: watchedInAniList ? 0.52 : 1.0,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  size,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFA1A8BC),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _iconButton(
-            icon: Icons.play_arrow_rounded,
-            onTap: () => _playDownloadedEpisode(context, ref, item),
-          ),
-          const SizedBox(width: 6),
-          _iconButton(
-            icon: Icons.delete_outline_rounded,
-            onTap: () async {
-              HapticFeedback.mediumImpact();
-              await ref
-                  .read(downloadControllerProvider.notifier)
-                  .delete(item.mediaId, item.episode);
-            },
-          ),
-        ],
+        ),
       ),
     );
   }

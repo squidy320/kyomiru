@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,16 +20,31 @@ import '../../features/player/player_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../services/download_manager.dart';
 import '../../services/local_library_store.dart';
+import '../../services/progress_store.dart';
 import '../../services/watch_history_store.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
 import '../../state/library_source_state.dart';
+import '../../state/library_preferences_state.dart';
 import '../../state/tracking_state.dart';
 import '../../state/ui_ambient_state.dart';
 import '../../state/watch_history_state.dart';
 
 const double _kCardWidth = 152;
 const double _kCardHeight = 232;
+const double _kListCardHeight = 102;
+
+class _CatalogView {
+  const _CatalogView({
+    required this.id,
+    required this.title,
+    required this.items,
+  });
+
+  final String id;
+  final String title;
+  final List<AniListLibraryEntry> items;
+}
 
 Route<void> _detailsRoute(int mediaId) {
   return PageRouteBuilder<void>(
@@ -147,10 +164,13 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with AutomaticKeepAliveClientMixin {
-  String _selected = 'All';
+  String _selectedCatalogId = 'current';
+  String _selectedLocal = 'All';
   int _refreshTick = 0;
   bool _isVerifyingTracking = false;
   bool _launchTrackingSyncStarted = false;
+  final Map<String, Set<String>> _selectedGenresByCatalog =
+      <String, Set<String>>{};
 
   Future<void> _refresh() async {
     await _runTrackingVerificationSync();
@@ -193,10 +213,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
     if (source == LibrarySource.local) {
       return _LocalLibraryView(
-        selected: _selected,
+        selected: _selectedLocal,
         onSelect: (value) {
           hapticTap();
-          setState(() => _selected = value);
+          setState(() => _selectedLocal = value);
         },
       );
     }
@@ -241,13 +261,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
 
     return _LibraryDataView(
-      key: ValueKey('$_selected-$_refreshTick'),
+      key: ValueKey('$_selectedCatalogId-$_refreshTick'),
       token: auth.token!,
-      selected: _selected,
+      selectedCatalogId: _selectedCatalogId,
+      selectedGenresByCatalog: _selectedGenresByCatalog,
       verifyingTracking: _isVerifyingTracking,
-      onSelect: (value) {
+      onSelectCatalog: (value) {
         hapticTap();
-        setState(() => _selected = value);
+        setState(() => _selectedCatalogId = value);
+      },
+      onSetGenres: (catalogId, genres) {
+        setState(() {
+          _selectedGenresByCatalog[catalogId] = genres;
+        });
       },
       onRefresh: _refresh,
     );
@@ -258,22 +284,81 @@ class _LibraryDataView extends ConsumerWidget {
   const _LibraryDataView({
     super.key,
     required this.token,
-    required this.selected,
+    required this.selectedCatalogId,
+    required this.selectedGenresByCatalog,
     required this.verifyingTracking,
-    required this.onSelect,
+    required this.onSelectCatalog,
+    required this.onSetGenres,
     required this.onRefresh,
   });
 
   final String token;
-  final String selected;
+  final String selectedCatalogId;
+  final Map<String, Set<String>> selectedGenresByCatalog;
   final bool verifyingTracking;
-  final ValueChanged<String> onSelect;
+  final ValueChanged<String> onSelectCatalog;
+  final void Function(String catalogId, Set<String> genres) onSetGenres;
   final Future<void> Function() onRefresh;
+
+  static const List<MapEntry<String, String>> _standardCatalogs = [
+    MapEntry('current', 'Currently Watching'),
+    MapEntry('planning', 'Planning'),
+    MapEntry('completed', 'Completed'),
+    MapEntry('paused', 'Paused'),
+    MapEntry('dropped', 'Dropped'),
+  ];
+
+  static String _normalizeTitleToCatalogId(String title) {
+    final t = title.toLowerCase();
+    if (t.contains('current') || t.contains('watch')) return 'current';
+    if (t.contains('plan')) return 'planning';
+    if (t.contains('complete')) return 'completed';
+    if (t.contains('pause')) return 'paused';
+    if (t.contains('drop')) return 'dropped';
+    return '';
+  }
+
+  static List<AniListLibraryEntry> _sortedItems(
+    List<AniListLibraryEntry> input,
+    LibrarySortMode mode,
+  ) {
+    final out = [...input];
+    switch (mode) {
+      case LibrarySortMode.az:
+        out.sort((a, b) => a.media.title.best.compareTo(b.media.title.best));
+      case LibrarySortMode.za:
+        out.sort((a, b) => b.media.title.best.compareTo(a.media.title.best));
+      case LibrarySortMode.recentlyUpdated:
+        out.sort((a, b) => b.progress.compareTo(a.progress));
+      case LibrarySortMode.dateAdded:
+        out.sort((a, b) => b.id.compareTo(a.id));
+      case LibrarySortMode.highestScore:
+        out.sort(
+          (a, b) => (b.media.averageScore ?? 0).compareTo(
+            a.media.averageScore ?? 0,
+          ),
+        );
+    }
+    return out;
+  }
+
+  static List<AniListLibraryEntry> _genreFilteredItems(
+    List<AniListLibraryEntry> input,
+    Set<String> selectedGenres,
+  ) {
+    if (selectedGenres.isEmpty) return input;
+    return input.where((item) {
+      final genres = item.media.genres.map((e) => e.toLowerCase()).toSet();
+      return selectedGenres.every(genres.contains);
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
     final settings = ref.watch(appSettingsProvider);
+    final prefs = ref.watch(libraryPreferencesProvider);
+    final prefsNotifier = ref.read(libraryPreferencesProvider.notifier);
     ref.watch(librarySyncBumpProvider);
     final cachedSections = client.cachedLibrarySections(token);
 
@@ -292,10 +377,86 @@ class _LibraryDataView extends ConsumerWidget {
             : cachedSections;
         final showingCached = loading && cachedSections.isNotEmpty;
 
-        final chips = <String>['All', ...sections.map((s) => s.title)];
-        final filtered = selected == 'All'
-            ? sections
-            : sections.where((s) => s.title == selected).toList();
+        final titleById = <String, String>{
+          for (final c in _standardCatalogs) c.key: c.value,
+          for (final c in prefs.customCatalogs) c.id: c.title,
+        };
+
+        final entriesByMediaId = <int, AniListLibraryEntry>{};
+        final normalized = <String, List<AniListLibraryEntry>>{};
+        for (final sec in sections) {
+          final id = _normalizeTitleToCatalogId(sec.title);
+          if (id.isEmpty) continue;
+          final list = normalized.putIfAbsent(id, () => <AniListLibraryEntry>[]);
+          for (final item in sec.items) {
+            entriesByMediaId[item.media.id] = item;
+            list.add(item);
+          }
+        }
+
+        final customCatalogsAsSections = <String, List<AniListLibraryEntry>>{};
+        for (final custom in prefs.customCatalogs) {
+          final items = custom.mediaIds
+              .map((id) => entriesByMediaId[id])
+              .whereType<AniListLibraryEntry>()
+              .toList();
+          customCatalogsAsSections[custom.id] = items;
+        }
+
+        final allCatalogIds = <String>[
+          ...prefs.catalogOrder.where(titleById.containsKey),
+          ...titleById.keys.where((id) => !prefs.catalogOrder.contains(id)),
+        ];
+        final visibleCatalogIds = allCatalogIds
+            .where((id) => !prefs.hiddenCatalogIds.contains(id))
+            .toList();
+        if (visibleCatalogIds.isEmpty) {
+          visibleCatalogIds.addAll(allCatalogIds);
+        }
+        final activeCatalogId = visibleCatalogIds.isEmpty
+            ? ''
+            : (visibleCatalogIds.contains(selectedCatalogId)
+                ? selectedCatalogId
+                : visibleCatalogIds.first);
+        if (activeCatalogId != selectedCatalogId) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => onSelectCatalog(activeCatalogId),
+          );
+        }
+
+        final catalogs = <_CatalogView>[];
+        for (final id in visibleCatalogIds) {
+          final source = normalized[id] ?? customCatalogsAsSections[id] ?? const [];
+          final sortMode = prefsNotifier.sortForCatalog(id);
+          final sorted = _sortedItems(source, sortMode);
+          final filteredByGenre = _genreFilteredItems(
+            sorted,
+            selectedGenresByCatalog[id] ?? const <String>{},
+          );
+          catalogs.add(
+            _CatalogView(
+              id: id,
+              title: titleById[id] ?? id,
+              items: filteredByGenre,
+            ),
+          );
+        }
+
+        final selectedCatalog = catalogs.firstWhere(
+          (c) => c.id == activeCatalogId,
+          orElse: () => const _CatalogView(
+            id: '',
+            title: 'Catalog',
+            items: <AniListLibraryEntry>[],
+          ),
+        );
+        final allGenres = <String>{
+          for (final item in selectedCatalog.items)
+            ...item.media.genres.map((e) => e.trim()).where((e) => e.isNotEmpty),
+        }.toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        final selectedGenres =
+            selectedGenresByCatalog[selectedCatalog.id] ?? const <String>{};
         final watching = sections
             .where((s) =>
                 s.title.toLowerCase().contains('watch') ||
@@ -348,22 +509,146 @@ class _LibraryDataView extends ConsumerWidget {
                   height: 38,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: chips.length,
+                    itemCount: catalogs.length,
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final chip = chips[index];
-                      final active = selected == chip;
+                      final chip = catalogs[index];
+                      final active = activeCatalogId == chip.id;
                       return _LibraryFilterChip(
-                        label: chip,
+                        label: chip.title,
                         active: active,
                         isOledBlack: settings.isOledBlack,
-                        onTap: () => onSelect(chip),
+                        onTap: () => onSelectCatalog(chip.id),
                       );
                     },
                   ),
                 ),
               ),
               const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 8,
+                spacing: 8,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.sort_rounded, size: 18),
+                      const SizedBox(width: 8),
+                      DropdownButton<LibrarySortMode>(
+                        value: prefsNotifier.sortForCatalog(activeCatalogId),
+                        items: LibrarySortMode.values
+                            .map(
+                              (m) => DropdownMenuItem(
+                                value: m,
+                                child: Text(m.label),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          prefsNotifier.setCatalogSort(activeCatalogId, value);
+                        },
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Filter genres',
+                        onPressed: () async {
+                          if (allGenres.isEmpty) return;
+                          final result = await showModalBottomSheet<Set<String>>(
+                            context: context,
+                            backgroundColor: const Color(0xFF0F111A),
+                            builder: (context) => _GenreFilterSheet(
+                              genres: allGenres,
+                              selected: selectedGenres,
+                            ),
+                          );
+                          if (result != null) {
+                            onSetGenres(activeCatalogId, result);
+                          }
+                        },
+                        icon: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            const Icon(Icons.filter_alt_rounded),
+                            if (selectedGenres.isNotEmpty)
+                              Positioned(
+                                right: -5,
+                                top: -4,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF8B5CF6),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '${selectedGenres.length}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Grid view',
+                        onPressed: () => prefsNotifier.setLayoutMode(
+                          LibraryLayoutMode.grid,
+                        ),
+                        icon: Icon(
+                          Icons.grid_view_rounded,
+                          color: prefs.layoutMode == LibraryLayoutMode.grid
+                              ? Colors.white
+                              : Colors.white60,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'List view',
+                        onPressed: () => prefsNotifier.setLayoutMode(
+                          LibraryLayoutMode.list,
+                        ),
+                        icon: Icon(
+                          Icons.view_list_rounded,
+                          color: prefs.layoutMode == LibraryLayoutMode.list
+                              ? Colors.white
+                              : Colors.white60,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              if (selectedGenres.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final g in selectedGenres)
+                        Chip(
+                          label: Text(g),
+                          onDeleted: () {
+                            final next = Set<String>.from(selectedGenres)
+                              ..remove(g);
+                            onSetGenres(activeCatalogId, next);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
               if (showingCached)
                 const Padding(
                   padding: EdgeInsets.only(bottom: 8),
@@ -404,16 +689,53 @@ class _LibraryDataView extends ConsumerWidget {
                 const _LibrarySkeletonBody()
               else if (hasError && sections.isEmpty)
                 GlassCard(child: Text('Failed loading library: ${snap.error}'))
-              else if (sections.isEmpty)
-                const GlassCard(child: Text('No library items found.'))
+              else if (catalogs.isEmpty)
+                const _LibraryEmptyState(
+                  icon: Icons.menu_open_rounded,
+                  title: 'No Visible Catalogs',
+                  subtitle:
+                      'Enable at least one catalog from Library Preferences.',
+                )
+              else if (selectedCatalog.items.isEmpty)
+                _LibraryEmptyState(
+                  icon: selectedGenres.isNotEmpty
+                      ? Icons.filter_alt_off_rounded
+                      : Icons.auto_awesome_mosaic_rounded,
+                  title: selectedGenres.isNotEmpty
+                      ? 'No Matches For Filters'
+                      : 'Nothing In ${selectedCatalog.title}',
+                  subtitle: selectedGenres.isNotEmpty
+                      ? 'Try removing one or more genre filters.'
+                      : 'Add anime to this catalog and it will appear here.',
+                )
               else
-                ...filtered.map((section) => Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: _LibrarySection(
-                        section: section,
-                        verifyingTracking: verifyingTracking,
-                      ),
-                    )),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _LibraryCatalogSection(
+                    catalogId: selectedCatalog.id,
+                    title: selectedCatalog.title,
+                    items: selectedCatalog.items,
+                    verifyingTracking: verifyingTracking,
+                    listMode: prefs.layoutMode == LibraryLayoutMode.list,
+                    onLongPressEntry: (entry) async {
+                      if (prefs.customCatalogs.isEmpty) return;
+                      await showModalBottomSheet<void>(
+                        context: context,
+                        backgroundColor: const Color(0xFF0F111A),
+                        builder: (context) => _CustomCatalogPickerSheet(
+                          entry: entry,
+                          catalogs: prefs.customCatalogs,
+                          onToggle: (catalogId) {
+                            prefsNotifier.toggleMediaInCustomCatalog(
+                              catalogId,
+                              entry.media.id,
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
             ],
           ),
         );
@@ -827,17 +1149,25 @@ class _LibraryAnimatedHeroState extends ConsumerState<_LibraryAnimatedHero> {
   }
 }
 
-class _LibrarySection extends StatelessWidget {
-  const _LibrarySection({
-    required this.section,
+class _LibraryCatalogSection extends StatelessWidget {
+  const _LibraryCatalogSection({
+    required this.catalogId,
+    required this.title,
+    required this.items,
     required this.verifyingTracking,
+    required this.listMode,
+    required this.onLongPressEntry,
   });
 
-  final AniListLibrarySection section;
+  final String catalogId;
+  final String title;
+  final List<AniListLibraryEntry> items;
   final bool verifyingTracking;
+  final bool listMode;
+  final Future<void> Function(AniListLibraryEntry entry) onLongPressEntry;
 
   bool get _showProgress {
-    final t = section.title.toLowerCase();
+    final t = catalogId.toLowerCase();
     return t.contains('current') || t.contains('watching');
   }
 
@@ -846,66 +1176,401 @@ class _LibrarySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('${section.title} (${section.items.length})',
+        Text('$title (${items.length})',
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        SizedBox(
-          height: _kCardHeight,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: section.items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final e = section.items[index];
-              return SizedBox(
-                width: _kCardWidth,
-                child: _HoverPosterTile(
+        if (!listMode)
+          SizedBox(
+            height: _kCardHeight,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final e = items[index];
+                return SizedBox(
+                  width: _kCardWidth,
+                  child: _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(_detailsRoute(e.media.id));
                   },
-                  child: Consumer(
-                    builder: (context, ref, _) {
-                      String? unwatchedBadgeText;
-                      if (_showProgress) {
-                        final notifier = ref.watch(
-                          libraryWatchingNotifierProvider(
-                            (mediaId: e.media.id, progress: e.progress),
-                          ),
-                        );
-                        final meta = notifier.valueOrNull;
-                        if (meta != null && meta.totalAvailable > 0) {
-                          unwatchedBadgeText =
-                              '${meta.unseen}/${meta.totalAvailable}';
-                        }
-                      }
-                      final card = _AnimePosterCard(
-                        media: e.media,
-                        progressText: _showProgress
-                            ? '${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'
-                            : null,
-                        progressFraction: _showProgress &&
-                                (e.media.episodes ?? 0) > 0
-                            ? (e.progress / (e.media.episodes!)).clamp(0.0, 1.0)
-                            : null,
-                        unwatchedBadgeText: unwatchedBadgeText,
-                      );
-                      if (!(_showProgress && verifyingTracking)) {
-                        return card;
-                      }
-                      return Shimmer.fromColors(
-                        baseColor: Colors.white.withValues(alpha: 0.18),
-                        highlightColor: Colors.white.withValues(alpha: 0.34),
-                        child: card,
-                      );
-                    },
+                  onLongPress: () => onLongPressEntry(e),
+                  child: _LibraryEntryCard(
+                      entry: e,
+                      showProgress: _showProgress,
+                      verifyingTracking: verifyingTracking,
+                      listMode: false,
+                    ),
+                  ),
+                );
+              },
+            ),
+          )
+        else
+          Column(
+            children: [
+              for (final e in items) ...[
+                _HoverPosterTile(
+                  onTap: () {
+                    hapticTap();
+                    Navigator.of(context).push(_detailsRoute(e.media.id));
+                  },
+                  onLongPress: () => onLongPressEntry(e),
+                  child: SizedBox(
+                    height: _kListCardHeight,
+                    child: _LibraryEntryCard(
+                      entry: e,
+                      showProgress: _showProgress,
+                      verifyingTracking: verifyingTracking,
+                      listMode: true,
+                    ),
                   ),
                 ),
-              );
-            },
+                const SizedBox(height: 10),
+              ]
+            ],
           ),
-        ),
       ],
+    );
+  }
+}
+
+class _LibraryEntryCard extends ConsumerWidget {
+  const _LibraryEntryCard({
+    required this.entry,
+    required this.showProgress,
+    required this.verifyingTracking,
+    required this.listMode,
+  });
+
+  final AniListLibraryEntry entry;
+  final bool showProgress;
+  final bool verifyingTracking;
+  final bool listMode;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    String? unwatchedBadgeText;
+    if (showProgress) {
+      final notifier = ref.watch(
+        libraryWatchingNotifierProvider(
+          (mediaId: entry.media.id, progress: entry.progress),
+        ),
+      );
+      final meta = notifier.valueOrNull;
+      final isReleasing = (meta?.status.toUpperCase() ?? '') == 'RELEASING';
+      if (meta != null && isReleasing && meta.unseen > 0) {
+        unwatchedBadgeText = '${meta.unseen}/${meta.totalAvailable}';
+      }
+    }
+    final card = listMode
+        ? _AnimeListCard(
+            media: entry.media,
+            progressText: showProgress
+                ? '${entry.progress}${entry.media.episodes != null ? ' / ${entry.media.episodes}' : ''}'
+                : null,
+            progressFraction: showProgress && (entry.media.episodes ?? 0) > 0
+                ? (entry.progress / (entry.media.episodes!)).clamp(0.0, 1.0)
+                : null,
+            unwatchedBadgeText: unwatchedBadgeText,
+          )
+        : _AnimePosterCard(
+            media: entry.media,
+            progressText: showProgress
+                ? '${entry.progress}${entry.media.episodes != null ? ' / ${entry.media.episodes}' : ''}'
+                : null,
+            progressFraction: showProgress && (entry.media.episodes ?? 0) > 0
+                ? (entry.progress / (entry.media.episodes!)).clamp(0.0, 1.0)
+                : null,
+            unwatchedBadgeText: unwatchedBadgeText,
+          );
+    if (!(showProgress && verifyingTracking)) return card;
+    return Shimmer.fromColors(
+      baseColor: Colors.white.withValues(alpha: 0.18),
+      highlightColor: Colors.white.withValues(alpha: 0.34),
+      child: card,
+    );
+  }
+}
+
+class _AnimeListCard extends StatelessWidget {
+  const _AnimeListCard({
+    required this.media,
+    this.progressText,
+    this.progressFraction,
+    this.unwatchedBadgeText,
+  });
+
+  final AniListMedia media;
+  final String? progressText;
+  final double? progressFraction;
+  final String? unwatchedBadgeText;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFA1E1E1E),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+          ),
+          Row(
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: media.cover.best != null
+                    ? KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
+                    : Container(color: const Color(0x22111111)),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        media.title.best,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Score: ${media.averageScore ?? 0}%',
+                        style:
+                            const TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                      if (progressText != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Watched: $progressText',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFE5E7EB),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if ((unwatchedBadgeText ?? '').isNotEmpty)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xCC263046), Color(0xB11A2234)],
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.44),
+                    width: 0.5,
+                  ),
+                ),
+                child: Text(
+                  unwatchedBadgeText!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          if ((progressFraction ?? 0) > 0)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                height: 3,
+                color: Colors.white.withValues(alpha: 0.24),
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: (progressFraction ?? 0).clamp(0.0, 1.0),
+                  child: Container(color: const Color(0xFF8B5CF6)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GenreFilterSheet extends StatefulWidget {
+  const _GenreFilterSheet({
+    required this.genres,
+    required this.selected,
+  });
+
+  final List<String> genres;
+  final Set<String> selected;
+
+  @override
+  State<_GenreFilterSheet> createState() => _GenreFilterSheetState();
+}
+
+class _GenreFilterSheetState extends State<_GenreFilterSheet> {
+  late final Set<String> _selected = Set<String>.from(widget.selected);
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Filter by Genres',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final genre in widget.genres)
+                      FilterChip(
+                        selected: _selected.contains(genre),
+                        label: Text(genre),
+                        onSelected: (v) {
+                          setState(() {
+                            if (v) {
+                              _selected.add(genre);
+                            } else {
+                              _selected.remove(genre);
+                            }
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => setState(() => _selected.clear()),
+                  child: const Text('Clear'),
+                ),
+                const Spacer(),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(_selected),
+                  child: const Text('Apply'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomCatalogPickerSheet extends StatelessWidget {
+  const _CustomCatalogPickerSheet({
+    required this.entry,
+    required this.catalogs,
+    required this.onToggle,
+  });
+
+  final AniListLibraryEntry entry;
+  final List<CustomCatalog> catalogs;
+  final ValueChanged<String> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Manage "${entry.media.title.best}"',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            for (final c in catalogs)
+              CheckboxListTile(
+                value: c.mediaIds.contains(entry.media.id),
+                title: Text(c.title),
+                onChanged: (_) => onToggle(c.id),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryEmptyState extends StatelessWidget {
+  const _LibraryEmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF182338).withValues(alpha: 0.78),
+            const Color(0xFF101522).withValues(alpha: 0.88),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.11)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 40, color: const Color(0xFF93C5FD)),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFFA1A8BC)),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -977,45 +1642,45 @@ class _AnimePosterCard extends StatelessWidget {
             Positioned(
               top: 8,
               left: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xCC263046), Color(0xB11A2234)],
-                  ),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.44),
-                    width: 0.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF60A5FA).withValues(alpha: 0.22),
-                      blurRadius: 12,
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.notifications_active_rounded,
-                      size: 11,
-                      color: Color(0xFF93C5FD),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      unwatchedBadgeText!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0x99131A2A),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.30),
+                        width: 0.5,
                       ),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFF8B5CF6),
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          unwatchedBadgeText!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1111,10 +1776,12 @@ class _HoverPosterTile extends StatefulWidget {
   const _HoverPosterTile({
     required this.child,
     required this.onTap,
+    this.onLongPress,
   });
 
   final Widget child;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   State<_HoverPosterTile> createState() => _HoverPosterTileState();
@@ -1149,6 +1816,7 @@ class _HoverPosterTileState extends State<_HoverPosterTile> {
           scale: _hover ? 1.05 : 1.0,
           child: GestureDetector(
             onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
             child: widget.child,
           ),
         ),
@@ -1193,16 +1861,46 @@ class _ContinueWatchingShelf extends ConsumerWidget {
       },
     );
   }
-}
-
-class _ContinueWatchingCard extends ConsumerWidget {
+class _ContinueWatchingCard extends ConsumerStatefulWidget {
   const _ContinueWatchingCard({required this.entry});
 
   final WatchHistoryEntry entry;
 
-  Future<void> _markWatched(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<_ContinueWatchingCard> createState() =>
+      _ContinueWatchingCardState();
+}
+
+class _ContinueWatchingCardState extends ConsumerState<_ContinueWatchingCard> {
+  bool _hovered = false;
+
+  bool get _desktopLike =>
+      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+  WatchHistoryEntry get entry => widget.entry;
+
+  Future<void> _markWatched() async {
     final auth = ref.read(authControllerProvider);
     final token = auth.token;
+    final durationMs = entry.totalDurationMs > 0
+        ? entry.totalDurationMs
+        : (entry.lastPositionMs > 0 ? entry.lastPositionMs : 1);
+
+    await ref.read(progressStoreProvider).write(
+          mediaId: entry.mediaId,
+          episode: entry.episodeNumber,
+          positionMs: durationMs,
+          durationMs: durationMs,
+        );
+    if (entry.isDownloaded) {
+      await ref.read(downloadControllerProvider.notifier).setLocalPlaybackPosition(
+            entry.mediaId,
+            entry.episodeNumber,
+            positionMs: durationMs,
+            durationMs: durationMs,
+          );
+    }
+
     if (token != null && token.isNotEmpty) {
       try {
         final client = ref.read(anilistClientProvider);
@@ -1223,20 +1921,99 @@ class _ContinueWatchingCard extends ConsumerWidget {
         );
         ref.invalidate(mediaListProvider(entry.mediaId));
       } catch (_) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('AniList sync failed')),
-          );
+        if (mounted) {
+          _showContinueWatchingAlert('AniList sync failed');
         }
       }
     }
 
-    await ref
-        .read(watchHistoryStoreProvider)
-        .removeByStorageKey(entry.storageKey);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Marked as watched')),
+    await ref.read(watchHistoryStoreProvider).removeByStorageKey(entry.storageKey);
+    if (!mounted) return;
+    _showContinueWatchingAlert('Episode marked as watched');
+  }
+
+  Future<void> _removeFromHistory() async {
+    await ref.read(watchHistoryStoreProvider).removeByStorageKey(entry.storageKey);
+    if (!mounted) return;
+    _showContinueWatchingAlert('History cleared');
+  }
+
+  Future<void> _showActions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: GlassContainer(
+            borderRadius: 18,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.check_circle_rounded),
+                  title: const Text('Mark as Watched'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    unawaited(_markWatched());
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.history_toggle_off_rounded),
+                  title: const Text('Remove from History'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    unawaited(_removeFromHistory());
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showContinueWatchingAlert(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    final insets = MediaQuery.viewPaddingOf(context);
+    final safeBottom = (insets.bottom + 12).clamp(24.0, 96.0);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        margin: EdgeInsets.fromLTRB(16, 0, 16, safeBottom),
+        content: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xCC131827), Color(0xB9161A2A)],
+                ),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.24),
+                  width: 0.5,
+                ),
+              ),
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1245,9 +2022,7 @@ class _ContinueWatchingCard extends ConsumerWidget {
     final d = Duration(milliseconds: ms);
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    if (d.inHours > 0) {
-      return '${d.inHours}:$m:$s';
-    }
+    if (d.inHours > 0) return '${d.inHours}:$m:$s';
     return '$m:$s';
   }
 
@@ -1263,18 +2038,15 @@ class _ContinueWatchingCard extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final progress = entry.progress;
     final percent = (progress * 100).round();
-    final remainingMs = (entry.totalDurationMs - entry.lastPositionMs)
-        .clamp(0, entry.totalDurationMs);
+    final remainingMs =
+        (entry.totalDurationMs - entry.lastPositionMs).clamp(0, entry.totalDurationMs);
     final timeLeftLabel = _formatTimeLeft(remainingMs);
     final notifierAsync = ref.watch(
       continueWatchingNotifierProvider(
-        (
-          mediaId: entry.mediaId,
-          lastCompleted: entry.lastCompletedEpisode,
-        ),
+        (mediaId: entry.mediaId, lastCompleted: entry.lastCompletedEpisode),
       ),
     );
     final notifier = notifierAsync.valueOrNull;
@@ -1285,16 +2057,12 @@ class _ContinueWatchingCard extends ConsumerWidget {
         : entry.episodeNumber;
     final localArtworkAsync = ref.watch(
       localEpisodeArtworkFileProvider(
-        LocalEpisodeArtworkQuery(
-          mediaId: entry.mediaId,
-          episode: entry.episodeNumber,
-        ),
+        LocalEpisodeArtworkQuery(mediaId: entry.mediaId, episode: entry.episodeNumber),
       ),
     );
     final localArtwork = localArtworkAsync.valueOrNull;
-    final networkFallback = ref
-        .watch(continueWatchingArtworkFallbackProvider(entry.mediaId))
-        .valueOrNull;
+    final networkFallback =
+        ref.watch(continueWatchingArtworkFallbackProvider(entry.mediaId)).valueOrNull;
     final resolvedCoverUrl = (() {
       final stored = (entry.coverImageUrl ?? '').trim();
       if (stored.isNotEmpty) return stored;
@@ -1302,227 +2070,286 @@ class _ContinueWatchingCard extends ConsumerWidget {
       if (fetched.isNotEmpty) return fetched;
       return null;
     })();
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onLongPress: () => _markWatched(context, ref),
-        onTap: () {
-          hapticTap();
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => PlayerScreen(
-                mediaId: entry.mediaId,
-                episodeNumber: entry.episodeNumber,
-                episodeTitle: entry.episodeTitle,
-                sourceUrl: entry.sourceUrl,
-                mediaTitle: entry.mediaTitle,
-                headers: entry.headers,
-                isLocal: entry.isDownloaded,
-                backgroundImageUrl: entry.coverImageUrl,
-                resumePositionMs: entry.lastPositionMs,
+
+    return MouseRegion(
+      onEnter: (_) {
+        if (_desktopLike) setState(() => _hovered = true);
+      },
+      onExit: (_) {
+        if (_desktopLike) setState(() => _hovered = false);
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onLongPress: _showActions,
+          onTap: () {
+            hapticTap();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PlayerScreen(
+                  mediaId: entry.mediaId,
+                  episodeNumber: entry.episodeNumber,
+                  episodeTitle: entry.episodeTitle,
+                  sourceUrl: entry.sourceUrl,
+                  mediaTitle: entry.mediaTitle,
+                  headers: entry.headers,
+                  isLocal: entry.isDownloaded,
+                  backgroundImageUrl: entry.coverImageUrl,
+                  resumePositionMs: entry.lastPositionMs,
+                ),
               ),
+            );
+          },
+          child: Container(
+            width: 252,
+            decoration: BoxDecoration(
+              color: const Color(0xFA1E1E1E),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
-          );
-        },
-        child: Container(
-          width: 252,
-          decoration: BoxDecoration(
-            color: const Color(0xFA1E1E1E),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-          ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final progressWidth = (constraints.maxWidth * progress)
-                  .clamp(0.0, constraints.maxWidth);
-              return Stack(
-                children: [
-                  Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: const BorderRadius.horizontal(
-                          left: Radius.circular(16),
-                        ),
-                        child: SizedBox(
-                          width: 92,
-                          height: double.infinity,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (localArtwork != null)
-                                Image.file(
-                                  localArtwork,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) {
-                                    if (resolvedCoverUrl != null) {
-                                      return KyomiruImageCache.image(
-                                        resolvedCoverUrl,
-                                        fit: BoxFit.cover,
-                                        error: const ColoredBox(
-                                            color: Color(0x22111111)),
-                                      );
-                                    }
-                                    return const ColoredBox(
-                                        color: Color(0x22111111));
-                                  },
-                                )
-                              else if (resolvedCoverUrl != null)
-                                KyomiruImageCache.image(
-                                  resolvedCoverUrl,
-                                  fit: BoxFit.cover,
-                                  error: const ColoredBox(
-                                      color: Color(0x22111111)),
-                                )
-                              else
-                                const ColoredBox(color: Color(0x22111111)),
-                              Positioned.fill(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.transparent,
-                                        Colors.black.withValues(alpha: 0.45),
-                                      ],
-                                      stops: const [0.58, 1.0],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final progressWidth =
+                    (constraints.maxWidth * progress).clamp(0.0, constraints.maxWidth);
+                return Stack(
+                  children: [
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: const BorderRadius.horizontal(
+                            left: Radius.circular(16),
+                          ),
+                          child: SizedBox(
+                            width: 92,
+                            height: double.infinity,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (localArtwork != null)
+                                  Image.file(
+                                    localArtwork,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) {
+                                      if (resolvedCoverUrl != null) {
+                                        return KyomiruImageCache.image(
+                                          resolvedCoverUrl,
+                                          fit: BoxFit.cover,
+                                          error:
+                                              const ColoredBox(color: Color(0x22111111)),
+                                        );
+                                      }
+                                      return const ColoredBox(color: Color(0x22111111));
+                                    },
+                                  )
+                                else if (resolvedCoverUrl != null)
+                                  KyomiruImageCache.image(
+                                    resolvedCoverUrl,
+                                    fit: BoxFit.cover,
+                                    error: const ColoredBox(color: Color(0x22111111)),
+                                  )
+                                else
+                                  const ColoredBox(color: Color(0x22111111)),
+                                Positioned.fill(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.transparent,
+                                          Colors.black.withValues(alpha: 0.45),
+                                        ],
+                                        stops: const [0.58, 1.0],
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                entry.mediaTitle,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  entry.mediaTitle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Episode ${entry.episodeNumber}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Episode ${entry.episodeNumber}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                '$percent% â€¢ ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} â€¢ ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' â€¢ Local' : ''}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
+                                const Spacer(),
+                                Text(
+                                  '$percent% • ${_formatDurationMs(entry.lastPositionMs)} / ${_formatDurationMs(entry.totalDurationMs)} • ${entry.lastCompletedEpisode}/$globalProgressTotal${entry.isDownloaded ? ' • Local' : ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                            ],
+                                const SizedBox(height: 8),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      height: 4,
-                      width: double.infinity,
-                      decoration: const BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.vertical(
-                          bottom: Radius.circular(16),
-                        ),
-                      ),
+                      ],
                     ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    bottom: 0,
-                    child: Container(
-                      height: 4,
-                      width: progressWidth,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF3B82F6),
-                        borderRadius: BorderRadius.vertical(
-                          bottom: Radius.circular(16),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 0,
-                    bottom: 4,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 10, 4),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.55),
-                          ],
-                        ),
-                      ),
-                      child: Text(
-                        timeLeftLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (showUnseen)
                     Positioned(
-                      top: 8,
-                      right: 8,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                        height: 4,
+                        width: double.infinity,
+                        decoration: const BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.vertical(
+                            bottom: Radius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      bottom: 0,
+                      child: Container(
+                        height: 4,
+                        width: progressWidth,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF3B82F6),
+                          borderRadius: BorderRadius.vertical(
+                            bottom: Radius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 4,
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 10, 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEF4444),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.16),
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.55),
+                            ],
                           ),
                         ),
                         child: Text(
-                          '+$unseen',
+                          timeLeftLabel,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                     ),
-                ],
-              );
-            },
+                    if (showUnseen)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Text(
+                            '+$unseen',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_desktopLike)
+                      Positioned(
+                        top: 8,
+                        right: showUnseen ? 52 : 8,
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 140),
+                          opacity: _hovered ? 1 : 0,
+                          child: IgnorePointer(
+                            ignoring: !_hovered,
+                            child: Row(
+                              children: [
+                                _DesktopQuickAction(
+                                  icon: Icons.check_rounded,
+                                  onTap: () => unawaited(_markWatched()),
+                                ),
+                                const SizedBox(width: 6),
+                                _DesktopQuickAction(
+                                  icon: Icons.close_rounded,
+                                  onTap: () => unawaited(_removeFromHistory()),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+class _DesktopQuickAction extends StatelessWidget {
+  const _DesktopQuickAction({
+    required this.icon,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xCC111827),
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(5),
+          child: Icon(icon, size: 14, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
 }
 
 class _LibrarySkeleton extends StatelessWidget {

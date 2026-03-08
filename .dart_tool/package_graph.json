@@ -9,7 +9,9 @@
       "dependencies": [
         "cached_network_image",
         "connectivity_plus",
+        "cross_file",
         "cupertino_icons",
+        "desktop_drop",
         "dio",
         "file_picker",
         "flutter",
@@ -22,6 +24,8 @@
         "media_kit",
         "media_kit_libs_android_video",
         "media_kit_libs_ios_video",
+        "media_kit_libs_macos_video",
+        "media_kit_libs_windows_video",
         "media_kit_video",
         "palette_generator",
         "path",
@@ -62,6 +66,23 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "cross_file",
+      "version": "0.3.5+2",
+      "dependencies": [
+        "meta",
+        "web"
+      ]
+    },
+    {
+      "name": "desktop_drop",
+      "version": "0.4.4",
+      "dependencies": [
+        "cross_file",
+        "flutter",
+        "flutter_web_plugins"
       ]
     },
     {
@@ -142,6 +163,21 @@
     {
       "name": "shimmer",
       "version": "3.0.0",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
+      "name": "media_kit_libs_macos_video",
+      "version": "1.1.4",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "media_kit_libs_windows_video",
+      "version": "1.0.11",
       "dependencies": [
         "flutter"
       ]
@@ -442,6 +478,18 @@
       ]
     },
     {
+      "name": "web",
+      "version": "1.1.1",
+      "dependencies": []
+    },
+    {
+      "name": "flutter_web_plugins",
+      "version": "0.0.0",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
       "name": "screen_retriever",
       "version": "0.2.0",
       "dependencies": [
@@ -511,11 +559,6 @@
       ]
     },
     {
-      "name": "web",
-      "version": "1.1.1",
-      "dependencies": []
-    },
-    {
       "name": "package_info_plus",
       "version": "9.0.0",
       "dependencies": [
@@ -555,13 +598,6 @@
         "flutter",
         "meta",
         "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "flutter_web_plugins",
-      "version": "0.0.0",
-      "dependencies": [
-        "flutter"
       ]
     },
     {
@@ -795,14 +831,6 @@
       "version": "3.0.7",
       "dependencies": [
         "typed_data"
-      ]
-    },
-    {
-      "name": "cross_file",
-      "version": "0.3.5+2",
-      "dependencies": [
-        "meta",
-        "web"
       ]
     },
     {

@@ -524,6 +524,33 @@ class DownloadController extends StateNotifier<DownloadState> {
     return targets.length;
   }
 
+  Future<int> clearQueue() async {
+    final queued = state.items.values
+        .where((item) => item.status != 'done')
+        .toList(growable: false);
+    if (queued.isEmpty) return 0;
+
+    for (final item in queued) {
+      final token = _cancelTokens.remove(item.key);
+      if (token != null && !token.isCancelled) {
+        token.cancel('queue cleared');
+      }
+      _speedWindows.remove(item.key);
+      _lastUiEmitMs.remove(item.key);
+      _lastDiskPersistMs.remove(item.key);
+      await _box.delete(item.key);
+    }
+
+    final updated = <String, DownloadItem>{};
+    for (final entry in state.items.entries) {
+      if (entry.value.status == 'done') {
+        updated[entry.key] = entry.value;
+      }
+    }
+    state = DownloadState(items: updated);
+    return queued.length;
+  }
+
   Future<DownloadItem> importLocalEpisode({
     required int mediaId,
     required int episode,
@@ -1030,8 +1057,9 @@ class DownloadController extends StateNotifier<DownloadState> {
     if (Platform.isIOS) {
       base = await getApplicationDocumentsDirectory();
     } else if (Platform.isAndroid) {
-      base = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
+      // Prefer app-scoped documents on Android to fully comply with scoped
+      // storage across API levels without broad storage permissions.
+      base = await getApplicationDocumentsDirectory();
     } else {
       base = await getApplicationDocumentsDirectory();
     }

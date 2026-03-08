@@ -1552,13 +1552,15 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
   void _showFloatingGlassAlert(String message) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    final insets = MediaQuery.viewPaddingOf(context);
+    final safeBottom = (insets.bottom + 12).clamp(24.0, 96.0);
     messenger.clearSnackBars();
     messenger.showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        margin: EdgeInsets.fromLTRB(16, 0, 16, safeBottom),
         content: ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: BackdropFilter(

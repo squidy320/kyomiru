@@ -11,6 +11,7 @@ import '../../state/library_source_state.dart';
 import 'account_data_settings_screen.dart';
 import 'appearance_settings_screen.dart';
 import 'debug_logs_screen.dart';
+import 'library_preferences_screen.dart';
 import 'player_settings_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -65,6 +66,18 @@ class SettingsScreen extends ConsumerWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const PlayerSettingsScreen(),
+                      ),
+                    ),
+                  ),
+                  _row(
+                    context,
+                    icon: Icons.library_books_outlined,
+                    title: 'Library Preferences',
+                    subtitle:
+                        'Catalog visibility, order, custom lists, sort & layout',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LibraryPreferencesScreen(),
                       ),
                     ),
                   ),

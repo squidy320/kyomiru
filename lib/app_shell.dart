@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -23,10 +25,13 @@ import 'features/player/player_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
 import 'services/anilist_client.dart';
+import 'services/download_manager.dart';
 import 'state/app_settings_state.dart';
 import 'state/auth_state.dart';
 import 'state/ui_ambient_state.dart';
 import 'state/watch_history_state.dart';
+import 'package:path/path.dart' as p;
+import 'package:window_manager/window_manager.dart';
 
 class KyomiruApp extends ConsumerWidget {
   const KyomiruApp({super.key, required this.liquidGlassEnabled});
@@ -112,6 +117,8 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   double _wideDockFactor = 0.5;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   ProviderSubscription<AuthState>? _authSub;
+  final TextEditingController _desktopSearchController =
+      TextEditingController();
 
   static const _pages = <Widget>[
     _UnifiedLibraryTab(),
@@ -135,6 +142,101 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       },
       fireImmediately: true,
     );
+  }
+
+  @override
+  void dispose() {
+    _desktopSearchController.dispose();
+    _connectivitySub?.cancel();
+    _authSub?.close();
+    super.dispose();
+  }
+
+  bool get _isDesktop =>
+      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+  Future<void> _handleDesktopDrop(List<XFile> files) async {
+    if (!_isDesktop || files.isEmpty || !mounted) return;
+    final candidates = files
+        .map((f) => f.path)
+        .where((path) {
+          final lower = path.toLowerCase();
+          return lower.endsWith('.mp4') || lower.endsWith('.mkv');
+        })
+        .toList(growable: false);
+    if (candidates.isEmpty) return;
+
+    final dm = ref.read(downloadControllerProvider.notifier);
+    var imported = 0;
+    for (final path in candidates) {
+      final episodeGuess = dm.detectEpisodeNumberFromFilePath(path) ?? 1;
+      final mapped = await _showDesktopDropImportDialog(path, episodeGuess);
+      if (mapped == null || !mounted) continue;
+      await dm.importLocalEpisode(
+        mediaId: 0,
+        episode: mapped.episode,
+        animeTitle: mapped.title,
+        absoluteFilePath: path,
+      );
+      imported++;
+    }
+    if (!mounted || imported == 0) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        content: Text('Imported $imported desktop file(s)'),
+      ),
+    );
+    setState(() => _index = 3);
+  }
+
+  Future<({String title, int episode})?> _showDesktopDropImportDialog(
+    String path,
+    int episodeGuess,
+  ) async {
+    final titleController =
+        TextEditingController(text: p.basenameWithoutExtension(path));
+    final episodeController = TextEditingController(text: '$episodeGuess');
+    final result = await showDialog<({String title, int episode})>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import Local Episode'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: 'Anime Title'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: episodeController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Episode Number'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final ep = int.tryParse(episodeController.text.trim());
+              final title = titleController.text.trim();
+              if (ep == null || ep <= 0 || title.isEmpty) return;
+              Navigator.of(context).pop((title: title, episode: ep));
+            },
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    titleController.dispose();
+    episodeController.dispose();
+    return result;
   }
 
   Future<void> _warmContinueWatchingNotifiers(String token) async {
@@ -292,11 +394,57 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     });
   }
 
-  @override
-  void dispose() {
-    _connectivitySub?.cancel();
-    _authSub?.close();
-    super.dispose();
+  Widget _buildDesktopShell({
+    required BuildContext context,
+    required int safeIndex,
+    required Widget offlineBadge,
+    required int unread,
+  }) {
+    final content = Row(
+      children: [
+        _DesktopExpandedRail(
+          index: safeIndex,
+          unread: unread,
+          onTap: _onItemTapped,
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: safeIndex,
+            children: _pages,
+          ),
+        ),
+      ],
+    );
+
+    final body = Scaffold(
+      extendBody: true,
+      extendBodyBehindAppBar: true,
+      resizeToAvoidBottomInset: false,
+      body: GlassScaffoldBackground(
+        child: Column(
+          children: [
+            _DesktopLiquidTitleBar(
+              searchController: _desktopSearchController,
+              onSearch: () => _openSearch(),
+            ),
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  content,
+                  offlineBadge,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return DropTarget(
+      onDragDone: (details) => unawaited(_handleDesktopDrop(details.files)),
+      child: body,
+    );
   }
 
   @override
@@ -365,6 +513,14 @@ class _AppTabsState extends ConsumerState<AppTabs> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isLarge = constraints.maxWidth > 600;
+        if (_isDesktop) {
+          return _buildDesktopShell(
+            context: context,
+            safeIndex: safeIndex,
+            offlineBadge: offlineBadge,
+            unread: displayUnread,
+          );
+        }
         if (!isLarge) {
           return Scaffold(
             extendBody: true,
@@ -547,6 +703,217 @@ class _PillBottomBar extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _DesktopLiquidTitleBar extends StatefulWidget {
+  const _DesktopLiquidTitleBar({
+    required this.searchController,
+    required this.onSearch,
+  });
+
+  final TextEditingController searchController;
+  final VoidCallback onSearch;
+
+  @override
+  State<_DesktopLiquidTitleBar> createState() => _DesktopLiquidTitleBarState();
+}
+
+class _DesktopLiquidTitleBarState extends State<_DesktopLiquidTitleBar> {
+  bool _isMaximized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_sync());
+  }
+
+  Future<void> _sync() async {
+    _isMaximized = await windowManager.isMaximized();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 62,
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.26),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 0.5),
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (_) => windowManager.startDragging(),
+            onDoubleTap: () async {
+              if (await windowManager.isMaximized()) {
+                await windowManager.unmaximize();
+              } else {
+                await windowManager.maximize();
+              }
+              await _sync();
+            },
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                children: [
+                  Icon(CupertinoIcons.play_rectangle_fill, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'Kyomiru',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: TextField(
+              controller: widget.searchController,
+              onSubmitted: (_) => widget.onSearch(),
+              decoration: InputDecoration(
+                hintText: 'Search anime...',
+                isDense: true,
+                prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    width: 0.5,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    width: 0.5,
+                  ),
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Minimize',
+            onPressed: () => unawaited(windowManager.minimize()),
+            icon: const Icon(Icons.remove_rounded),
+          ),
+          IconButton(
+            tooltip: _isMaximized ? 'Restore' : 'Maximize',
+            onPressed: () async {
+              if (_isMaximized) {
+                await windowManager.unmaximize();
+              } else {
+                await windowManager.maximize();
+              }
+              await _sync();
+            },
+            icon: Icon(_isMaximized
+                ? Icons.filter_none_rounded
+                : Icons.crop_square_rounded),
+          ),
+          IconButton(
+            tooltip: 'Close',
+            onPressed: () => unawaited(windowManager.close()),
+            icon: const Icon(Icons.close_rounded),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopExpandedRail extends StatelessWidget {
+  const _DesktopExpandedRail({
+    required this.index,
+    required this.unread,
+    required this.onTap,
+  });
+
+  final int index;
+  final int unread;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <(int i, IconData icon, String label)>[
+      (0, CupertinoIcons.book_fill, 'Library'),
+      (1, CupertinoIcons.compass_fill, 'Discovery'),
+      (2, CupertinoIcons.bell_fill, 'Alerts'),
+      (3, CupertinoIcons.arrow_down_circle_fill, 'Downloads'),
+      (4, CupertinoIcons.gear, 'Settings'),
+    ];
+    return Container(
+      width: 228,
+      margin: const EdgeInsets.fromLTRB(12, 0, 10, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: Colors.black.withValues(alpha: 0.30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16), width: 0.5),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => onTap(item.$1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: index == item.$1
+                        ? const Color(0xFF4F46E5).withValues(alpha: 0.35)
+                        : Colors.transparent,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(item.$2, size: 19),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          item.$3,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      if (item.$1 == 2 && unread > 0)
+                        Container(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: Colors.redAccent,
+                          ),
+                          child: Text(
+                            '$unread',
+                            style: const TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          const Spacer(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 8, 12, 12),
+            child: Text(
+              'Desktop mode',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -929,10 +1296,10 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
                 SliverToBoxAdapter(
                   child: _LibraryWideHero(media: heroMedia, topInset: topInset),
                 ),
-                SliverToBoxAdapter(
+                const SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                    child: const _LibraryContinueWatchingShelf(),
+                    padding: EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: _LibraryContinueWatchingShelf(),
                   ),
                 ),
                 SliverToBoxAdapter(

@@ -1,0 +1,125 @@
+name: Desktop Builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    name: Windows Release Build
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Visual Studio C++ Build Tools
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere.exe was not found. Visual Studio Build Tools are missing."
+            exit 1
+          }
+          $installPath = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if ([string]::IsNullOrWhiteSpace($installPath)) {
+            Write-Error "Required Visual Studio C++ tools not found (Microsoft.VisualStudio.Component.VC.Tools.x86.x64)."
+            exit 1
+          }
+          Write-Host "Found Visual Studio C++ tools at: $installPath"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Build Windows (Release)
+        run: flutter build windows --release
+
+      - name: Archive Windows Artifacts
+        shell: pwsh
+        run: |
+          $source = "build/windows/runner/Release/*"
+          $dest = "kyomiru-windows-release.zip"
+          if (-not (Test-Path "build/windows/runner/Release")) {
+            Write-Error "Windows release output folder not found: build/windows/runner/Release"
+            exit 1
+          }
+          Compress-Archive -Path $source -DestinationPath $dest -Force
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyomiru-windows-release
+          path: kyomiru-windows-release.zip
+          if-no-files-found: error
+
+  macos-build:
+    name: macOS Release Build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Pre-build Check (macOS Podfile modular headers)
+        shell: bash
+        run: |
+          if [[ ! -f "macos/Podfile" ]]; then
+            echo "ERROR: macos/Podfile is missing."
+            echo "Add macos/Podfile and include: use_modular_headers!"
+            exit 1
+          fi
+          if ! grep -q "use_modular_headers!" macos/Podfile; then
+            echo "ERROR: macos/Podfile must include use_modular_headers!"
+            exit 1
+          fi
+          echo "Podfile check passed."
+
+      - name: CocoaPods Install (macOS)
+        shell: bash
+        run: |
+          cd macos
+          pod repo update
+          pod install
+
+      - name: Build macOS (Release)
+        run: flutter build macos --release
+
+      - name: Archive macOS .app
+        shell: bash
+        run: |
+          APP_PATH="$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -n 1)"
+          if [[ -z "$APP_PATH" ]]; then
+            echo "ERROR: macOS .app bundle was not found."
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" kyomiru-macos-release.zip
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyomiru-macos-release
+          path: kyomiru-macos-release.zip
+          if-no-files-found: error

@@ -252,6 +252,9 @@ Future<void> main() async {
       size: Size(1280, 800),
       center: true,
       title: 'kyomiru',
+      titleBarStyle: TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+      backgroundColor: Colors.transparent,
     );
     await windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.show();

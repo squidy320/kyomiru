@@ -46,6 +46,14 @@ class _SeekBackIntent extends Intent {
   const _SeekBackIntent();
 }
 
+class _ToggleFullscreenIntent extends Intent {
+  const _ToggleFullscreenIntent();
+}
+
+class _ToggleMuteIntent extends Intent {
+  const _ToggleMuteIntent();
+}
+
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({
     super.key,
@@ -432,6 +440,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('cache-secs', isHls ? '40' : '12');
       await setProp('video-sync', 'audio');
       await setProp('audio-pitch-correction', 'yes');
+      if (Platform.isWindows) {
+        await setProp('hwdec', 'dxva2-copy');
+      } else if (Platform.isMacOS) {
+        await setProp('hwdec', 'videotoolbox');
+      } else {
+        await setProp('hwdec', 'auto-safe');
+      }
     } catch (_) {}
   }
 
@@ -1913,6 +1928,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     super.dispose();
   }
 
+  Future<void> _toggleMute() async {
+    final mk = _mediaKitPlayer;
+    if (mk == null) return;
+    final current = mk.state.volume;
+    if (current <= 0.01) {
+      await mk.setVolume(100);
+    } else {
+      await mk.setVolume(0);
+    }
+  }
+
+  Future<void> _toggleFullscreenDesktop() async {
+    await _enterFullscreenPlayerMode();
+  }
+
   @override
   Widget build(BuildContext context) {
     final usingMediaKit = _mediaKitVideoController != null;
@@ -1930,6 +1960,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         SingleActivator(LogicalKeyboardKey.space): _TogglePlayIntent(),
         SingleActivator(LogicalKeyboardKey.arrowRight): _SeekForwardIntent(),
         SingleActivator(LogicalKeyboardKey.arrowLeft): _SeekBackIntent(),
+        SingleActivator(LogicalKeyboardKey.keyF): _ToggleFullscreenIntent(),
+        SingleActivator(LogicalKeyboardKey.keyM): _ToggleMuteIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -1948,6 +1980,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           _SeekBackIntent: CallbackAction<_SeekBackIntent>(
             onInvoke: (_) {
               unawaited(_seekRelative(const Duration(seconds: -10)));
+              return null;
+            },
+          ),
+          _ToggleFullscreenIntent: CallbackAction<_ToggleFullscreenIntent>(
+            onInvoke: (_) {
+              unawaited(_toggleFullscreenDesktop());
+              return null;
+            },
+          ),
+          _ToggleMuteIntent: CallbackAction<_ToggleMuteIntent>(
+            onInvoke: (_) {
+              unawaited(_toggleMute());
               return null;
             },
           ),
