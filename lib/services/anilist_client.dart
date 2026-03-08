@@ -75,6 +75,7 @@ class AniListClient {
 
   static const Duration _staleTtl = Duration(minutes: 30);
   static const Duration _trackingTtl = Duration(minutes: 2);
+  static const Duration _libraryTrackingTtl = Duration(minutes: 5);
   static const Duration _mediaTtl = Duration(hours: 24);
   final Set<String> _refreshing = <String>{};
 
@@ -715,23 +716,30 @@ class AniListClient {
   Future<List<AniListLibraryEntry>> libraryCurrent(
     String token, {
     int? userId,
+    bool force = false,
   }) async {
     final uid = userId ?? (await me(token)).id;
     final cacheKey = '$token:$uid';
     final persistedKey = 'libraryCurrent:$cacheKey';
     final cached = _libraryCurrentCache[cacheKey];
-    if (cached != null) {
+    if (!force && cached != null) {
       if (cached.isValid) return cached.value;
       _refreshInBackground('libraryCurrent:$cacheKey', () async {
         _libraryCurrentCache.remove(cacheKey);
         final fresh = await libraryCurrent(token, userId: uid);
         _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
-            fresh, DateTime.now().add(_staleTtl));
+            fresh, DateTime.now().add(_libraryTrackingTtl));
       });
       return cached.value;
     }
-    final persisted = _readQueryCache(persistedKey);
-    if (persisted != null) {
+    if (force) {
+      _libraryCurrentCache.remove(cacheKey);
+    }
+    final persisted = _readQueryCache(
+      persistedKey,
+      maxAge: _libraryTrackingTtl,
+    );
+    if (!force && persisted != null) {
       final rows = (persisted['items'] as List? ?? const [])
           .whereType<Map>()
           .map(
@@ -739,7 +747,7 @@ class AniListClient {
           .toList();
       _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
         rows,
-        DateTime.now().add(_staleTtl),
+        DateTime.now().add(_libraryTrackingTtl),
       );
       return rows;
     }
@@ -795,7 +803,7 @@ class AniListClient {
       }
     }
     _libraryCurrentCache[cacheKey] = _CacheEntry<List<AniListLibraryEntry>>(
-        out, DateTime.now().add(_staleTtl));
+        out, DateTime.now().add(_libraryTrackingTtl));
     _writeQueryCache(
       persistedKey,
       {
@@ -833,24 +841,31 @@ class AniListClient {
   Future<List<AniListLibrarySection>> librarySections(
     String token, {
     int? userId,
+    bool force = false,
   }) async {
     final uid = userId ?? (await me(token)).id;
     final cacheKey = '$token:$uid';
     final persistedKey = 'librarySections:$cacheKey';
     final cached = _librarySectionsCache[cacheKey];
-    if (cached != null) {
+    if (!force && cached != null) {
       if (cached.isValid) return cached.value;
       _refreshInBackground('librarySections:$cacheKey', () async {
         _librarySectionsCache.remove(cacheKey);
         final fresh = await librarySections(token, userId: uid);
         _librarySectionsCache[cacheKey] =
             _CacheEntry<List<AniListLibrarySection>>(
-                fresh, DateTime.now().add(_staleTtl));
+                fresh, DateTime.now().add(_libraryTrackingTtl));
       });
       return cached.value;
     }
-    final persisted = _readQueryCache(persistedKey);
-    if (persisted != null) {
+    if (force) {
+      _librarySectionsCache.remove(cacheKey);
+    }
+    final persisted = _readQueryCache(
+      persistedKey,
+      maxAge: _libraryTrackingTtl,
+    );
+    if (!force && persisted != null) {
       final sections = (persisted['sections'] as List? ?? const [])
           .whereType<Map>()
           .map((e) {
@@ -866,7 +881,7 @@ class AniListClient {
       _librarySectionsCache[cacheKey] =
           _CacheEntry<List<AniListLibrarySection>>(
         sections,
-        DateTime.now().add(_staleTtl),
+        DateTime.now().add(_libraryTrackingTtl),
       );
       return sections;
     }
@@ -943,7 +958,7 @@ class AniListClient {
 
       _librarySectionsCache[cacheKey] =
           _CacheEntry<List<AniListLibrarySection>>(
-              out, DateTime.now().add(_staleTtl));
+              out, DateTime.now().add(_libraryTrackingTtl));
       _writeQueryCache(
         persistedKey,
         {
@@ -992,7 +1007,7 @@ class AniListClient {
       ];
       _librarySectionsCache[cacheKey] =
           _CacheEntry<List<AniListLibrarySection>>(
-              fallback, DateTime.now().add(_staleTtl));
+              fallback, DateTime.now().add(_libraryTrackingTtl));
       return fallback;
     }
   }

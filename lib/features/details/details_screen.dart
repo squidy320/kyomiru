@@ -135,6 +135,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     if (_deferredInitStarted) return;
     _deferredInitStarted = true;
     ref.invalidate(episodeProvider);
+    unawaited(_prefetchTrackingForCurrentMedia());
     setState(() {
       _mediaDetailsFuture = _loadMediaDetails();
     });
@@ -143,6 +144,31 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       if (!mounted) return;
       setState(() => _allowGlass = true);
     }));
+  }
+
+  Future<void> _prefetchTrackingForCurrentMedia() async {
+    final source = ref.read(librarySourceProvider);
+    if (source != LibrarySource.anilist) return;
+    final auth = ref.read(authControllerProvider);
+    final token = auth.token;
+    if (token == null || token.isEmpty) return;
+    try {
+      await ref
+          .read(anilistClientProvider)
+          .trackingEntry(token, _currentMediaId, force: true);
+      ref.invalidate(mediaListProvider(_currentMediaId));
+      AppLogger.i(
+        'Details',
+        'tracking prefetch refreshed mediaId=$_currentMediaId',
+      );
+    } catch (e, st) {
+      AppLogger.w(
+        'Details',
+        'tracking prefetch failed mediaId=$_currentMediaId',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   Future<AniListMedia> _loadMediaDetails() async {
@@ -182,6 +208,7 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
       _lastPaletteRequestImage = null;
       _mediaDetailsFuture = _loadMediaDetails();
     });
+    unawaited(_prefetchTrackingForCurrentMedia());
   }
 
   AniListMedia? _readCachedMediaPreview(int mediaId) {

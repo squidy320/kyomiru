@@ -136,10 +136,37 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with AutomaticKeepAliveClientMixin {
   String _selected = 'All';
   int _refreshTick = 0;
+  bool _isVerifyingTracking = false;
+  bool _launchTrackingSyncStarted = false;
 
   Future<void> _refresh() async {
+    await _runTrackingVerificationSync();
+    if (!mounted) return;
     setState(() => _refreshTick++);
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+  }
+
+  Future<void> _runTrackingVerificationSync() async {
+    if (_isVerifyingTracking) return;
+    final source = ref.read(librarySourceProvider);
+    final auth = ref.read(authControllerProvider);
+    final token = auth.token;
+    if (source != LibrarySource.anilist || token == null || token.isEmpty) {
+      return;
+    }
+    setState(() => _isVerifyingTracking = true);
+    try {
+      final client = ref.read(anilistClientProvider);
+      final user = await client.me(token, force: true);
+      await Future.wait<void>([
+        client.librarySections(token, userId: user.id, force: true).then((_) {}),
+        client.libraryCurrent(token, userId: user.id, force: true).then((_) {}),
+      ]);
+      ref.read(librarySyncBumpProvider.notifier).state++;
+    } finally {
+      if (mounted) {
+        setState(() => _isVerifyingTracking = false);
+      }
+    }
   }
 
   @override
@@ -195,10 +222,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       );
     }
 
+    if (!_launchTrackingSyncStarted) {
+      _launchTrackingSyncStarted = true;
+      unawaited(_runTrackingVerificationSync());
+    }
+
     return _LibraryDataView(
       key: ValueKey('$_selected-$_refreshTick'),
       token: auth.token!,
       selected: _selected,
+      verifyingTracking: _isVerifyingTracking,
       onSelect: (value) {
         hapticTap();
         setState(() => _selected = value);
@@ -213,12 +246,14 @@ class _LibraryDataView extends ConsumerWidget {
     super.key,
     required this.token,
     required this.selected,
+    required this.verifyingTracking,
     required this.onSelect,
     required this.onRefresh,
   });
 
   final String token;
   final String selected;
+  final bool verifyingTracking;
   final ValueChanged<String> onSelect;
   final Future<void> Function() onRefresh;
 
@@ -230,8 +265,10 @@ class _LibraryDataView extends ConsumerWidget {
     final cachedSections = client.cachedLibrarySections(token);
 
     return FutureBuilder<List<dynamic>>(
-      future: client.me(token).then(
-          (u) async => [u, await client.librarySections(token, userId: u.id)]),
+      future: client.me(token).then((u) async => [
+            u,
+            await client.librarySections(token, userId: u.id),
+          ]),
       builder: (context, snap) {
         final loading = snap.connectionState == ConnectionState.waiting;
         final hasError = snap.hasError;
@@ -326,6 +363,28 @@ class _LibraryDataView extends ConsumerWidget {
                     ),
                   ),
                 ),
+              if (verifyingTracking)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Verifying AniList progress...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFFA1A8BC),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               const _ContinueWatchingShelf(),
               const SizedBox(height: 12),
               if (loading && cachedSections.isEmpty)
@@ -337,7 +396,10 @@ class _LibraryDataView extends ConsumerWidget {
               else
                 ...filtered.map((section) => Padding(
                       padding: const EdgeInsets.only(bottom: 14),
-                      child: _LibrarySection(section: section),
+                      child: _LibrarySection(
+                        section: section,
+                        verifyingTracking: verifyingTracking,
+                      ),
                     )),
             ],
           ),
@@ -754,9 +816,13 @@ class _LibraryAnimatedHeroState extends ConsumerState<_LibraryAnimatedHero> {
 }
 
 class _LibrarySection extends StatelessWidget {
-  const _LibrarySection({required this.section});
+  const _LibrarySection({
+    required this.section,
+    required this.verifyingTracking,
+  });
 
   final AniListLibrarySection section;
+  final bool verifyingTracking;
 
   bool get _showProgress {
     final t = section.title.toLowerCase();
@@ -802,7 +868,7 @@ class _LibrarySection extends StatelessWidget {
                           unseenCount = meta.unseen;
                         }
                       }
-                      return _AnimePosterCard(
+                      final card = _AnimePosterCard(
                         media: e.media,
                         progressText: _showProgress
                             ? '${e.progress}${e.media.episodes != null ? ' / ${e.media.episodes}' : ''}'
@@ -812,6 +878,14 @@ class _LibrarySection extends StatelessWidget {
                             ? (e.progress / (e.media.episodes!)).clamp(0.0, 1.0)
                             : null,
                         unseenCount: unseenCount,
+                      );
+                      if (!(_showProgress && verifyingTracking)) {
+                        return card;
+                      }
+                      return Shimmer.fromColors(
+                        baseColor: Colors.white.withValues(alpha: 0.18),
+                        highlightColor: Colors.white.withValues(alpha: 0.34),
+                        child: card,
                       );
                     },
                   ),
