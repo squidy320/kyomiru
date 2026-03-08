@@ -3012,68 +3012,79 @@ class _TrackingPaneState extends ConsumerState<_TrackingPane> {
                         child: Transform.scale(scale: v, child: child),
                       );
                     },
-                    child: Container(
-                      constraints: const BoxConstraints(maxWidth: 380),
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: (success
-                                    ? const Color(0xFF22C55E)
-                                    : const Color(0xFFF87171))
-                                .withValues(alpha: 0.24),
-                            blurRadius: 20,
-                            spreadRadius: 0.4,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: DefaultTextStyle(
+                        style: (Theme.of(overlayContext).textTheme.bodyMedium ??
+                                const TextStyle(fontSize: 14))
+                            .copyWith(
+                          color: Colors.white,
+                          decoration: TextDecoration.none,
+                        ),
+                        child: Container(
+                          constraints: const BoxConstraints(maxWidth: 380),
+                          decoration: BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(
+                                color: (success
+                                        ? const Color(0xFF22C55E)
+                                        : const Color(0xFFF87171))
+                                    .withValues(alpha: 0.24),
+                                blurRadius: 20,
+                                spreadRadius: 0.4,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 9,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [Color(0xCC131827), Color(0xB9161A2A)],
-                              ),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.24),
-                                width: 0.5,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  success
-                                      ? Icons.check_circle_rounded
-                                      : Icons.error_rounded,
-                                  size: 16,
-                                  color: success
-                                      ? const Color(0xFF22C55E)
-                                      : const Color(0xFFF87171),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 9,
                                 ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    message,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.2,
-                                    ),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [Color(0xCC131827), Color(0xB9161A2A)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.24),
+                                    width: 0.5,
                                   ),
                                 ),
-                              ],
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      success
+                                          ? Icons.check_circle_rounded
+                                          : Icons.error_rounded,
+                                      size: 16,
+                                      color: success
+                                          ? const Color(0xFF22C55E)
+                                          : const Color(0xFFF87171),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        message,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.2,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
