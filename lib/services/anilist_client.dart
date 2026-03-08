@@ -73,6 +73,7 @@ class AniListClient {
   bool _serialRunning = false;
   DateTime _nextAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _anonymousCooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _dnsFailureCooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const Duration _staleTtl = Duration(minutes: 30);
   static const Duration _trackingTtl = Duration(minutes: 2);
@@ -474,6 +475,13 @@ class AniListClient {
       AppLogger.i('AniList', 'Token exchange succeeded');
       return token;
     } on DioException catch (e, st) {
+      final message = (e.message ?? '').toLowerCase();
+      if (message.contains('failed host lookup')) {
+        throw Exception(
+          'AniList token exchange failed: DNS lookup failed. '
+          'Check Private DNS / VPN / adblock.',
+        );
+      }
       AppLogger.e('AniList', 'Token exchange DioException',
           error: {
             'statusCode': e.response?.statusCode,
@@ -526,6 +534,13 @@ class AniListClient {
         'anonymous';
 
     return _serialize(() async {
+      if (DateTime.now().isBefore(_dnsFailureCooldownUntil)) {
+        AppLogger.w(
+          'AniList',
+          'GraphQL DNS cooldown active op=$operation; short-circuiting request',
+        );
+        return <String, dynamic>{};
+      }
       final isAnonymous = token == null || token.isEmpty;
       final isMutation = query.toLowerCase().contains('mutation');
       if (isAnonymous && DateTime.now().isBefore(_anonymousCooldownUntil)) {
@@ -659,6 +674,23 @@ class AniListClient {
 
           return (body['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
         } on DioException catch (e, st) {
+          final message = (e.message ?? '').toLowerCase();
+          final isHostLookupFailure = message.contains('failed host lookup');
+          if (isHostLookupFailure) {
+            _dnsFailureCooldownUntil = DateTime.now().add(
+              const Duration(seconds: 30),
+            );
+            AppLogger.w(
+              'AniList',
+              'DNS lookup failed for AniList host; entering 30s cooldown',
+            );
+            if (isAnonymous) {
+              return <String, dynamic>{};
+            }
+            throw Exception(
+              'AniList DNS lookup failed. Check Private DNS / VPN / adblock.',
+            );
+          }
           AppLogger.e('AniList', 'GraphQL DioException op=$operation',
               error: {
                 'statusCode': e.response?.statusCode,
