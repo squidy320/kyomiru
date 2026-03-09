@@ -340,15 +340,38 @@ class SoraRuntime {
   }
 
   Future<SoraAnimeMatch?> autoMatchTitle(String title) async {
-    final results = await searchAnime(title);
-    if (results.isEmpty) return null;
-    final normalizedTarget = _normalize(title);
-    results.sort((a, b) {
-      final sa = _score(_normalize(a.title), normalizedTarget);
-      final sb = _score(_normalize(b.title), normalizedTarget);
-      return sb.compareTo(sa);
-    });
-    return results.first;
+    final queries = _buildMatchQueries(title);
+    final dedupedBySession = <String, SoraAnimeMatch>{};
+    for (final query in queries) {
+      final results = await searchAnime(query);
+      for (final item in results) {
+        dedupedBySession.putIfAbsent(item.session, () => item);
+      }
+    }
+    if (dedupedBySession.isEmpty) return null;
+
+    final normalizedTarget = _normalize(_stripSeasonMarkers(title));
+    final wantedSeason = _extractSeasonNumber(title);
+    final results = dedupedBySession.values.toList()
+      ..sort((a, b) {
+        final sa = _matchScore(
+          candidateTitle: a.title,
+          normalizedTarget: normalizedTarget,
+          wantedSeason: wantedSeason,
+        );
+        final sb = _matchScore(
+          candidateTitle: b.title,
+          normalizedTarget: normalizedTarget,
+          wantedSeason: wantedSeason,
+        );
+        return sb.compareTo(sa);
+      });
+    final picked = results.first;
+    AppLogger.i(
+      'SoraRuntime',
+      'autoMatch picked "${picked.title}" (session=${picked.session}) for "$title"',
+    );
+    return picked;
   }
 
   Future<List<SoraEpisode>> getEpisodes(SoraAnimeMatch match) async {
@@ -1184,6 +1207,86 @@ class SoraRuntime {
 
   String _normalize(String s) =>
       s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  List<String> _buildMatchQueries(String title) {
+    final raw = title.trim();
+    if (raw.isEmpty) return const [];
+    final cleanedSeason = _stripSeasonMarkers(raw);
+    final asciiApostrophe = raw.replaceAll('’', "'");
+    final noTrailingTag = raw
+        .replaceAll(RegExp(r'\b(cour|part)\s*\d+\b', caseSensitive: false), '')
+        .trim();
+    return <String>{
+      raw,
+      asciiApostrophe,
+      noTrailingTag,
+      cleanedSeason,
+      cleanedSeason.replaceAll('’', "'"),
+    }.where((q) => q.isNotEmpty).toList();
+  }
+
+  String _stripSeasonMarkers(String input) {
+    var out = input;
+    out = out.replaceAll(
+      RegExp(r'\bseason\s*\d+\b', caseSensitive: false),
+      '',
+    );
+    out = out.replaceAll(
+      RegExp(r'\bs\s*\d+\b', caseSensitive: false),
+      '',
+    );
+    out = out.replaceAll(
+      RegExp(r'\b\d+(st|nd|rd|th)\s*season\b', caseSensitive: false),
+      '',
+    );
+    out = out.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+    return out;
+  }
+
+  int? _extractSeasonNumber(String input) {
+    final seasonMatch = RegExp(
+      r'\bseason\s*(\d+)\b',
+      caseSensitive: false,
+    ).firstMatch(input);
+    if (seasonMatch != null) {
+      return int.tryParse(seasonMatch.group(1)!);
+    }
+    final shortMatch = RegExp(
+      r'\bs\s*(\d+)\b',
+      caseSensitive: false,
+    ).firstMatch(input);
+    if (shortMatch != null) {
+      return int.tryParse(shortMatch.group(1)!);
+    }
+    final ordinalMatch = RegExp(
+      r'\b(\d+)(st|nd|rd|th)\s*season\b',
+      caseSensitive: false,
+    ).firstMatch(input);
+    if (ordinalMatch != null) {
+      return int.tryParse(ordinalMatch.group(1)!);
+    }
+    return null;
+  }
+
+  int _matchScore({
+    required String candidateTitle,
+    required String normalizedTarget,
+    required int? wantedSeason,
+  }) {
+    var score = _score(_normalize(candidateTitle), normalizedTarget);
+    final candidateSeason = _extractSeasonNumber(candidateTitle);
+    if (wantedSeason != null) {
+      if (candidateSeason == wantedSeason) {
+        score += 20000;
+      } else if (candidateSeason != null) {
+        score -= 12000;
+      } else if (wantedSeason == 1) {
+        // Season 1 is often unlabeled on provider side.
+        score += 4000;
+      }
+    }
+    return score;
+  }
 
   int _score(String a, String b) {
     if (a == b) return 100000;
