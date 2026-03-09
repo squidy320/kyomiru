@@ -535,7 +535,7 @@ class AniListClient {
 
     return _serialize(() async {
       final inDnsCooldown = DateTime.now().isBefore(_dnsFailureCooldownUntil);
-      if (inDnsCooldown && (token == null || token.isEmpty)) {
+      if (inDnsCooldown) {
         AppLogger.w(
           'AniList',
           'GraphQL DNS cooldown active op=$operation; short-circuiting request',
@@ -679,11 +679,11 @@ class AniListClient {
           final isHostLookupFailure = message.contains('failed host lookup');
           if (isHostLookupFailure) {
             _dnsFailureCooldownUntil = DateTime.now().add(
-              const Duration(seconds: 8),
+              const Duration(seconds: 20),
             );
             AppLogger.w(
               'AniList',
-              'DNS lookup failed for AniList host; entering 8s cooldown',
+              'DNS lookup failed for AniList host; entering 20s cooldown',
             );
             if (isAnonymous) {
               return <String, dynamic>{};

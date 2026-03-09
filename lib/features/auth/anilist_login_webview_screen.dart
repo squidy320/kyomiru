@@ -39,6 +39,7 @@ class _AniListLoginWebViewScreenState
   bool _authInFlight = false;
   bool _desktopBrowserOpenAttempted = false;
   String _authUrl = '';
+  bool _webviewNetworkFailed = false;
 
   bool get _useDesktopLoopbackAuth => Platform.isWindows || Platform.isMacOS;
 
@@ -84,7 +85,9 @@ class _AniListLoginWebViewScreenState
           Expanded(
             child: _useDesktopLoopbackAuth
                 ? _buildDesktopLoopbackBody(context)
-                : WebViewWidget(controller: _controller!),
+                : (_webviewNetworkFailed
+                    ? _buildWebviewFailureFallback()
+                    : WebViewWidget(controller: _controller!)),
           ),
         ],
       ),
@@ -211,12 +214,15 @@ class _AniListLoginWebViewScreenState
                 lower.contains('err_address_unreachable');
             if (!mounted) return;
             setState(() {
+              _webviewNetworkFailed = true;
               _error = isDnsFailure
                   ? 'AniList login could not load due to DNS/network resolution failure. Disable Private DNS/VPN/adblock and retry.'
                   : (description.isEmpty
                       ? 'Login failed to load. Check internet/DNS and retry.'
                       : 'Login failed: $description');
             });
+            unawaited(_controller?.clearCache());
+            unawaited(_controller?.runJavaScript('window.stop && window.stop();'));
           },
           onUrlChange: (change) async {
             final url = change.url ?? '';
@@ -251,13 +257,56 @@ class _AniListLoginWebViewScreenState
   void _retryWebLogin() {
     final controller = _controller;
     if (controller == null) return;
-    setState(() => _error = '');
+    setState(() {
+      _error = '';
+      _webviewNetworkFailed = false;
+    });
     final target = _authUrl.trim();
     if (target.isNotEmpty) {
       controller.loadRequest(Uri.parse(target));
       return;
     }
     _initWebViewFlow();
+  }
+
+  Widget _buildWebviewFailureFallback() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: GlassCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'AniList Login Unreachable',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'The embedded login page could not resolve AniList hosts on this device right now.',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  FilledButton.tonal(
+                    onPressed: _retryWebLogin,
+                    child: const Text('Retry'),
+                  ),
+                  if (Platform.isAndroid) ...[
+                    const SizedBox(width: 10),
+                    FilledButton(
+                      onPressed: _openInExternalBrowser,
+                      child: const Text('Open Browser'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _openInExternalBrowser() async {
