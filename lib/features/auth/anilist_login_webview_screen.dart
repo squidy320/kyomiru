@@ -37,6 +37,7 @@ class _AniListLoginWebViewScreenState
   bool _completed = false;
   bool _authInFlight = false;
   bool _desktopBrowserOpenAttempted = false;
+  String _authUrl = '';
 
   bool get _useDesktopLoopbackAuth => Platform.isWindows || Platform.isMacOS;
 
@@ -57,8 +58,21 @@ class _AniListLoginWebViewScreenState
               width: double.infinity,
               color: Colors.red.withValues(alpha: 0.2),
               padding: const EdgeInsets.all(10),
-              child:
-                  Text(_error, style: const TextStyle(color: Colors.redAccent)),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _error,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  ),
+                  if (!_useDesktopLoopbackAuth)
+                    TextButton(
+                      onPressed: _retryWebLogin,
+                      child: const Text('Retry'),
+                    ),
+                ],
+              ),
             ),
           const LinearProgressIndicator(minHeight: 1),
           Expanded(
@@ -151,6 +165,7 @@ class _AniListLoginWebViewScreenState
       state: state,
       useCodeFlow: true,
     );
+    _authUrl = authUrl;
 
     AppLogger.i('AniListAuth', 'Opening AniList login WebView');
     AppLogger.d('AniListAuth', 'Auth URL: $authUrl');
@@ -183,11 +198,18 @@ class _AniListLoginWebViewScreenState
           onWebResourceError: (error) {
             AppLogger.w('AniListAuth', 'Web resource error', error: error);
             final description = error.description.trim();
+            final lower = description.toLowerCase();
+            final isDnsFailure = lower.contains('name_not_resolved') ||
+                lower.contains('failed host lookup') ||
+                lower.contains('err_internet_disconnected') ||
+                lower.contains('err_address_unreachable');
             if (!mounted) return;
             setState(() {
-              _error = description.isEmpty
-                  ? 'Login failed to load. Check internet/DNS and retry.'
-                  : 'Login failed: $description';
+              _error = isDnsFailure
+                  ? 'AniList login could not load due to DNS/network resolution failure. Disable Private DNS/VPN/adblock and retry.'
+                  : (description.isEmpty
+                      ? 'Login failed to load. Check internet/DNS and retry.'
+                      : 'Login failed: $description');
             });
           },
           onUrlChange: (change) async {
@@ -218,6 +240,18 @@ class _AniListLoginWebViewScreenState
         ),
       )
       ..loadRequest(Uri.parse(authUrl));
+  }
+
+  void _retryWebLogin() {
+    final controller = _controller;
+    if (controller == null) return;
+    setState(() => _error = '');
+    final target = _authUrl.trim();
+    if (target.isNotEmpty) {
+      controller.loadRequest(Uri.parse(target));
+      return;
+    }
+    _initWebViewFlow();
   }
 
   Future<void> _startDesktopLoopbackFlow({bool forceRestart = false}) async {
