@@ -607,7 +607,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   String _prettyQuality(String value) {
     final v = value.trim();
     if (v.isEmpty) return 'Auto';
-    return v.toLowerCase() == 'auto' ? 'Auto' : v;
+    if (v.toLowerCase() == 'auto') return 'Auto';
+    final rank = _qualityRank(v);
+    if (rank <= 0) return v;
+    // AnimePahe sources may expose internal dimensions (e.g. 800/534/266).
+    // Normalize them back to the canonical user-facing tiers.
+    if (rank >= 780) return '1080p';
+    if (rank >= 500) return '720p';
+    return '360p';
   }
 
   SoraSource? _pickCatalogSource({
@@ -630,9 +637,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     if (wantedQuality != 'auto') {
       final exact = pool.where((s) {
-        final q = s.quality.toLowerCase();
-        return q.contains(wantedQuality) ||
-            (wantedRank > 0 && _qualityRank(q) == wantedRank);
+        final normalized = _prettyQuality(s.quality).toLowerCase();
+        final sourceRaw = s.quality.toLowerCase();
+        return normalized == wantedQuality ||
+            sourceRaw.contains(wantedQuality) ||
+            (wantedRank > 0 && _qualityRank(normalized) == wantedRank);
       }).toList();
       if (exact.isNotEmpty) return exact.first;
     }
