@@ -13,6 +13,8 @@ import 'dart:async';
 import 'app_shell.dart';
 import 'package:kyomiru_flutter/core/app_logger.dart';
 
+const MethodChannel _androidDiagChannel = MethodChannel('kyomiru/android_diag');
+
 class LegacyType77Adapter extends TypeAdapter<Map<dynamic, dynamic>> {
   @override
   final int typeId = 77;
@@ -292,6 +294,43 @@ Future<void> _runOneTimeMigrations() async {
   });
 }
 
+Future<void> _runAndroidNetworkDiagnostics() async {
+  if (!Platform.isAndroid) return;
+  try {
+    final info = await _androidDiagChannel
+        .invokeMapMethod<String, dynamic>('networkDiagnostics');
+    AppLogger.i('AndroidNet', 'Native diagnostics: ${info ?? const {}}');
+  } catch (e, st) {
+    AppLogger.w(
+      'AndroidNet',
+      'Failed to read Android native network diagnostics',
+      error: e,
+      stackTrace: st,
+    );
+  }
+
+  Future<void> probeHost(String host) async {
+    try {
+      final results =
+          await InternetAddress.lookup(host).timeout(const Duration(seconds: 6));
+      final first = results.isNotEmpty ? results.first.address : 'none';
+      AppLogger.i('AndroidNet', 'DNS ok host=$host resolved=$first');
+    } catch (e, st) {
+      AppLogger.w(
+        'AndroidNet',
+        'DNS failed host=$host',
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+
+  await probeHost('anilist.co');
+  await probeHost('graphql.anilist.co');
+  await probeHost('git.luna-app.eu');
+  await probeHost('raw.githubusercontent.com');
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLogger.initializeSessionFileLogging();
@@ -347,6 +386,7 @@ Future<void> main() async {
   AppLogger.installGlobalHandlers();
   AppLogger.startUiFreezeWatchdog();
   AppLogger.i('App', 'Boot start');
+  await _runAndroidNetworkDiagnostics();
   MediaKit.ensureInitialized();
   await Hive.initFlutter();
   _registerHiveAdapters();
