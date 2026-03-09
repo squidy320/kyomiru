@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import '../core/app_logger.dart';
+import 'android_http_bridge.dart';
 import '../models/anilist_models.dart';
 
 class SoraExtensionLoader {
@@ -47,6 +48,35 @@ class SoraExtensionLoader {
           error: e,
           stackTrace: st,
         );
+        if (Platform.isAndroid) {
+          try {
+            final bridged = await AndroidHttpBridge.request(
+              url: url,
+              method: 'GET',
+              headers: const {
+                'Accept': 'application/json',
+              },
+            );
+            if (bridged != null && bridged.statusCode >= 200 && bridged.statusCode < 400) {
+              final json = jsonDecode(bridged.body) as Map<String, dynamic>;
+              final manifest = SoraExtensionManifest.fromJson(json);
+              if (manifest.id.isNotEmpty || (manifest.name ?? '').isNotEmpty) {
+                AppLogger.i(
+                  'SoraExt',
+                  'Loaded extension manifest from Android native HTTP bridge: $url',
+                );
+                return manifest;
+              }
+            }
+          } catch (bridgeError, bridgeSt) {
+            AppLogger.w(
+              'SoraExt',
+              'Android HTTP bridge failed for extension manifest $url',
+              error: bridgeError,
+              stackTrace: bridgeSt,
+            );
+          }
+        }
         continue;
       }
     }

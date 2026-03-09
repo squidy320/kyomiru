@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:hive/hive.dart';
 
 import '../core/app_logger.dart';
 import '../models/anilist_models.dart';
+import 'android_http_bridge.dart';
 
 class _CacheEntry<T> {
   const _CacheEntry(this.value, this.expiresAt);
@@ -435,17 +437,18 @@ class AniListClient {
     required String code,
     required String redirectUri,
   }) async {
+    final requestBody = {
+      'grant_type': 'authorization_code',
+      'client_id': clientId,
+      'client_secret': clientSecret,
+      'redirect_uri': redirectUri,
+      'code': code,
+    };
     try {
       AppLogger.i('AniList', 'Starting code->token exchange');
       final response = await _dio.post(
         tokenEndpoint,
-        data: {
-          'grant_type': 'authorization_code',
-          'client_id': clientId,
-          'client_secret': clientSecret,
-          'redirect_uri': redirectUri,
-          'code': code,
-        },
+        data: requestBody,
         options: Options(
           contentType: Headers.jsonContentType,
           headers: const {
@@ -477,6 +480,26 @@ class AniListClient {
     } on DioException catch (e, st) {
       final message = (e.message ?? '').toLowerCase();
       if (message.contains('failed host lookup')) {
+        if (Platform.isAndroid) {
+          final bridged = await _tryAndroidBridgePost(
+            url: tokenEndpoint,
+            body: requestBody,
+            headers: const {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+          );
+          if (bridged != null) {
+            final token = (bridged['access_token'] ?? '').toString();
+            if (token.isNotEmpty) {
+              AppLogger.i(
+                'AniList',
+                'Token exchange succeeded via Android native HTTP bridge',
+              );
+              return token;
+            }
+          }
+        }
         throw Exception(
           'AniList token exchange failed: DNS lookup failed. '
           'Check Private DNS / VPN / adblock.',
@@ -578,14 +601,16 @@ class AniListClient {
             validateStatus: (_) => true,
           );
 
+          final requestPayload = {
+            'query': query,
+            'variables': variables ?? <String, dynamic>{},
+          };
+
           for (final endpoint in endpoints) {
             try {
               response = await _dio.post(
                 endpoint,
-                data: {
-                  'query': query,
-                  'variables': variables ?? <String, dynamic>{},
-                },
+                data: requestPayload,
                 options: options,
               );
               if (endpoint != graphqlEndpoint) {
@@ -606,6 +631,26 @@ class AniListClient {
                 'AniList',
                 'GraphQL host lookup failed for $endpoint; retrying fallback endpoint',
               );
+
+              if (Platform.isAndroid) {
+                final bridged = await _tryAndroidBridgePost(
+                  url: endpoint,
+                  body: requestPayload,
+                  headers: {
+                    if (token != null && token.isNotEmpty)
+                      'Authorization': 'Bearer $token',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                  },
+                );
+                if (bridged != null) {
+                  AppLogger.i(
+                    'AniList',
+                    'GraphQL succeeded via Android native HTTP bridge op=$operation',
+                  );
+                  return bridged;
+                }
+              }
             }
           }
 
@@ -707,6 +752,34 @@ class AniListClient {
         }
       }
     });
+  }
+
+  Future<Map<String, dynamic>?> _tryAndroidBridgePost({
+    required String url,
+    required Map<String, dynamic> body,
+    required Map<String, String> headers,
+  }) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final resp = await AndroidHttpBridge.request(
+        url: url,
+        method: 'POST',
+        headers: headers,
+        body: AndroidHttpBridge.encodeJsonBody(body),
+      );
+      if (resp == null) return null;
+      if (resp.statusCode < 200 || resp.statusCode >= 400) return null;
+      if (resp.body.trim().isEmpty) return null;
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) return null;
+      if (decoded['data'] is Map<String, dynamic>) {
+        return decoded['data'] as Map<String, dynamic>;
+      }
+      // Token endpoint and some endpoints return top-level map directly.
+      return decoded;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<AniListUser> me(String token, {bool force = false}) async {
