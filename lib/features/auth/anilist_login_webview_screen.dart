@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/app_logger.dart';
@@ -66,6 +67,11 @@ class _AniListLoginWebViewScreenState
                       style: const TextStyle(color: Colors.redAccent),
                     ),
                   ),
+                  if (!_useDesktopLoopbackAuth && Platform.isAndroid)
+                    TextButton(
+                      onPressed: _openInExternalBrowser,
+                      child: const Text('Open Browser'),
+                    ),
                   if (!_useDesktopLoopbackAuth)
                     TextButton(
                       onPressed: _retryWebLogin,
@@ -252,6 +258,23 @@ class _AniListLoginWebViewScreenState
       return;
     }
     _initWebViewFlow();
+  }
+
+  Future<void> _openInExternalBrowser() async {
+    final target = _authUrl.trim();
+    if (target.isEmpty) return;
+    final uri = Uri.tryParse(target);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e, st) {
+      AppLogger.w(
+        'AniListAuth',
+        'Failed to open external browser from Android login fallback',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   Future<void> _startDesktopLoopbackFlow({bool forceRestart = false}) async {

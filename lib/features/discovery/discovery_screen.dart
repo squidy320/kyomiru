@@ -368,7 +368,54 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
               sliver: SliverToBoxAdapter(
                 child: GlassCard(
-                  child: Text('Discovery load failed: ${dataSnap.error}'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'AniList discovery is currently unreachable.',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Please check internet / DNS settings and retry.',
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton.tonal(
+                        onPressed: _refresh,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        } else if (!showingSearch &&
+            trending.isEmpty &&
+            sections.every((s) => s.items.isEmpty)) {
+          topSlivers.add(
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+              sliver: SliverToBoxAdapter(
+                child: GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'No AniList data available right now.',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'If this is Android, disable Private DNS / VPN / adblock and retry.',
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton.tonal(
+                        onPressed: _refresh,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -438,7 +485,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 420),
             curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: _kDiscoveryBaseColor,
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -447,7 +494,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                   gradientTop,
                   _kDiscoveryBaseColor,
                 ],
-                stops: const [0.0, 1.0],
+                stops: [0.0, 1.0],
               ),
             ),
             child: RefreshIndicator(
@@ -484,7 +531,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
     return AnimatedContainer(
       duration: const Duration(milliseconds: 380),
       curve: Curves.easeOutCubic,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: _kDiscoveryBaseColor,
         gradient: LinearGradient(
           begin: Alignment.topCenter,
