@@ -682,6 +682,11 @@ class _LibraryCatalogSection extends StatelessWidget {
     return t.contains('current') || t.contains('watching');
   }
 
+  bool get _showRating {
+    final t = catalogId.toLowerCase();
+    return t.contains('current') || t.contains('watching') || t.contains('plan');
+  }
+
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
@@ -722,6 +727,7 @@ class _LibraryCatalogSection extends StatelessWidget {
                     child: _LibraryEntryCard(
                       entry: e,
                       showProgress: _showProgress,
+                      showRating: _showRating,
                       verifyingTracking: verifyingTracking,
                       listMode: false,
                     ),
@@ -745,6 +751,7 @@ class _LibraryCatalogSection extends StatelessWidget {
                     child: _LibraryEntryCard(
                       entry: e,
                       showProgress: _showProgress,
+                      showRating: _showRating,
                       verifyingTracking: verifyingTracking,
                       listMode: true,
                     ),
@@ -763,12 +770,14 @@ class _LibraryEntryCard extends ConsumerWidget {
   const _LibraryEntryCard({
     required this.entry,
     required this.showProgress,
+    required this.showRating,
     required this.verifyingTracking,
     required this.listMode,
   });
 
   final AniListLibraryEntry entry;
   final bool showProgress;
+  final bool showRating;
   final bool verifyingTracking;
   final bool listMode;
 
@@ -797,6 +806,7 @@ class _LibraryEntryCard extends ConsumerWidget {
                 ? (entry.progress / (entry.media.episodes!)).clamp(0.0, 1.0)
                 : null,
             unwatchedBadgeText: unwatchedBadgeText,
+            showRating: showRating,
           )
         : _AnimePosterCard(
             media: entry.media,
@@ -807,6 +817,7 @@ class _LibraryEntryCard extends ConsumerWidget {
                 ? (entry.progress / (entry.media.episodes!)).clamp(0.0, 1.0)
                 : null,
             unwatchedBadgeText: unwatchedBadgeText,
+            showRating: showRating,
           );
     if (!(showProgress && verifyingTracking)) return card;
     return Shimmer.fromColors(
@@ -823,12 +834,14 @@ class _AnimeListCard extends StatelessWidget {
     this.progressText,
     this.progressFraction,
     this.unwatchedBadgeText,
+    this.showRating = true,
   });
 
   final AniListMedia media;
   final String? progressText;
   final double? progressFraction;
   final String? unwatchedBadgeText;
+  final bool showRating;
 
   @override
   Widget build(BuildContext context) {
@@ -886,6 +899,12 @@ class _AnimeListCard extends StatelessWidget {
               ),
             ],
           ),
+          if (showRating)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: RatingBadge(rating: media.averageScore?.toDouble()),
+            ),
           if ((unwatchedBadgeText ?? '').isNotEmpty)
             Positioned(
               top: 8,
@@ -952,12 +971,14 @@ class _AnimePosterCard extends StatelessWidget {
     this.progressText,
     this.progressFraction,
     this.unwatchedBadgeText,
+    this.showRating = true,
   });
 
   final AniListMedia media;
   final String? progressText;
   final double? progressFraction;
   final String? unwatchedBadgeText;
+  final bool showRating;
 
   @override
   Widget build(BuildContext context) {
@@ -1015,7 +1036,8 @@ class _AnimePosterCard extends StatelessWidget {
                           ),
                         ),
                       const Spacer(),
-                      _ScorePill(score: media.averageScore),
+                      if (showRating)
+                        RatingBadge(rating: media.averageScore?.toDouble()),
                     ],
                   ),
                   const Spacer(),
@@ -1079,33 +1101,6 @@ class _AnimePosterCard extends StatelessWidget {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _ScorePill extends StatelessWidget {
-  const _ScorePill({this.score});
-
-  final int? score;
-
-  @override
-  Widget build(BuildContext context) {
-    final safe = score ?? 0;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        '${safe}%',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
       ),
     );
   }

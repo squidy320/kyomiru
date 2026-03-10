@@ -1309,9 +1309,13 @@ class SoraRuntime {
         hints.whereType<String>().map((e) => e.toLowerCase()).join(' ');
     if (joined.isEmpty) return 'sub';
 
-    final dubSignals = <RegExp>[
+    final dubExplicitSignals = <RegExp>[
       RegExp(r'\bdub\b'),
       RegExp(r'\bdubbed\b'),
+      RegExp(r'[?&]audio=dub'),
+      RegExp(r'lang=dub'),
+    ];
+    final dubLanguageSignals = <RegExp>[
       RegExp(r'\beng\b'),
       RegExp(r'\benglish\b'),
       RegExp(r'\ben-us\b'),
@@ -1322,11 +1326,7 @@ class SoraRuntime {
       RegExp(r'lang=eng'),
       RegExp(r'lang=en'),
       RegExp(r'locale=en'),
-      RegExp(r'[?&]audio=dub'),
     ];
-    for (final rx in dubSignals) {
-      if (rx.hasMatch(joined)) return 'dub';
-    }
 
     final subSignals = <RegExp>[
       RegExp(r'\bsub\b'),
@@ -1339,9 +1339,12 @@ class SoraRuntime {
       RegExp(r'lang=jpn'),
       RegExp(r'lang=ja'),
     ];
-    for (final rx in subSignals) {
-      if (rx.hasMatch(joined)) return 'sub';
-    }
+    final hasSub = subSignals.any((rx) => rx.hasMatch(joined));
+    if (hasSub) return 'sub';
+    final hasDubExplicit = dubExplicitSignals.any((rx) => rx.hasMatch(joined));
+    if (hasDubExplicit) return 'dub';
+    final hasDubLanguage = dubLanguageSignals.any((rx) => rx.hasMatch(joined));
+    if (hasDubLanguage) return 'dub';
     return 'sub';
   }
 }

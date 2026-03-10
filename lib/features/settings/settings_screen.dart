@@ -68,9 +68,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         future: _extensionFuture,
         builder: (context, snap) {
           final extensionState = snap.data;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(10, 12, 10, 100),
-            children: [
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 750),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 12, 10, 100),
+                children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Text('Settings',
@@ -308,7 +311,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ],
               ),
-            ],
+                ],
+              ),
+            ),
           );
         },
       ),

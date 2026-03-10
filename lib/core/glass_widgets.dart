@@ -199,6 +199,47 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
+class RatingBadge extends StatelessWidget {
+  const RatingBadge({super.key, required this.rating});
+
+  final double? rating;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = (rating ?? 0).round();
+    final label = value > 0 ? value.toString() : 'NR';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFFD54F)),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class GlassScaffoldBackground extends ConsumerWidget {
   const GlassScaffoldBackground({super.key, required this.child});
 

@@ -13,6 +13,7 @@ import '../core/image_cache.dart';
 import '../core/theme/app_theme.dart';
 import '../features/discovery/discovery_screen.dart';
 import '../features/downloads/downloads_screen.dart';
+import '../features/library/library_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../models/anilist_models.dart';
 import '../state/app_settings_state.dart';
@@ -47,7 +48,7 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   static const _pages = [
-    DiscoveryScreen(),
+    LibraryScreen(),
     DiscoveryScreen(),
     NotificationsScreen(),
     DownloadsScreen(),

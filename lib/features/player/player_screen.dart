@@ -488,12 +488,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       );
       await setProp('interpolation', 'yes');
       await setProp('audio-pitch-correction', 'yes');
+      await setProp('autosync', '30');
       if (Platform.isWindows) {
-        await setProp('hwdec', 'auto-safe');
+        await setProp('hwdec', 'auto');
       } else if (Platform.isMacOS) {
         await setProp('hwdec', 'videotoolbox');
       } else {
-        await setProp('hwdec', 'auto-safe');
+        await setProp('hwdec', 'auto');
       }
     } catch (_) {}
   }
@@ -613,10 +614,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   String _audioKey(String value) {
     final v = value.trim().toLowerCase();
     if (v == 'any') return 'any';
-    if (v.contains('dub') || v.contains('eng')) return 'dub';
-    if (v.contains('sub') || v.contains('jpn') || v.contains('jp')) {
-      return 'sub';
-    }
+    final hasSub = v.contains('sub') || v.contains('jpn') || v.contains('jp');
+    final hasDub = v.contains('dub');
+    final hasEng = v.contains('eng') || v.contains('english');
+    if (hasSub) return 'sub';
+    if (hasDub) return 'dub';
+    if (hasEng) return 'dub';
     return 'sub';
   }
 

@@ -590,38 +590,43 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                  child: LiquidGlass.withOwnLayer(
-                    settings: kyomiruLiquidGlassSettings(
-                      isOledBlack: settings.isOledBlack,
-                    ),
-                    shape: const LiquidRoundedSuperellipse(borderRadius: 16),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.10),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 600),
+                      child: LiquidGlass.withOwnLayer(
+                        settings: kyomiruLiquidGlassSettings(
+                          isOledBlack: settings.isOledBlack,
                         ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: TextField(
-                          controller: _search,
-                          focusNode: _searchFocus,
-                          onChanged: _onSearchChanged,
-                          decoration: InputDecoration(
-                            hintText: 'Search anime...',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _search.text.isEmpty
-                                ? null
-                                : IconButton(
-                                    onPressed: () {
-                                      hapticTap();
-                                      _search.clear();
-                                      setState(() => _searchResults = const []);
-                                    },
-                                    icon: const Icon(Icons.close),
-                                  ),
+                        shape: const LiquidRoundedSuperellipse(borderRadius: 16),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.10),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: TextField(
+                              controller: _search,
+                              focusNode: _searchFocus,
+                              onChanged: _onSearchChanged,
+                              decoration: InputDecoration(
+                                hintText: 'Search anime...',
+                                prefixIcon: const Icon(Icons.search),
+                                suffixIcon: _search.text.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        onPressed: () {
+                                          hapticTap();
+                                          _search.clear();
+                                          setState(() => _searchResults = const []);
+                                        },
+                                        icon: const Icon(Icons.close),
+                                      ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -969,7 +974,7 @@ class _AnimePosterCard extends ConsumerWidget {
                           ),
                         ),
                       const Spacer(),
-                      _ScorePill(score: media.averageScore),
+                      RatingBadge(rating: media.averageScore?.toDouble()),
                     ],
                   ),
                   const Spacer(),
@@ -987,38 +992,6 @@ class _AnimePosterCard extends ConsumerWidget {
                   ),
                 ],
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScorePill extends StatelessWidget {
-  const _ScorePill({required this.score});
-
-  final int? score;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xE61A1A1A),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
-          const SizedBox(width: 3),
-          Text(
-            score?.toString() ?? 'NR',
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
             ),
           ),
         ],
@@ -1172,6 +1145,27 @@ class _WideHeroBanner extends StatelessWidget {
             )
           else
             const ColoredBox(color: Color(0x22111111)),
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: FractionallySizedBox(
+                heightFactor: 0.4,
+                widthFactor: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.8),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
