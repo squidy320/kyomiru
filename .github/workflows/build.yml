@@ -78,8 +78,7 @@ jobs:
           flutter build ios --release --no-codesign --split-debug-info=build/app/outputs/symbols \
           --dart-define=FOR_IOS=true \
           --build-name=1.0.0 \
-          --build-number=1 \
-          --xcargs="CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY='' EXPANDED_CODE_SIGN_IDENTITY='' DEVELOPMENT_TEAM=''"
+          --build-number=1
 
       - name: Package IPA
         run: |

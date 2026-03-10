@@ -814,28 +814,9 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     if (!mounted || range == null) return;
     final selectedEpisodes = episodes
         .where((ep) => ep.number >= range.start && ep.number <= range.end)
-        .toList();
+        .toList()
+      ..sort((a, b) => a.number.compareTo(b.number));
     if (selectedEpisodes.isEmpty) return;
-
-    List<SoraSource> probeSources;
-    try {
-      probeSources =
-          await _loadSourcesWithOverlay(media, selectedEpisodes.first);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Unable to load stream sources right now.')),
-      );
-      return;
-    }
-    if (!mounted || probeSources.isEmpty) return;
-    final settings = ref.read(appSettingsProvider);
-    final chosen = settings.chooseStreamEveryTime
-        ? await _showSourcePicker(probeSources)
-        : _pickDownloadSource(probeSources, settings);
-    if (!mounted || chosen == null) return;
-    _lockSessionSource(chosen);
 
     setState(() {
       _isBulkDownloading = true;
@@ -846,66 +827,12 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
     final failures = <int>[];
     try {
       for (final ep in selectedEpisodes) {
-        final local = await ref
-            .read(downloadControllerProvider.notifier)
-            .localManifestPath(media.id, ep.number);
-        if (local != null) {
-          if (!mounted) return;
-          setState(() => _bulkDone++);
-          continue;
-        }
-
-        List<SoraSource> sources;
         try {
-          sources = await _loadSourcesDirect(media, ep);
+          await _downloadEpisodeWithPicker(media, ep);
         } catch (e, st) {
           AppLogger.w(
             'Details',
-            'Source load failed for episode ${ep.number}',
-            error: e,
-            stackTrace: st,
-          );
-          failures.add(ep.number);
-          if (mounted) setState(() => _bulkDone++);
-          continue;
-        }
-
-        if (sources.isEmpty) {
-          failures.add(ep.number);
-          if (mounted) setState(() => _bulkDone++);
-          continue;
-        }
-
-        final sameProvider = sources
-            .where(
-              (s) =>
-                  sourceProviderIdFromUrl(s.url) ==
-                  sourceProviderIdFromUrl(chosen.url),
-            )
-            .toList();
-        final pool = sameProvider.isNotEmpty ? sameProvider : sources;
-        final selected = _pickDownloadSource(
-          pool,
-          settings,
-          preferredQuality: chosen.quality,
-          preferredAudio: chosen.subOrDub,
-        );
-
-        try {
-          await ref
-              .read(downloadControllerProvider.notifier)
-              .downloadHlsEpisode(
-                mediaId: media.id,
-                episode: ep.number,
-                animeTitle: media.title.best,
-                coverImageUrl: media.cover.best,
-                episodeThumbnailUrl: _episodeThumbnailUrl(media, ep.number),
-                source: selected,
-              );
-        } catch (e, st) {
-          AppLogger.w(
-            'Details',
-            'Bulk download enqueue failed for episode ${ep.number}',
+            'Bulk download failed for episode ${ep.number}',
             error: e,
             stackTrace: st,
           );

@@ -757,6 +757,7 @@ class _LocalLibraryView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final entriesAsync = ref.watch(localLibraryEntriesProvider);
     final settings = ref.watch(appSettingsProvider);
+    final prefs = ref.watch(libraryPreferencesProvider);
     return entriesAsync.when(
       loading: () => const _LibrarySkeleton(),
       error: (e, _) => SafeArea(
@@ -776,10 +777,16 @@ class _LocalLibraryView extends ConsumerWidget {
           grouped.putIfAbsent(_statusLabel(entry.status), () => []).add(entry);
         }
 
-        final chips = <String>['All', ...grouped.keys];
+        final sortedGrouped = <String, List<AnimeEntry>>{};
+        for (final entry in grouped.entries) {
+          sortedGrouped[entry.key] =
+              _sortedLocalEntries(entry.value, prefs.defaultSort);
+        }
+
+        final chips = <String>['All', ...sortedGrouped.keys];
         final sections = selected == 'All'
-            ? grouped.entries.toList()
-            : grouped.entries.where((e) => e.key == selected).toList();
+            ? sortedGrouped.entries.toList()
+            : sortedGrouped.entries.where((e) => e.key == selected).toList();
 
         return SafeArea(
           child: ListView(
@@ -851,6 +858,7 @@ class _LocalLibraryView extends ConsumerWidget {
                     child: _LocalLibrarySection(
                       title: section.key,
                       items: section.value,
+                      listMode: prefs.layoutMode == LibraryLayoutMode.list,
                     ),
                   ),
                 ),
@@ -860,6 +868,26 @@ class _LocalLibraryView extends ConsumerWidget {
         );
       },
     );
+  }
+
+  static List<AnimeEntry> _sortedLocalEntries(
+    List<AnimeEntry> input,
+    LibrarySortMode mode,
+  ) {
+    final out = [...input];
+    switch (mode) {
+      case LibrarySortMode.az:
+        out.sort((a, b) => a.title.compareTo(b.title));
+      case LibrarySortMode.za:
+        out.sort((a, b) => b.title.compareTo(a.title));
+      case LibrarySortMode.recentlyUpdated:
+        out.sort((a, b) => b.episodesWatched.compareTo(a.episodesWatched));
+      case LibrarySortMode.dateAdded:
+        out.sort((a, b) => b.mediaId.compareTo(a.mediaId));
+      case LibrarySortMode.highestScore:
+        out.sort((a, b) => b.userScore.compareTo(a.userScore));
+    }
+    return out;
   }
 
   static String _statusLabel(String status) {
@@ -886,74 +914,117 @@ class _LocalLibrarySection extends StatelessWidget {
   const _LocalLibrarySection({
     required this.title,
     required this.items,
+    required this.listMode,
   });
 
   final String title;
   final List<AnimeEntry> items;
+  final bool listMode;
+
+  static int? _normalizeScore(double score) {
+    if (score <= 0) return null;
+    if (score > 10) return score.round();
+    return (score * 10).round();
+  }
 
   @override
   Widget build(BuildContext context) {
     final isWatchingSection = title.toLowerCase() == 'watching';
+
+    Widget buildCard(AnimeEntry entry) {
+      final media = AniListMedia(
+        id: entry.mediaId,
+        title: AniListTitle(english: entry.title),
+        cover: AniListCover(large: entry.coverImage),
+        episodes: entry.totalEpisodes <= 0 ? null : entry.totalEpisodes,
+        averageScore: _normalizeScore(entry.userScore),
+      );
+      final progressText = entry.totalEpisodes > 0
+          ? '${entry.episodesWatched} / ${entry.totalEpisodes}'
+          : '${entry.episodesWatched}';
+      final progressFraction = entry.totalEpisodes > 0
+          ? (entry.episodesWatched / entry.totalEpisodes).clamp(0.0, 1.0)
+          : null;
+      return Consumer(
+        builder: (context, ref, _) {
+          String? unwatchedBadgeText;
+          if (isWatchingSection) {
+            final notifier = ref.watch(
+              libraryWatchingNotifierProvider(
+                (
+                  mediaId: entry.mediaId,
+                  progress: entry.episodesWatched,
+                ),
+              ),
+            );
+            final meta = notifier.valueOrNull;
+            if (meta != null && meta.totalAvailable > 0) {
+              unwatchedBadgeText = '${meta.unseen}/${meta.totalAvailable}';
+            }
+          }
+          if (listMode) {
+            return _AnimeListCard(
+              media: media,
+              progressText: progressText,
+              progressFraction: progressFraction,
+              unwatchedBadgeText: unwatchedBadgeText,
+            );
+          }
+          return _AnimePosterCard(
+            media: media,
+            progressText: progressText,
+            unwatchedBadgeText: unwatchedBadgeText,
+          );
+        },
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('$title (${items.length})',
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        SizedBox(
-          height: _kCardHeight,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final entry = items[index];
-              final media = AniListMedia(
-                id: entry.mediaId,
-                title: AniListTitle(english: entry.title),
-                cover: AniListCover(large: entry.coverImage),
-                episodes: entry.totalEpisodes <= 0 ? null : entry.totalEpisodes,
-              );
-              final progressText = entry.totalEpisodes > 0
-                  ? '${entry.episodesWatched} / ${entry.totalEpisodes}'
-                  : '${entry.episodesWatched}';
-              return SizedBox(
-                width: _kCardWidth,
-                child: _HoverPosterTile(
+        if (!listMode)
+          SizedBox(
+            height: _kCardHeight,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final entry = items[index];
+                return SizedBox(
+                  width: _kCardWidth,
+                  child: _HoverPosterTile(
+                    onTap: () {
+                      hapticTap();
+                      Navigator.of(context).push(_detailsRoute(entry.mediaId));
+                    },
+                    child: buildCard(entry),
+                  ),
+                );
+              },
+            ),
+          )
+        else
+          Column(
+            children: [
+              for (final entry in items) ...[
+                _HoverPosterTile(
                   onTap: () {
                     hapticTap();
                     Navigator.of(context).push(_detailsRoute(entry.mediaId));
                   },
-                  child: Consumer(
-                    builder: (context, ref, _) {
-                      String? unwatchedBadgeText;
-                      if (isWatchingSection) {
-                        final notifier = ref.watch(
-                          libraryWatchingNotifierProvider(
-                            (
-                              mediaId: entry.mediaId,
-                              progress: entry.episodesWatched,
-                            ),
-                          ),
-                        );
-                        final meta = notifier.valueOrNull;
-                        if (meta != null && meta.totalAvailable > 0) {
-                          unwatchedBadgeText =
-                              '${meta.unseen}/${meta.totalAvailable}';
-                        }
-                      }
-                      return _AnimePosterCard(
-                        media: media,
-                        progressText: progressText,
-                        unwatchedBadgeText: unwatchedBadgeText,
-                      );
-                    },
+                  child: SizedBox(
+                    height: _kListCardHeight,
+                    child: buildCard(entry),
                   ),
                 ),
-              );
-            },
+                const SizedBox(height: 10),
+              ],
+            ],
           ),
-        ),
       ],
     );
   }
@@ -1861,6 +1932,8 @@ class _ContinueWatchingShelf extends ConsumerWidget {
       },
     );
   }
+
+}
 class _ContinueWatchingCard extends ConsumerStatefulWidget {
   const _ContinueWatchingCard({required this.entry});
 
@@ -2349,7 +2422,6 @@ class _DesktopQuickAction extends StatelessWidget {
       ),
     );
   }
-}
 }
 
 class _LibrarySkeleton extends StatelessWidget {

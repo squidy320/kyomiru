@@ -158,6 +158,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   double _verticalStartValue = 1.0;
   double _virtualBrightness = 1.0;
   bool _isMediaKitPlaying = false;
+  bool _wakelockEnabled = false;
   bool _desktopHoveringSurface = false;
   bool _manualNextInFlight = false;
   double _volumeLevel = 1.0;
@@ -180,14 +181,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   Future<void> _enterFullscreenPlayerMode() async {
-    if (Platform.isIOS) {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.manual,
-        overlays: [],
-      );
-    } else {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    }
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     await SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -219,7 +213,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (Platform.isIOS && _enablePip) {
       _iosPipChannel.setMethodCallHandler(_handleIosPipCallback);
     }
-    unawaited(WakelockPlus.enable());
+    _setWakelock(true);
     unawaited(_initPip());
     unawaited(_fetchAniSkipData());
     _init();
@@ -246,7 +240,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_enterFullscreenPlayerMode());
+      _setWakelock(true);
+    }
+  }
+
+  void _setWakelock(bool enabled) {
+    if (_wakelockEnabled == enabled) return;
+    _wakelockEnabled = enabled;
+    if (enabled) {
       unawaited(WakelockPlus.enable());
+    } else {
+      unawaited(WakelockPlus.disable());
     }
   }
 
@@ -560,6 +564,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final state = mk.state;
       _isMediaKitPlaying = state.playing;
       _volumeLevel = (state.volume / 100.0).clamp(0.0, 1.0);
+      if (_isMediaKitPlaying) {
+        _setWakelock(true);
+      }
       setState(() {
         _durationSec = state.duration.inMilliseconds <= 0
             ? 0
@@ -2022,7 +2029,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     unawaited(mediaKit?.pause());
     mediaKit?.dispose();
     _skipAnimationController.dispose();
-    unawaited(WakelockPlus.disable());
+    _setWakelock(false);
     unawaited(_clearPlaybackCaches());
     unawaited(_restoreSystemUiAndOrientation());
     super.dispose();
