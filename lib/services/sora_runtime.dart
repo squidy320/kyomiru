@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../core/app_logger.dart';
+import '../models/anilist_models.dart';
 import '../models/sora_models.dart';
 
 class _RuntimeCacheEntry<T> {
@@ -327,20 +328,30 @@ class SoraRuntime {
         .whereType<Map<String, dynamic>>()
         .map((e) {
           final session = (e['session'] ?? '').toString();
+          final year = (e['year'] ?? e['seasonYear'] ?? e['season_year']);
+          final format = (e['format'] ?? e['type'] ?? e['media_type']);
+          final episodes = (e['episodes'] ?? e['episodeCount']);
           return SoraAnimeMatch(
             title: (e['title'] ?? 'Unknown').toString(),
             image: (e['poster'] ?? '').toString(),
             href: '$_baseUrl/anime/$session',
             session: session,
             animeId: session,
+            year: (year is num) ? year.toInt() : int.tryParse('$year'),
+            format: format?.toString(),
+            episodeCount:
+                (episodes is num) ? episodes.toInt() : int.tryParse('$episodes'),
           );
         })
         .where((e) => e.session.isNotEmpty)
         .toList();
   }
 
-  Future<SoraAnimeMatch?> autoMatchTitle(String title) async {
-    final queries = _buildMatchQueries(title);
+  Future<SoraAnimeMatch?> autoMatchTitle(
+    String title, {
+    AniListMedia? media,
+  }) async {
+    final queries = _buildMatchQueriesForMedia(title, media);
     final dedupedBySession = <String, SoraAnimeMatch>{};
     for (final query in queries) {
       final results = await searchAnime(query);
@@ -350,19 +361,30 @@ class SoraRuntime {
     }
     if (dedupedBySession.isEmpty) return null;
 
-    final normalizedTarget = _normalize(_stripSeasonMarkers(title));
-    final wantedSeason = _extractSeasonNumber(title);
+    final targetTitle = _bestAniListTitle(title, media);
+    final normalizedTarget = _cleanTitleForMatch(_stripSeasonMarkers(targetTitle));
+    final wantedSeason = _extractSeasonNumber(targetTitle);
+    final targetYear = media?.seasonYear;
+    final targetFormat = media?.format ?? media?.mediaType;
     final results = dedupedBySession.values.toList()
       ..sort((a, b) {
-        final sa = _matchScore(
+        final sa = _matchScoreWeighted(
           candidateTitle: a.title,
           normalizedTarget: normalizedTarget,
           wantedSeason: wantedSeason,
+          targetYear: targetYear,
+          targetFormat: targetFormat,
+          candidateYear: a.year,
+          candidateFormat: a.format,
         );
-        final sb = _matchScore(
+        final sb = _matchScoreWeighted(
           candidateTitle: b.title,
           normalizedTarget: normalizedTarget,
           wantedSeason: wantedSeason,
+          targetYear: targetYear,
+          targetFormat: targetFormat,
+          candidateYear: b.year,
+          candidateFormat: b.format,
         );
         return sb.compareTo(sa);
       });
@@ -1208,20 +1230,77 @@ class SoraRuntime {
   String _normalize(String s) =>
       s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
+  String _romanToArabic(String input) {
+    var out = input;
+    const map = {
+      'x': '10',
+      'ix': '9',
+      'viii': '8',
+      'vii': '7',
+      'vi': '6',
+      'v': '5',
+      'iv': '4',
+      'iii': '3',
+      'ii': '2',
+      'i': '1',
+    };
+    for (final entry in map.entries) {
+      out = out.replaceAllMapped(
+        RegExp('\\b${entry.key}\\b', caseSensitive: false),
+        (_) => entry.value,
+      );
+    }
+    return out;
+  }
+
+  String _cleanTitleForMatch(String input) {
+    var out = input.replaceAll('???', "'").replaceAll('?', "'");
+    out = _romanToArabic(out);
+    out = out.toLowerCase();
+    out = out.replaceAll(RegExp(r'[^a-z0-9\\s]'), ' ');
+    out = out.replaceAll(RegExp(r'\\b(tv|anime)\\b'), ' ');
+    out = out.replaceAll(RegExp(r'\\s+'), ' ').trim();
+    return out;
+  }
+
+  String _bestAniListTitle(String fallback, AniListMedia? media) {
+    final best = media?.title.best ?? fallback;
+    return best.trim().isNotEmpty ? best : fallback;
+  }
+
+  List<String> _buildMatchQueriesForMedia(String title, AniListMedia? media) {
+    final out = <String>{};
+    final titles = <String>[
+      title,
+      media?.title.romaji ?? '',
+      media?.title.english ?? '',
+      media?.title.native ?? '',
+      media?.title.best ?? '',
+    ];
+    for (final t in titles) {
+      out.addAll(_buildMatchQueries(t));
+    }
+    return out.where((q) => q.isNotEmpty).toList();
+  }
+
   List<String> _buildMatchQueries(String title) {
     final raw = title.trim();
     if (raw.isEmpty) return const [];
     final cleanedSeason = _stripSeasonMarkers(raw);
     final asciiApostrophe = raw.replaceAll('’', "'");
     final noTrailingTag = raw
-        .replaceAll(RegExp(r'\b(cour|part)\s*\d+\b', caseSensitive: false), '')
+        .replaceAll(
+            RegExp(r'\b(cour|part|season)\s*\d+\b', caseSensitive: false), '')
         .trim();
+    final romanNormalized = _romanToArabic(raw);
     return <String>{
       raw,
       asciiApostrophe,
       noTrailingTag,
       cleanedSeason,
       cleanedSeason.replaceAll('’', "'"),
+      romanNormalized,
+      _stripSeasonMarkers(romanNormalized),
     }.where((q) => q.isNotEmpty).toList();
   }
 
@@ -1236,6 +1315,14 @@ class SoraRuntime {
       '',
     );
     out = out.replaceAll(
+      RegExp(r'\bpart\s*\d+\b', caseSensitive: false),
+      '',
+    );
+    out = out.replaceAll(
+      RegExp(r'\bcour\s*\d+\b', caseSensitive: false),
+      '',
+    );
+    out = out.replaceAll(
       RegExp(r'\b\d+(st|nd|rd|th)\s*season\b', caseSensitive: false),
       '',
     );
@@ -1244,47 +1331,107 @@ class SoraRuntime {
   }
 
   int? _extractSeasonNumber(String input) {
+    final normalized = _romanToArabic(input);
     final seasonMatch = RegExp(
       r'\bseason\s*(\d+)\b',
       caseSensitive: false,
-    ).firstMatch(input);
+    ).firstMatch(normalized);
     if (seasonMatch != null) {
       return int.tryParse(seasonMatch.group(1)!);
     }
     final shortMatch = RegExp(
       r'\bs\s*(\d+)\b',
       caseSensitive: false,
-    ).firstMatch(input);
+    ).firstMatch(normalized);
     if (shortMatch != null) {
       return int.tryParse(shortMatch.group(1)!);
     }
     final ordinalMatch = RegExp(
       r'\b(\d+)(st|nd|rd|th)\s*season\b',
       caseSensitive: false,
-    ).firstMatch(input);
+    ).firstMatch(normalized);
     if (ordinalMatch != null) {
       return int.tryParse(ordinalMatch.group(1)!);
+    }
+    final partMatch = RegExp(
+      r'\bpart\s*(\d+)\b',
+      caseSensitive: false,
+    ).firstMatch(normalized);
+    if (partMatch != null) {
+      return int.tryParse(partMatch.group(1)!);
+    }
+    final courMatch = RegExp(
+      r'\bcour\s*(\d+)\b',
+      caseSensitive: false,
+    ).firstMatch(normalized);
+    if (courMatch != null) {
+      return int.tryParse(courMatch.group(1)!);
     }
     return null;
   }
 
-  int _matchScore({
+  double _diceCoefficient(String a, String b) {
+    final sa = _cleanTitleForMatch(a);
+    final sb = _cleanTitleForMatch(b);
+    if (sa.isEmpty || sb.isEmpty) return 0.0;
+    if (sa == sb) return 1.0;
+    final aBigrams = <String, int>{};
+    for (var i = 0; i < sa.length - 1; i++) {
+      final gram = sa.substring(i, i + 2);
+      aBigrams[gram] = (aBigrams[gram] ?? 0) + 1;
+    }
+    var matches = 0;
+    for (var i = 0; i < sb.length - 1; i++) {
+      final gram = sb.substring(i, i + 2);
+      final count = aBigrams[gram] ?? 0;
+      if (count > 0) {
+        aBigrams[gram] = count - 1;
+        matches++;
+      }
+    }
+    final total = (sa.length - 1) + (sb.length - 1);
+    if (total <= 0) return 0.0;
+    return (2.0 * matches) / total;
+  }
+
+  double _matchScoreWeighted({
     required String candidateTitle,
     required String normalizedTarget,
     required int? wantedSeason,
+    required int? targetYear,
+    required String? targetFormat,
+    required int? candidateYear,
+    required String? candidateFormat,
   }) {
-    var score = _score(_normalize(candidateTitle), normalizedTarget);
+    final titleScore = _diceCoefficient(candidateTitle, normalizedTarget);
+    double yearScore = 0.0;
+    if (targetYear != null && candidateYear != null) {
+      yearScore = targetYear == candidateYear ? 1.0 : 0.0;
+    }
+    double formatScore = 0.5;
+    if (targetFormat != null && candidateFormat != null) {
+      final t = targetFormat.toLowerCase();
+      final c = candidateFormat.toLowerCase();
+      final tMovie = t.contains('movie');
+      final cMovie = c.contains('movie');
+      formatScore = tMovie == cMovie ? 1.0 : 0.0;
+    }
+    var score = (0.5 * titleScore) + (0.3 * yearScore) + (0.2 * formatScore);
     final candidateSeason = _extractSeasonNumber(candidateTitle);
     if (wantedSeason != null) {
       if (candidateSeason == wantedSeason) {
-        score += 20000;
+        score += 0.12;
       } else if (candidateSeason != null) {
-        score -= 12000;
+        score -= 0.22;
       } else if (wantedSeason == 1) {
         // Season 1 is often unlabeled on provider side.
-        score += 4000;
+        score += 0.06;
+      } else {
+        score -= 0.08;
       }
     }
+    if (score < 0) return 0.0;
+    if (score > 1) return 1.0;
     return score;
   }
 

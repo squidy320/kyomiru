@@ -5,6 +5,9 @@ class SoraAnimeMatch {
     required this.href,
     required this.session,
     required this.animeId,
+    this.year,
+    this.format,
+    this.episodeCount,
   });
 
   final String title;
@@ -12,6 +15,9 @@ class SoraAnimeMatch {
   final String href;
   final String session;
   final String animeId;
+  final int? year;
+  final String? format;
+  final int? episodeCount;
 }
 
 class SoraEpisode {

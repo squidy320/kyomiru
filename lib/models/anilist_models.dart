@@ -93,6 +93,8 @@ class AniListMedia {
   final AniListCover cover;
   final int? averageScore;
   final int? episodes;
+  final int? seasonYear;
+  final String? format;
   final String? description;
   final String? bannerImage;
   final String? siteUrl;
@@ -112,6 +114,8 @@ class AniListMedia {
     required this.cover,
     this.averageScore,
     this.episodes,
+    this.seasonYear,
+    this.format,
     this.description,
     this.bannerImage,
     this.siteUrl,
@@ -134,6 +138,8 @@ class AniListMedia {
             (json['coverImage'] as Map<String, dynamic>? ?? const {})),
         averageScore: (json['averageScore'] as num?)?.toInt(),
         episodes: (json['episodes'] as num?)?.toInt(),
+        seasonYear: (json['seasonYear'] as num?)?.toInt(),
+        format: json['format']?.toString(),
         description: json['description']?.toString(),
         bannerImage: json['bannerImage']?.toString(),
         siteUrl: json['siteUrl']?.toString(),

@@ -1400,6 +1400,8 @@ class AniListClient {
           media(type: ANIME, search: $search, sort: SEARCH_MATCH) {
             id
             idMal
+            seasonYear
+            format
             episodes
             averageScore
             title { romaji english native }
@@ -1431,6 +1433,8 @@ class AniListClient {
           id
           type
           idMal
+          seasonYear
+          format
           episodes
           averageScore
           title { romaji english native }
