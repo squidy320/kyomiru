@@ -180,7 +180,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   Future<void> _enterFullscreenPlayerMode() async {
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (Platform.isIOS) {
+      await SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: [],
+      );
+    } else {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
     await SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -239,6 +246,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
     } else if (state == AppLifecycleState.resumed) {
       unawaited(_enterFullscreenPlayerMode());
+      unawaited(WakelockPlus.enable());
     }
   }
 
@@ -423,6 +431,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await player.setRate(_selectedPlaybackSpeed);
       await player.play();
       _isMediaKitPlaying = true;
+      unawaited(WakelockPlus.enable());
       _persistTimer?.cancel();
       _persistTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         unawaited(_persistProgress());

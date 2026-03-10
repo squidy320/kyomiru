@@ -845,14 +845,14 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
 
     final failures = <int>[];
     try {
-      final tasks = selectedEpisodes.map((ep) async {
+      for (final ep in selectedEpisodes) {
         final local = await ref
             .read(downloadControllerProvider.notifier)
             .localManifestPath(media.id, ep.number);
         if (local != null) {
           if (!mounted) return;
           setState(() => _bulkDone++);
-          return;
+          continue;
         }
 
         List<SoraSource> sources;
@@ -867,13 +867,13 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           );
           failures.add(ep.number);
           if (mounted) setState(() => _bulkDone++);
-          return;
+          continue;
         }
 
         if (sources.isEmpty) {
           failures.add(ep.number);
           if (mounted) setState(() => _bulkDone++);
-          return;
+          continue;
         }
 
         final sameProvider = sources
@@ -891,8 +891,8 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
           preferredAudio: chosen.subOrDub,
         );
 
-        unawaited(
-          ref
+        try {
+          await ref
               .read(downloadControllerProvider.notifier)
               .downloadHlsEpisode(
                 mediaId: media.id,
@@ -901,22 +901,20 @@ class _DetailsScreenState extends ConsumerState<DetailsScreen> {
                 coverImageUrl: media.cover.best,
                 episodeThumbnailUrl: _episodeThumbnailUrl(media, ep.number),
                 source: selected,
-              )
-              .catchError((Object e, StackTrace st) {
-            AppLogger.w(
-              'Details',
-              'Bulk download enqueue failed for episode ${ep.number}',
-              error: e,
-              stackTrace: st,
-            );
-            failures.add(ep.number);
-          }),
-        );
+              );
+        } catch (e, st) {
+          AppLogger.w(
+            'Details',
+            'Bulk download enqueue failed for episode ${ep.number}',
+            error: e,
+            stackTrace: st,
+          );
+          failures.add(ep.number);
+        }
 
         if (!mounted) return;
         setState(() => _bulkDone++);
-      }).toList();
-      await Future.wait(tasks);
+      }
     } finally {
       if (mounted) {
         setState(() => _isBulkDownloading = false);

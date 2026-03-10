@@ -21,6 +21,7 @@ import 'core/theme/app_theme.dart';
 import 'features/details/details_screen.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
+import 'features/library/library_screen.dart';
 import 'features/player/player_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
@@ -121,12 +122,12 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       TextEditingController();
   bool _desktopRailExpanded = true;
 
-  static const _pages = <Widget>[
-    _UnifiedLibraryTab(),
-    DiscoveryScreen(),
-    NotificationsScreen(),
-    DownloadsScreen(),
-    SettingsScreen(),
+  static final _pages = <Widget>[
+    const LibraryScreen(),
+    const DiscoveryScreen(),
+    const NotificationsScreen(),
+    const DownloadsScreen(),
+    const SettingsScreen(),
   ];
 
   @override
