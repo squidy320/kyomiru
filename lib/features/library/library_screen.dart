@@ -981,9 +981,36 @@ class _LibraryAnimatedHeroState extends ConsumerState<_LibraryAnimatedHero> {
     unawaited(_syncAmbient(media));
     final image = media?.bannerImage ?? media?.cover.best;
     final genres = media?.genres.take(2).join('  ') ?? '';
-    final score = media?.averageScore ?? 78;
+    final score = media?.averageScore ?? 0;
     final matchScore = (score + 8).clamp(60, 99);
     final ratingTag = (media?.isAdult ?? false) ? 'R' : 'TV-14';
+
+    Widget pill({required IconData icon, required String label, Color? color}) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.34),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color ?? Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: color == null ? Colors.white : Colors.white,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return SizedBox(
       height: 250,
       child: ClipRRect(
@@ -1015,38 +1042,63 @@ class _LibraryAnimatedHeroState extends ConsumerState<_LibraryAnimatedHero> {
                   ),
                 ),
               ),
-                          ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.title,
+                        style: const TextStyle(
+                            fontSize: 28, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(widget.subtitle,
+                        style: const TextStyle(color: Color(0xFFA1A8BC))),
+                    if (media != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        media.title.best,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    if (_desktopLike)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 140),
-                          opacity: _hovered ? 1 : 0,
-                          child: IgnorePointer(
-                            ignoring: !_hovered,
-                            child: Row(
-                              children: [
-                                _DesktopQuickAction(
-                                  icon: Icons.check_rounded,
-                                  onTap: () => unawaited(_markWatched()),
-                                ),
-                                const SizedBox(width: 6),
-                                _DesktopQuickAction(
-                                  icon: Icons.close_rounded,
-                                  onTap: () => unawaited(_removeFromHistory()),
-                                ),
-                              ],
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 6,
+                        children: [
+                          pill(
+                            icon: Icons.thumb_up_alt_rounded,
+                            label: '$matchScore% Match',
+                            color: const Color(0xFF22C55E),
+                          ),
+                          pill(
+                            icon: Icons.star_rounded,
+                            label: '${media.averageScore ?? 0}%',
+                            color: const Color(0xFFFFD54F),
+                          ),
+                          pill(
+                            icon: Icons.shield_rounded,
+                            label: ratingTag,
+                            color: const Color(0xFF93C5FD),
+                          ),
+                          if (genres.isNotEmpty)
+                            pill(
+                              icon: Icons.local_offer_rounded,
+                              label: genres,
+                              color: Colors.white70,
                             ),
-                          ),
-                        ),
+                        ],
                       ),
+                    ],
                   ],
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
