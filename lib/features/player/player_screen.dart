@@ -181,7 +181,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   Future<void> _enterFullscreenPlayerMode() async {
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (Platform.isIOS) {
+      await SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: const [],
+      );
+    } else {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
     await SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -204,6 +211,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _selectedQuality = settings.defaultQuality;
     _selectedSubtitle = settings.defaultAudio;
     unawaited(_enterFullscreenPlayerMode());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_enterFullscreenPlayerMode());
+      }
+    });
     _progressStore = ref.read(progressStoreProvider);
     _skipAnimationController = AnimationController(
       vsync: this,
@@ -1480,16 +1492,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
       // Re-seek once to re-anchor A/V clocks after speed changes.
       if (now > Duration.zero) {
-        await mk.seek(now);
+        await mk.pause();
+        await mk.seek(now + const Duration(milliseconds: 50));
       }
 
       try {
         final native = mk.platform as dynamic;
-        if (Platform.isAndroid && target != 1.0) {
-          await native.setProperty('video-sync', 'audio');
+        if (target != 1.0) {
+          await native.setProperty('video-sync', 'display-resample');
+          await native.setProperty('audio-sync', 'display-resample');
+          await native.setProperty('autosync', '30');
+        } else {
+          await native.setProperty(
+            'video-sync',
+            Platform.isAndroid ? 'audio' : 'display-resample',
+          );
           await native.setProperty('audio-sync', 'audio');
         }
         await native.setProperty('audio-delay', '0');
+        await native.setProperty('speed', target.toStringAsFixed(2));
       } catch (_) {
         // Best-effort sync hint for MPV backends.
       }
