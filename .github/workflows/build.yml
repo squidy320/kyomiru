@@ -73,26 +73,15 @@ jobs:
           cd ios
           pod install --repo-update
 
-      - name: Build iOS
+      - name: Build iOS IPA (unsigned)
         run: |
-          flutter build ios --release --no-codesign --split-debug-info=build/app/outputs/symbols \
+          flutter build ipa --release --no-codesign --split-debug-info=build/app/outputs/symbols \
           --dart-define=FOR_IOS=true \
           --build-name=1.0.0 \
           --build-number=1
-
-      - name: Package IPA
-        run: |
-          set -e
-          APP_PATH="build/ios/iphoneos/Runner.app"
-          test -d "$APP_PATH"
-          rm -rf Payload kyomiru-ios-unsigned.ipa
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/Runner.app
-          ditto -c -k --sequesterRsrc --keepParent Payload kyomiru-ios-unsigned.ipa
-          test -f kyomiru-ios-unsigned.ipa
 
       - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
-          path: kyomiru-ios-unsigned.ipa
+          path: build/ios/ipa/*.ipa
