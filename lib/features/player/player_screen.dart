@@ -482,7 +482,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('demuxer-max-bytes', isHls ? '100663296' : '50331648');
       await setProp('demuxer-readahead-secs', isHls ? '35' : '12');
       await setProp('cache-secs', isHls ? '40' : '12');
-      await setProp('video-sync', 'display-resample');
+      await setProp(
+        'video-sync',
+        Platform.isAndroid ? 'audio' : 'display-resample',
+      );
       await setProp('interpolation', 'yes');
       await setProp('audio-pitch-correction', 'yes');
       if (Platform.isWindows) {
@@ -1479,6 +1482,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
       try {
         final native = mk.platform as dynamic;
+        if (Platform.isAndroid && target != 1.0) {
+          await native.setProperty('video-sync', 'audio');
+          await native.setProperty('audio-sync', 'audio');
+        }
         await native.setProperty('audio-delay', '0');
       } catch (_) {
         // Best-effort sync hint for MPV backends.

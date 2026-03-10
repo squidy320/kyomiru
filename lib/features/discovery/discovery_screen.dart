@@ -25,6 +25,39 @@ final discoverySearchFocusRequestProvider = StateProvider<int>((ref) => 0);
 final discoveryDesktopSearchQueryProvider =
     StateProvider<String?>((ref) => null);
 
+class _DiscoveryUnwatchedMeta {
+  const _DiscoveryUnwatchedMeta({
+    required this.unseen,
+    required this.total,
+  });
+
+  final int unseen;
+  final int total;
+}
+
+final discoveryUnwatchedProvider =
+    FutureProvider.family<_DiscoveryUnwatchedMeta?, int>((ref, mediaId) async {
+  final auth = ref.watch(authControllerProvider);
+  final token = auth.token;
+  if (token == null || token.isEmpty) return null;
+  final entry =
+      await ref.watch(anilistClientProvider).trackingEntry(token, mediaId);
+  if (entry == null) return null;
+  final status = (entry.status ?? '').toUpperCase();
+  if (status != 'CURRENT') return null;
+  final info = await ref
+      .watch(anilistClientProvider)
+      .episodeAvailability(token, mediaId);
+  if (info == null) return null;
+  final released = (info.latestReleasedEpisode > 0)
+      ? info.latestReleasedEpisode
+      : info.availableEpisodes;
+  final progress = (entry.progress ?? 0).clamp(0, released);
+  final unseen = (released - progress).clamp(0, 9999);
+  if (unseen <= 0) return null;
+  return _DiscoveryUnwatchedMeta(unseen: unseen, total: released);
+});
+
 double _phoneHeroHeight(BuildContext context) {
   final w = MediaQuery.sizeOf(context).width;
   return (w * 0.62).clamp(235.0, 320.0);
@@ -557,25 +590,40 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                  child: GlassContainer(
-                    borderRadius: 16,
-                    child: TextField(
-                      controller: _search,
-                      focusNode: _searchFocus,
-                      onChanged: _onSearchChanged,
-                      decoration: InputDecoration(
-                        hintText: 'Search anime...',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _search.text.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  hapticTap();
-                                  _search.clear();
-                                  setState(() => _searchResults = const []);
-                                },
-                                icon: const Icon(Icons.close),
-                              ),
+                  child: LiquidGlass.withOwnLayer(
+                    settings: kyomiruLiquidGlassSettings(
+                      isOledBlack: settings.isOledBlack,
+                    ),
+                    shape: const LiquidRoundedSuperellipse(borderRadius: 16),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.10),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: TextField(
+                          controller: _search,
+                          focusNode: _searchFocus,
+                          onChanged: _onSearchChanged,
+                          decoration: InputDecoration(
+                            hintText: 'Search anime...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _search.text.isEmpty
+                                ? null
+                                : IconButton(
+                                    onPressed: () {
+                                      hapticTap();
+                                      _search.clear();
+                                      setState(() => _searchResults = const []);
+                                    },
+                                    icon: const Icon(Icons.close),
+                                  ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -601,8 +649,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                     child: _HorizontalSection(
                       title: section.title,
                       items: section.items,
-                      cardWidth: 172,
-                      cardHeight: 262,
+                      cardWidth: _kCardWidth,
+                      cardHeight: _kCardHeight,
                     ),
                   ),
                 ),
@@ -857,13 +905,16 @@ class _HorizontalSection extends StatelessWidget {
   }
 }
 
-class _AnimePosterCard extends StatelessWidget {
+class _AnimePosterCard extends ConsumerWidget {
   const _AnimePosterCard({required this.media});
 
   final AniListMedia media;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final meta = ref.watch(discoveryUnwatchedProvider(media.id)).valueOrNull;
+    final badgeText =
+        meta == null ? null : '${meta.unseen}/${meta.total}';
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: Stack(
@@ -890,6 +941,33 @@ class _AnimePosterCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
+                      if ((badgeText ?? '').isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xCC263046), Color(0xB11A2234)],
+                            ),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.44),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Text(
+                            badgeText!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
                       const Spacer(),
                       _ScorePill(score: media.averageScore),
                     ],
