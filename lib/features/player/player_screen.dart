@@ -469,7 +469,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await setProp('demuxer-max-bytes', isHls ? '100663296' : '50331648');
       await setProp('demuxer-readahead-secs', isHls ? '35' : '12');
       await setProp('cache-secs', isHls ? '40' : '12');
-      await setProp('video-sync', 'audio');
+      await setProp('video-sync', 'display-resample');
+      await setProp('interpolation', 'yes');
       await setProp('audio-pitch-correction', 'yes');
       if (Platform.isWindows) {
         await setProp('hwdec', 'auto-safe');
@@ -1455,11 +1456,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       final now = mk.state.position;
       await mk.setRate(target);
 
-      // Re-seek to anchor both clocks to the same timestamp.
+      // Re-seek once to re-anchor A/V clocks after speed changes.
       if (now > Duration.zero) {
         await mk.seek(now);
-        await Future<void>.delayed(const Duration(milliseconds: 40));
-        await mk.seek(now);
+      }
+
+      try {
+        final native = mk.platform as dynamic;
+        await native.setProperty('audio-delay', '0');
+      } catch (_) {
+        // Best-effort sync hint for MPV backends.
       }
 
       if (wasPlaying && !mk.state.playing) {

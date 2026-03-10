@@ -598,9 +598,11 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen>
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-                    child: _WideCarouselSection(
+                    child: _HorizontalSection(
                       title: section.title,
                       items: section.items,
+                      cardWidth: 172,
+                      cardHeight: 262,
                     ),
                   ),
                 ),
@@ -1158,57 +1160,6 @@ class _WideHeroBanner extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _WideCarouselSection extends StatelessWidget {
-  const _WideCarouselSection({
-    required this.title,
-    required this.items,
-  });
-
-  final String title;
-  final List<AniListMedia> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final crossAxisCount = (width / 220).floor().clamp(3, 8);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxisCount,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
-                childAspectRatio: 220 / 302,
-              ),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _HoverPosterTile(
-                  onTap: () {
-                    hapticTap();
-                    Navigator.of(context).push(_detailsRoute(item.id));
-                  },
-                  child: _AnimePosterCard(media: item),
-                );
-              },
-            ),
-          ],
-        );
-      },
     );
   }
 }
