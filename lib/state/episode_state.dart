@@ -198,7 +198,7 @@ List<SoraEpisode> _applySeasonOffsetIfNeeded(
 
   AppLogger.i(
     'EpisodeMatch',
-    'Series entry offset applied title=\"$title\" season=$wantedSeason '
+    'Series entry offset applied title="$title" season=$wantedSeason '
     'expected=$expected total=${episodes.length} offset=$offset',
   );
   return [

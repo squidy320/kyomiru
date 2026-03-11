@@ -452,27 +452,6 @@ class _LibraryDataView extends ConsumerWidget {
                 subtitle: 'Currently watching and synced lists',
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Library',
-                            style: Theme.of(context).textTheme.displaySmall),
-                        const Text('All your AniList collections',
-                            style: TextStyle(color: Color(0xFFA1A8BC))),
-                      ],
-                    ),
-                  ),
-                  if (user?.avatar != null)
-                    CircleAvatar(
-                        radius: 18,
-                        backgroundImage:
-                            KyomiruImageCache.provider(user!.avatar!)),
-                ],
-              ),
-              const SizedBox(height: 12),
               Wrap(
                 alignment: WrapAlignment.spaceBetween,
                 crossAxisAlignment: WrapCrossAlignment.center,
