@@ -1772,6 +1772,18 @@ class AniListClient {
         );
         return entry;
       } catch (e, st) {
+        final msg = e.toString();
+        if (msg.contains('Not Found') || msg.contains('not found')) {
+          _trackingEntryCache[key] = _CacheEntry<AniListTrackingEntry?>(
+            null,
+            DateTime.now().add(_trackingTtl),
+          );
+          AppLogger.i(
+            'AniListTracking',
+            'trackingEntry not found mediaId=$mediaId; caching null entry',
+          );
+          return null;
+        }
         AppLogger.w(
           'AniListTracking',
           'trackingEntry network failure attempt=$attempt mediaId=$mediaId',

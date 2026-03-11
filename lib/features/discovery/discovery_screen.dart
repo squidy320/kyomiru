@@ -40,11 +40,25 @@ final discoveryUnwatchedProvider =
   final auth = ref.watch(authControllerProvider);
   final token = auth.token;
   if (token == null || token.isEmpty) return null;
-  final entry =
-      await ref.watch(anilistClientProvider).trackingEntry(token, mediaId);
-  if (entry == null) return null;
-  final status = (entry.status ?? '').toUpperCase();
-  if (status != 'CURRENT') return null;
+  final client = ref.watch(anilistClientProvider);
+  final cachedSections = client.cachedLibrarySections(token);
+  AniListLibraryEntry? cachedEntry;
+  for (final section in cachedSections) {
+    final title = section.title.toUpperCase();
+    if (!(title.contains('WATCHING') ||
+        title.contains('CURRENT') ||
+        title.contains('REPEATING'))) {
+      continue;
+    }
+    for (final item in section.items) {
+      if (item.media.id == mediaId) {
+        cachedEntry = item;
+        break;
+      }
+    }
+    if (cachedEntry != null) break;
+  }
+  if (cachedEntry == null) return null;
   final info = await ref
       .watch(anilistClientProvider)
       .episodeAvailability(token, mediaId);
@@ -52,7 +66,7 @@ final discoveryUnwatchedProvider =
   final released = (info.latestReleasedEpisode > 0)
       ? info.latestReleasedEpisode
       : info.availableEpisodes;
-  final progress = (entry.progress ?? 0).clamp(0, released);
+  final progress = cachedEntry.progress.clamp(0, released);
   final unseen = (released - progress).clamp(0, 9999);
   if (unseen <= 0) return null;
   return _DiscoveryUnwatchedMeta(unseen: unseen, total: released);
