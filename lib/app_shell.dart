@@ -2,16 +2,18 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:desktop_drop/desktop_drop.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:shimmer/shimmer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
+import 'package:path/path.dart' as p;
+import 'package:shimmer/shimmer.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'core/glass_widgets.dart';
 import 'core/haptics.dart';
@@ -22,6 +24,7 @@ import 'features/details/details_screen.dart';
 import 'features/discovery/discovery_screen.dart';
 import 'features/downloads/downloads_screen.dart';
 import 'features/library/library_screen.dart';
+import 'features/libtab/libtab_screen.dart';
 import 'features/player/player_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'models/anilist_models.dart';
@@ -31,13 +34,20 @@ import 'state/app_settings_state.dart';
 import 'state/auth_state.dart';
 import 'state/ui_ambient_state.dart';
 import 'state/watch_history_state.dart';
-import 'package:path/path.dart' as p;
-import 'package:window_manager/window_manager.dart';
+
+class AppTabs extends ConsumerStatefulWidget {
+  final bool liquidGlassEnabled;
+
+  const AppTabs({super.key, required this.liquidGlassEnabled});
+
+  @override
+  ConsumerState<AppTabs> createState() => _AppTabsState();
+}
 
 class KyomiruApp extends ConsumerWidget {
-  const KyomiruApp({super.key, required this.liquidGlassEnabled});
-
   final bool liquidGlassEnabled;
+
+  const KyomiruApp({super.key, required this.liquidGlassEnabled});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -78,38 +88,23 @@ class KyomiruApp extends ConsumerWidget {
   }
 }
 
-class _BasicGlassFallback extends StatelessWidget {
-  const _BasicGlassFallback({required this.child});
-
-  final Widget child;
+class NotificationsScreen extends ConsumerStatefulWidget {
+  const NotificationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        child,
-        IgnorePointer(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 0.1, sigmaY: 0.1),
-            child: const SizedBox.expand(),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class AppTabs extends ConsumerStatefulWidget {
-  const AppTabs({super.key, required this.liquidGlassEnabled});
-
-  final bool liquidGlassEnabled;
-
-  @override
-  ConsumerState<AppTabs> createState() => _AppTabsState();
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
 }
 
 class _AppTabsState extends ConsumerState<AppTabs> {
+  static final _pages = <Widget>[
+    const LibraryScreen(),
+    const DiscoveryScreen(),
+    const LibTabScreen(),
+    const NotificationsScreen(),
+    const DownloadsScreen(),
+    const SettingsScreen(),
+  ];
   int _index = 0;
   int _lastServerUnread = 0;
   bool _alertsSeenForCurrentUnread = false;
@@ -120,339 +115,11 @@ class _AppTabsState extends ConsumerState<AppTabs> {
   ProviderSubscription<AuthState>? _authSub;
   final TextEditingController _desktopSearchController =
       TextEditingController();
+
   bool _desktopRailExpanded = true;
-
-  static final _pages = <Widget>[
-    const LibraryScreen(),
-    const DiscoveryScreen(),
-    const NotificationsScreen(),
-    const DownloadsScreen(),
-    const SettingsScreen(),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _initConnectivity();
-    _authSub = ref.listenManual<AuthState>(
-      authControllerProvider,
-      (previous, next) {
-        final token = next.token;
-        if (token != null && token.isNotEmpty) {
-          unawaited(_warmContinueWatchingNotifiers(token));
-        }
-      },
-      fireImmediately: true,
-    );
-  }
-
-  @override
-  void dispose() {
-    _desktopSearchController.dispose();
-    _connectivitySub?.cancel();
-    _authSub?.close();
-    super.dispose();
-  }
 
   bool get _isDesktop =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
-
-  Future<void> _handleDesktopDrop(List<XFile> files) async {
-    if (!_isDesktop || files.isEmpty || !mounted) return;
-    final candidates = files.map((f) => f.path).where((path) {
-      final lower = path.toLowerCase();
-      return lower.endsWith('.mp4') || lower.endsWith('.mkv');
-    }).toList(growable: false);
-    if (candidates.isEmpty) return;
-
-    final dm = ref.read(downloadControllerProvider.notifier);
-    var imported = 0;
-    for (final path in candidates) {
-      final episodeGuess = dm.detectEpisodeNumberFromFilePath(path) ?? 1;
-      final mapped = await _showDesktopDropImportDialog(path, episodeGuess);
-      if (mapped == null || !mounted) continue;
-      await dm.importLocalEpisode(
-        mediaId: 0,
-        episode: mapped.episode,
-        animeTitle: mapped.title,
-        absoluteFilePath: path,
-      );
-      imported++;
-    }
-    if (!mounted || imported == 0) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        content: Text('Imported $imported desktop file(s)'),
-      ),
-    );
-    setState(() => _index = 3);
-  }
-
-  Future<({String title, int episode})?> _showDesktopDropImportDialog(
-    String path,
-    int episodeGuess,
-  ) async {
-    final titleController =
-        TextEditingController(text: p.basenameWithoutExtension(path));
-    final episodeController = TextEditingController(text: '$episodeGuess');
-    final result = await showDialog<({String title, int episode})>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Import Local Episode'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(labelText: 'Anime Title'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: episodeController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Episode Number'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final ep = int.tryParse(episodeController.text.trim());
-              final title = titleController.text.trim();
-              if (ep == null || ep <= 0 || title.isEmpty) return;
-              Navigator.of(context).pop((title: title, episode: ep));
-            },
-            child: const Text('Import'),
-          ),
-        ],
-      ),
-    );
-    titleController.dispose();
-    episodeController.dispose();
-    return result;
-  }
-
-  Future<void> _warmContinueWatchingNotifiers(String token) async {
-    try {
-      if (!Hive.isBoxOpen('watch_history')) return;
-      final box = Hive.box('watch_history');
-      final mediaIds = <int>{};
-      for (final key in box.keys) {
-        final raw = box.get(key);
-        if (raw is! Map) continue;
-        final mediaId = (raw['mediaId'] as num?)?.toInt();
-        if (mediaId != null && mediaId > 0) mediaIds.add(mediaId);
-      }
-      final client = ref.read(anilistClientProvider);
-      for (final mediaId in mediaIds) {
-        unawaited(client.episodeAvailability(token, mediaId));
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _initConnectivity() async {
-    try {
-      final now = await Connectivity()
-          .checkConnectivity()
-          .timeout(const Duration(seconds: 2));
-      _applyConnectivity(now);
-      _connectivitySub =
-          Connectivity().onConnectivityChanged.listen(_applyConnectivity);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _offlineMode = true);
-    }
-  }
-
-  void _applyConnectivity(List<ConnectivityResult> results) {
-    final offline =
-        results.isEmpty || results.every((r) => r == ConnectivityResult.none);
-    if (!mounted) return;
-    if (offline) {
-      setState(() {
-        _offlineMode = true;
-        _index = 3;
-      });
-      return;
-    }
-    if (_offlineMode) {
-      setState(() => _offlineMode = false);
-    }
-  }
-
-  void _onItemTapped(int value) {
-    hapticTap();
-    setState(() {
-      _index = value;
-      if (value == 2) {
-        _alertsSeenForCurrentUnread = true;
-      }
-    });
-  }
-
-  void _openSearch() {
-    _onItemTapped(1);
-    ref.read(discoveryDesktopSearchQueryProvider.notifier).state =
-        _desktopSearchController.text.trim();
-    ref.read(discoverySearchFocusRequestProvider.notifier).state++;
-  }
-
-  Rect _wideDockRect(Size size, EdgeInsets viewPadding) {
-    final vertical =
-        _wideDockEdge == _DockEdge.left || _wideDockEdge == _DockEdge.right;
-    const verticalWidth = 74.0;
-    const verticalHeight = 368.0;
-    const horizontalHeight = 74.0;
-    const horizontalWidth = 358.0;
-    final dockW = vertical ? verticalWidth : horizontalWidth;
-    final dockH = vertical ? verticalHeight : horizontalHeight;
-    final leftBound = viewPadding.left + 12;
-    final topBound = viewPadding.top + 12;
-    final rightBound = size.width - viewPadding.right - dockW - 12;
-    final bottomBound = size.height - viewPadding.bottom - dockH - 12;
-    final xRange = (rightBound - leftBound).clamp(0, double.infinity);
-    final yRange = (bottomBound - topBound).clamp(0, double.infinity);
-
-    switch (_wideDockEdge) {
-      case _DockEdge.left:
-        return Rect.fromLTWH(
-          leftBound,
-          topBound + (yRange * _wideDockFactor),
-          dockW,
-          dockH,
-        );
-      case _DockEdge.right:
-        return Rect.fromLTWH(
-          rightBound,
-          topBound + (yRange * _wideDockFactor),
-          dockW,
-          dockH,
-        );
-      case _DockEdge.top:
-        return Rect.fromLTWH(
-          leftBound + (xRange * _wideDockFactor),
-          topBound,
-          dockW,
-          dockH,
-        );
-      case _DockEdge.bottom:
-        return Rect.fromLTWH(
-          leftBound + (xRange * _wideDockFactor),
-          bottomBound,
-          dockW,
-          dockH,
-        );
-    }
-  }
-
-  void _snapDockFromGlobal(
-    DraggableDetails details,
-    BuildContext context,
-    Size size,
-    EdgeInsets viewPadding,
-  ) {
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    final dropLocal = box.globalToLocal(details.offset);
-    final dx = dropLocal.dx;
-    final dy = dropLocal.dy;
-    final distLeft = dx;
-    final distRight = size.width - dx;
-    final distTop = dy;
-    final distBottom = size.height - dy;
-    final minDist = [distLeft, distRight, distTop, distBottom]
-        .reduce((a, b) => a < b ? a : b);
-
-    _DockEdge edge;
-    if (minDist == distLeft) {
-      edge = _DockEdge.left;
-    } else if (minDist == distRight) {
-      edge = _DockEdge.right;
-    } else if (minDist == distTop) {
-      edge = _DockEdge.top;
-    } else {
-      edge = _DockEdge.bottom;
-    }
-
-    final vertical = edge == _DockEdge.left || edge == _DockEdge.right;
-    final factor = vertical
-        ? ((dy - viewPadding.top) /
-                (size.height - viewPadding.top - viewPadding.bottom - 368))
-            .clamp(0.0, 1.0)
-        : ((dx - viewPadding.left) /
-                (size.width - viewPadding.left - viewPadding.right - 358))
-            .clamp(0.0, 1.0);
-
-    setState(() {
-      _wideDockEdge = edge;
-      _wideDockFactor = factor.isFinite ? factor : 0.34;
-    });
-  }
-
-  Widget _buildDesktopShell({
-    required BuildContext context,
-    required int safeIndex,
-    required Widget offlineBadge,
-    required int unread,
-  }) {
-    final content = Row(
-      children: [
-        _DesktopExpandedRail(
-          index: safeIndex,
-          unread: unread,
-          expanded: _desktopRailExpanded,
-          onTap: _onItemTapped,
-          onToggleExpanded: () {
-            setState(() {
-              _desktopRailExpanded = !_desktopRailExpanded;
-            });
-          },
-        ),
-        Expanded(
-          child: IndexedStack(
-            index: safeIndex,
-            children: _pages,
-          ),
-        ),
-      ],
-    );
-
-    final body = Scaffold(
-      extendBody: true,
-      extendBodyBehindAppBar: true,
-      resizeToAvoidBottomInset: false,
-      body: GlassScaffoldBackground(
-        child: Column(
-          children: [
-            _DesktopLiquidTitleBar(
-              searchController: _desktopSearchController,
-              onSearch: () => _openSearch(),
-            ),
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  content,
-                  offlineBadge,
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    return DropTarget(
-      onDragDone: (details) => unawaited(_handleDesktopDrop(details.files)),
-      child: body,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -661,68 +328,454 @@ class _AppTabsState extends ConsumerState<AppTabs> {
       },
     );
   }
+
+  @override
+  void dispose() {
+    _desktopSearchController.dispose();
+    _connectivitySub?.cancel();
+    _authSub?.close();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initConnectivity();
+    _authSub = ref.listenManual<AuthState>(
+      authControllerProvider,
+      (previous, next) {
+        final token = next.token;
+        if (token != null && token.isNotEmpty) {
+          unawaited(_warmContinueWatchingNotifiers(token));
+        }
+      },
+      fireImmediately: true,
+    );
+  }
+
+  void _applyConnectivity(List<ConnectivityResult> results) {
+    final offline =
+        results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+    if (!mounted) return;
+    if (offline) {
+      setState(() {
+        _offlineMode = true;
+        _index = 3;
+      });
+      return;
+    }
+    if (_offlineMode) {
+      setState(() => _offlineMode = false);
+    }
+  }
+
+  Widget _buildDesktopShell({
+    required BuildContext context,
+    required int safeIndex,
+    required Widget offlineBadge,
+    required int unread,
+  }) {
+    final content = Row(
+      children: [
+        _DesktopExpandedRail(
+          index: safeIndex,
+          unread: unread,
+          expanded: _desktopRailExpanded,
+          onTap: _onItemTapped,
+          onToggleExpanded: () {
+            setState(() {
+              _desktopRailExpanded = !_desktopRailExpanded;
+            });
+          },
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: safeIndex,
+            children: _pages,
+          ),
+        ),
+      ],
+    );
+
+    final body = Scaffold(
+      extendBody: true,
+      extendBodyBehindAppBar: true,
+      resizeToAvoidBottomInset: false,
+      body: GlassScaffoldBackground(
+        child: Column(
+          children: [
+            _DesktopLiquidTitleBar(
+              searchController: _desktopSearchController,
+              onSearch: () => _openSearch(),
+            ),
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  content,
+                  offlineBadge,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return DropTarget(
+      onDragDone: (details) => unawaited(_handleDesktopDrop(details.files)),
+      child: body,
+    );
+  }
+
+  Future<void> _handleDesktopDrop(List<XFile> files) async {
+    if (!_isDesktop || files.isEmpty || !mounted) return;
+    final candidates = files.map((f) => f.path).where((path) {
+      final lower = path.toLowerCase();
+      return lower.endsWith('.mp4') || lower.endsWith('.mkv');
+    }).toList(growable: false);
+    if (candidates.isEmpty) return;
+
+    final dm = ref.read(downloadControllerProvider.notifier);
+    var imported = 0;
+    for (final path in candidates) {
+      final episodeGuess = dm.detectEpisodeNumberFromFilePath(path) ?? 1;
+      final mapped = await _showDesktopDropImportDialog(path, episodeGuess);
+      if (mapped == null || !mounted) continue;
+      await dm.importLocalEpisode(
+        mediaId: 0,
+        episode: mapped.episode,
+        animeTitle: mapped.title,
+        absoluteFilePath: path,
+      );
+      imported++;
+    }
+    if (!mounted || imported == 0) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        content: Text('Imported $imported desktop file(s)'),
+      ),
+    );
+    setState(() => _index = 3);
+  }
+
+  Future<void> _initConnectivity() async {
+    try {
+      final now = await Connectivity()
+          .checkConnectivity()
+          .timeout(const Duration(seconds: 2));
+      _applyConnectivity(now);
+      _connectivitySub =
+          Connectivity().onConnectivityChanged.listen(_applyConnectivity);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _offlineMode = true);
+    }
+  }
+
+  void _onItemTapped(int value) {
+    hapticTap();
+    setState(() {
+      _index = value;
+      if (value == 3) {
+        _alertsSeenForCurrentUnread = true;
+      }
+    });
+  }
+
+  void _openSearch() {
+    _onItemTapped(1);
+    ref.read(discoveryDesktopSearchQueryProvider.notifier).state =
+        _desktopSearchController.text.trim();
+    ref.read(discoverySearchFocusRequestProvider.notifier).state++;
+  }
+
+  Future<({String title, int episode})?> _showDesktopDropImportDialog(
+    String path,
+    int episodeGuess,
+  ) async {
+    final titleController =
+        TextEditingController(text: p.basenameWithoutExtension(path));
+    final episodeController = TextEditingController(text: '$episodeGuess');
+    final result = await showDialog<({String title, int episode})>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import Local Episode'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: 'Anime Title'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: episodeController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Episode Number'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final ep = int.tryParse(episodeController.text.trim());
+              final title = titleController.text.trim();
+              if (ep == null || ep <= 0 || title.isEmpty) return;
+              Navigator.of(context).pop((title: title, episode: ep));
+            },
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    titleController.dispose();
+    episodeController.dispose();
+    return result;
+  }
+
+  void _snapDockFromGlobal(
+    DraggableDetails details,
+    BuildContext context,
+    Size size,
+    EdgeInsets viewPadding,
+  ) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final dropLocal = box.globalToLocal(details.offset);
+    final dx = dropLocal.dx;
+    final dy = dropLocal.dy;
+    final distLeft = dx;
+    final distRight = size.width - dx;
+    final distTop = dy;
+    final distBottom = size.height - dy;
+    final minDist = [distLeft, distRight, distTop, distBottom]
+        .reduce((a, b) => a < b ? a : b);
+
+    _DockEdge edge;
+    if (minDist == distLeft) {
+      edge = _DockEdge.left;
+    } else if (minDist == distRight) {
+      edge = _DockEdge.right;
+    } else if (minDist == distTop) {
+      edge = _DockEdge.top;
+    } else {
+      edge = _DockEdge.bottom;
+    }
+
+    final vertical = edge == _DockEdge.left || edge == _DockEdge.right;
+    final factor = vertical
+        ? ((dy - viewPadding.top) /
+                (size.height - viewPadding.top - viewPadding.bottom - 368))
+            .clamp(0.0, 1.0)
+        : ((dx - viewPadding.left) /
+                (size.width - viewPadding.left - viewPadding.right - 358))
+            .clamp(0.0, 1.0);
+
+    setState(() {
+      _wideDockEdge = edge;
+      _wideDockFactor = factor.isFinite ? factor : 0.34;
+    });
+  }
+
+  Future<void> _warmContinueWatchingNotifiers(String token) async {
+    try {
+      if (!Hive.isBoxOpen('watch_history')) return;
+      final box = Hive.box('watch_history');
+      final mediaIds = <int>{};
+      for (final key in box.keys) {
+        final raw = box.get(key);
+        if (raw is! Map) continue;
+        final mediaId = (raw['mediaId'] as num?)?.toInt();
+        if (mediaId != null && mediaId > 0) mediaIds.add(mediaId);
+      }
+      final client = ref.read(anilistClientProvider);
+      for (final mediaId in mediaIds) {
+        unawaited(client.episodeAvailability(token, mediaId));
+      }
+    } catch (_) {}
+  }
+
+  Rect _wideDockRect(Size size, EdgeInsets viewPadding) {
+    final vertical =
+        _wideDockEdge == _DockEdge.left || _wideDockEdge == _DockEdge.right;
+    const verticalWidth = 74.0;
+    const verticalHeight = 368.0;
+    const horizontalHeight = 74.0;
+    const horizontalWidth = 358.0;
+    final dockW = vertical ? verticalWidth : horizontalWidth;
+    final dockH = vertical ? verticalHeight : horizontalHeight;
+    final leftBound = viewPadding.left + 12;
+    final topBound = viewPadding.top + 12;
+    final rightBound = size.width - viewPadding.right - dockW - 12;
+    final bottomBound = size.height - viewPadding.bottom - dockH - 12;
+    final xRange = (rightBound - leftBound).clamp(0, double.infinity);
+    final yRange = (bottomBound - topBound).clamp(0, double.infinity);
+
+    switch (_wideDockEdge) {
+      case _DockEdge.left:
+        return Rect.fromLTWH(
+          leftBound,
+          topBound + (yRange * _wideDockFactor),
+          dockW,
+          dockH,
+        );
+      case _DockEdge.right:
+        return Rect.fromLTWH(
+          rightBound,
+          topBound + (yRange * _wideDockFactor),
+          dockW,
+          dockH,
+        );
+      case _DockEdge.top:
+        return Rect.fromLTWH(
+          leftBound + (xRange * _wideDockFactor),
+          topBound,
+          dockW,
+          dockH,
+        );
+      case _DockEdge.bottom:
+        return Rect.fromLTWH(
+          leftBound + (xRange * _wideDockFactor),
+          bottomBound,
+          dockW,
+          dockH,
+        );
+    }
+  }
 }
 
-class _PillBottomBar extends StatelessWidget {
-  const _PillBottomBar({
-    required this.index,
-    required this.unread,
-    required this.onTap,
-  });
+class _BasicGlassFallback extends StatelessWidget {
+  final Widget child;
 
-  final int index;
-  final int unread;
-  final ValueChanged<int> onTap;
+  const _BasicGlassFallback({required this.child});
 
   @override
   Widget build(BuildContext context) {
-    final items = <({IconData active, IconData inactive})>[
-      (active: CupertinoIcons.book_fill, inactive: CupertinoIcons.book),
-      (active: CupertinoIcons.compass_fill, inactive: CupertinoIcons.compass),
-      (active: CupertinoIcons.bell_fill, inactive: CupertinoIcons.bell),
-      (
-        active: CupertinoIcons.arrow_down_circle_fill,
-        inactive: CupertinoIcons.arrow_down_circle,
-      ),
-      (active: CupertinoIcons.gear_solid, inactive: CupertinoIcons.gear),
-    ];
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        for (var i = 0; i < items.length; i++)
-          Expanded(
-            child: InkWell(
-              onTap: () => onTap(i),
-              child: SizedBox(
-                height: double.infinity,
-                child: Center(
-                  child: Badge(
-                    isLabelVisible: i == 2 && unread > 0,
-                    smallSize: 8,
-                    child: Icon(
-                      i == index ? items[i].active : items[i].inactive,
-                      color: i == index ? Colors.white : Colors.white54,
-                      size: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+        child,
+        IgnorePointer(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 0.1, sigmaY: 0.1),
+            child: const SizedBox.expand(),
           ),
+        ),
       ],
     );
   }
 }
 
+class _DesktopExpandedRail extends StatelessWidget {
+  final int index;
+
+  final int unread;
+  final bool expanded;
+  final ValueChanged<int> onTap;
+  final VoidCallback onToggleExpanded;
+  const _DesktopExpandedRail({
+    required this.index,
+    required this.unread,
+    required this.expanded,
+    required this.onTap,
+    required this.onToggleExpanded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final destinations = <NavigationRailDestination>[
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.book_fill, size: 19),
+        label: Text('Library'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.compass_fill, size: 19),
+        label: Text('Discovery'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.list_bullet, size: 19),
+        label: Text('LibTab'),
+      ),
+      NavigationRailDestination(
+        icon: Badge(
+          isLabelVisible: unread > 0,
+          smallSize: 8,
+          child: const Icon(CupertinoIcons.bell_fill, size: 19),
+        ),
+        label: const Text('Alerts'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.arrow_down_circle_fill, size: 19),
+        label: Text('Downloads'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(CupertinoIcons.gear, size: 19),
+        label: Text('Settings'),
+      ),
+    ];
+    return Container(
+      width: expanded ? 228 : 86,
+      margin: const EdgeInsets.fromLTRB(12, 0, 10, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: Colors.black.withValues(alpha: 0.30),
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.16), width: 0.5),
+      ),
+      child: NavigationRail(
+        selectedIndex: index,
+        extended: expanded,
+        minExtendedWidth: 214,
+        backgroundColor: Colors.transparent,
+        groupAlignment: -0.9,
+        indicatorColor: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+        selectedIconTheme: const IconThemeData(color: Colors.white),
+        unselectedIconTheme:
+            IconThemeData(color: Colors.white.withValues(alpha: 0.72)),
+        selectedLabelTextStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withValues(alpha: 0.72),
+        ),
+        leading: IconButton(
+          tooltip: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+          onPressed: onToggleExpanded,
+          icon: Icon(expanded ? Icons.menu_open_rounded : Icons.menu_rounded),
+        ),
+        trailing: expanded
+            ? const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'Desktop mode',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              )
+            : null,
+        destinations: destinations,
+        onDestinationSelected: onTap,
+      ),
+    );
+  }
+}
+
 class _DesktopLiquidTitleBar extends StatefulWidget {
+  final TextEditingController searchController;
+
+  final VoidCallback onSearch;
   const _DesktopLiquidTitleBar({
     required this.searchController,
     required this.onSearch,
   });
-
-  final TextEditingController searchController;
-  final VoidCallback onSearch;
 
   @override
   State<_DesktopLiquidTitleBar> createState() => _DesktopLiquidTitleBarState();
@@ -730,17 +783,6 @@ class _DesktopLiquidTitleBar extends StatefulWidget {
 
 class _DesktopLiquidTitleBarState extends State<_DesktopLiquidTitleBar> {
   bool _isMaximized = false;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_sync());
-  }
-
-  Future<void> _sync() async {
-    _isMaximized = await windowManager.isMaximized();
-    if (mounted) setState(() {});
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -837,102 +879,417 @@ class _DesktopLiquidTitleBarState extends State<_DesktopLiquidTitleBar> {
       ),
     );
   }
-}
-
-class _DesktopExpandedRail extends StatelessWidget {
-  const _DesktopExpandedRail({
-    required this.index,
-    required this.unread,
-    required this.expanded,
-    required this.onTap,
-    required this.onToggleExpanded,
-  });
-
-  final int index;
-  final int unread;
-  final bool expanded;
-  final ValueChanged<int> onTap;
-  final VoidCallback onToggleExpanded;
 
   @override
-  Widget build(BuildContext context) {
-    final destinations = <NavigationRailDestination>[
-      const NavigationRailDestination(
-        icon: Icon(CupertinoIcons.book_fill, size: 19),
-        label: Text('Library'),
-      ),
-      const NavigationRailDestination(
-        icon: Icon(CupertinoIcons.compass_fill, size: 19),
-        label: Text('Discovery'),
-      ),
-      NavigationRailDestination(
-        icon: Badge(
-          isLabelVisible: unread > 0,
-          smallSize: 8,
-          child: const Icon(CupertinoIcons.bell_fill, size: 19),
-        ),
-        label: const Text('Alerts'),
-      ),
-      const NavigationRailDestination(
-        icon: Icon(CupertinoIcons.arrow_down_circle_fill, size: 19),
-        label: Text('Downloads'),
-      ),
-      const NavigationRailDestination(
-        icon: Icon(CupertinoIcons.gear, size: 19),
-        label: Text('Settings'),
-      ),
-    ];
-    return Container(
-      width: expanded ? 228 : 86,
-      margin: const EdgeInsets.fromLTRB(12, 0, 10, 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        color: Colors.black.withValues(alpha: 0.30),
-        border:
-            Border.all(color: Colors.white.withValues(alpha: 0.16), width: 0.5),
-      ),
-      child: NavigationRail(
-        selectedIndex: index,
-        extended: expanded,
-        minExtendedWidth: 214,
-        backgroundColor: Colors.transparent,
-        groupAlignment: -0.9,
-        indicatorColor: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-        selectedIconTheme: const IconThemeData(color: Colors.white),
-        unselectedIconTheme:
-            IconThemeData(color: Colors.white.withValues(alpha: 0.72)),
-        selectedLabelTextStyle: const TextStyle(
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-        ),
-        unselectedLabelTextStyle: TextStyle(
-          fontWeight: FontWeight.w600,
-          color: Colors.white.withValues(alpha: 0.72),
-        ),
-        leading: IconButton(
-          tooltip: expanded ? 'Collapse sidebar' : 'Expand sidebar',
-          onPressed: onToggleExpanded,
-          icon: Icon(expanded ? Icons.menu_open_rounded : Icons.menu_rounded),
-        ),
-        trailing: expanded
-            ? const Padding(
-                padding: EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'Desktop mode',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              )
-            : null,
-        destinations: destinations,
-        onDestinationSelected: onTap,
-      ),
-    );
+  void initState() {
+    super.initState();
+    unawaited(_sync());
+  }
+
+  Future<void> _sync() async {
+    _isMaximized = await windowManager.isMaximized();
+    if (mounted) setState(() {});
   }
 }
 
 enum _DockEdge { left, right, top, bottom }
 
+class _LibraryContinueWatchingShelf extends ConsumerWidget {
+  const _LibraryContinueWatchingShelf();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!Hive.isBoxOpen('watch_history')) return const SizedBox.shrink();
+    final box = Hive.box('watch_history');
+    return ValueListenableBuilder(
+      valueListenable: box.listenable(),
+      builder: (context, Box<dynamic> _, __) {
+        final entries = ref.read(watchHistoryStoreProvider).allEntries();
+        if (entries.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Continue Watching',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 152,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  final cover = (entry.coverImageUrl ?? '').trim();
+                  final remainingMs =
+                      (entry.totalDurationMs - entry.lastPositionMs)
+                          .clamp(0, entry.totalDurationMs);
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        hapticTap();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PlayerScreen(
+                              mediaId: entry.mediaId,
+                              episodeNumber: entry.episodeNumber,
+                              episodeTitle: entry.episodeTitle,
+                              sourceUrl: entry.sourceUrl,
+                              mediaTitle: entry.mediaTitle,
+                              headers: entry.headers,
+                              isLocal: entry.isDownloaded,
+                              backgroundImageUrl: entry.coverImageUrl,
+                              resumePositionMs: entry.lastPositionMs,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        width: 252,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFA1E1E1E),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final progress = entry.progress.clamp(0.0, 1.0);
+                            final progressWidth =
+                                (constraints.maxWidth * progress)
+                                    .clamp(0.0, constraints.maxWidth);
+                            return Stack(
+                              children: [
+                                Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius:
+                                          const BorderRadius.horizontal(
+                                        left: Radius.circular(16),
+                                      ),
+                                      child: SizedBox(
+                                        width: 92,
+                                        height: double.infinity,
+                                        child: cover.isNotEmpty
+                                            ? KyomiruImageCache.image(
+                                                cover,
+                                                fit: BoxFit.cover,
+                                                error: const ColoredBox(
+                                                    color: Color(0x22111111)),
+                                              )
+                                            : const ColoredBox(
+                                                color: Color(0x22111111),
+                                              ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            10, 10, 10, 10),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              entry.mediaTitle,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Episode ${entry.episodeNumber}',
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              _formatTimeLeft(remainingMs),
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                      height: 4, color: Colors.white24),
+                                ),
+                                Positioned(
+                                  left: 0,
+                                  bottom: 0,
+                                  child: Container(
+                                    height: 4,
+                                    width: progressWidth,
+                                    color: const Color(0xFF60A5FA),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatTimeLeft(int remainingMs) {
+    if (remainingMs <= 0) return 'Done';
+    final totalMinutes = (remainingMs / 60000).ceil();
+    if (totalMinutes < 1) return '<1 min left';
+    if (totalMinutes < 60) return '$totalMinutes min left';
+    final hours = totalMinutes ~/ 60;
+    final mins = totalMinutes % 60;
+    if (mins == 0) return '${hours}h left';
+    return '${hours}h ${mins}m left';
+  }
+}
+
+class _LibraryHero extends StatelessWidget {
+  final AniListMedia? media;
+
+  final double height;
+  const _LibraryHero({
+    required this.media,
+    required this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final image = media?.bannerImage ?? media?.cover.best;
+    return SizedBox(
+      height: height,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (image != null)
+              KyomiruImageCache.image(image, fit: BoxFit.cover)
+            else
+              const ColoredBox(color: Color(0x22111111)),
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Color(0x22090B13),
+                      Color(0x8A090B13),
+                      Color(0xFF090B13),
+                    ],
+                    stops: [0.42, 0.68, 0.86, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 22,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Library',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 6),
+                  if (media != null)
+                    Text(
+                      media!.title.best,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w700),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryPosterCard extends StatelessWidget {
+  final AniListMedia media;
+
+  final double width;
+  const _LibraryPosterCard({
+    required this.media,
+    required this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          PageRouteBuilder<void>(
+            pageBuilder: (_, __, ___) => DetailsScreen(mediaId: media.id),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (media.cover.best != null)
+                KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
+              else
+                const ColoredBox(color: Color(0x22111111)),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xE6000000)],
+                    stops: [0.54, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: Text(
+                  media.title.best,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryWideHero extends StatelessWidget {
+  final AniListMedia? media;
+
+  final double topInset;
+  const _LibraryWideHero({required this.media, required this.topInset});
+
+  @override
+  Widget build(BuildContext context) {
+    final image = media?.bannerImage ?? media?.cover.best;
+    return SizedBox(
+      height: 470,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (image != null)
+            KyomiruImageCache.image(image, fit: BoxFit.cover)
+          else
+            const ColoredBox(color: Color(0x22111111)),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x22000000),
+                  Color(0x77090B13),
+                  Color(0xDD090B13),
+                  Color(0xFF090B13),
+                ],
+                stops: [0.0, 0.56, 0.82, 1.0],
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, topInset + 20, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Spacer(),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Library',
+                        style: TextStyle(
+                          fontSize: 52,
+                          fontWeight: FontWeight.w800,
+                          height: 0.95,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        media?.title.best ?? 'Your AniList library',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MagneticWideNavDock extends StatelessWidget {
+  final _DockEdge edge;
+
+  final int currentIndex;
+  final VoidCallback onSearchTap;
+  final VoidCallback onHomeTap;
+  final VoidCallback onLibraryTap;
+  final VoidCallback onNotificationsTap;
+  final VoidCallback onDownloadsTap;
+  final VoidCallback onSettingsTap;
+  final bool liquidGlassEnabled;
+  final bool isOledBlack;
+  final Color activeGlowColor;
   const _MagneticWideNavDock({
     required this.edge,
     required this.currentIndex,
@@ -946,18 +1303,6 @@ class _MagneticWideNavDock extends StatelessWidget {
     required this.isOledBlack,
     required this.activeGlowColor,
   });
-
-  final _DockEdge edge;
-  final int currentIndex;
-  final VoidCallback onSearchTap;
-  final VoidCallback onHomeTap;
-  final VoidCallback onLibraryTap;
-  final VoidCallback onNotificationsTap;
-  final VoidCallback onDownloadsTap;
-  final VoidCallback onSettingsTap;
-  final bool liquidGlassEnabled;
-  final bool isOledBlack;
-  final Color activeGlowColor;
 
   @override
   Widget build(BuildContext context) {
@@ -998,22 +1343,29 @@ class _MagneticWideNavDock extends StatelessWidget {
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
-            icon: CupertinoIcons.bell_fill,
+            icon: CupertinoIcons.list_bullet,
             active: currentIndex == 2,
+            onTap: () => onNotificationsTap(), // Temporary reuse or fix
+            glowColor: activeGlowColor,
+          ),
+          SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
+          _WideRailItem(
+            icon: CupertinoIcons.bell_fill,
+            active: currentIndex == 3,
             onTap: onNotificationsTap,
             glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.arrow_down_circle_fill,
-            active: currentIndex == 3,
+            active: currentIndex == 4,
             onTap: onDownloadsTap,
             glowColor: activeGlowColor,
           ),
           SizedBox(width: vertical ? 0 : 6, height: vertical ? 6 : 0),
           _WideRailItem(
             icon: CupertinoIcons.gear,
-            active: currentIndex == 4,
+            active: currentIndex == 5,
             onTap: onSettingsTap,
             glowColor: activeGlowColor,
           ),
@@ -1039,69 +1391,299 @@ class _MagneticWideNavDock extends StatelessWidget {
   }
 }
 
-class _WideRailItem extends StatefulWidget {
-  const _WideRailItem({
-    required this.icon,
-    required this.active,
-    required this.onTap,
-    required this.glowColor,
-  });
-
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
-  final Color glowColor;
-
-  @override
-  State<_WideRailItem> createState() => _WideRailItemState();
-}
-
-class _WideRailItemState extends State<_WideRailItem> {
-  bool _hover = false;
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+  String? _markedForToken;
+  final Set<int> _dismissedIds = <int>{};
+  int _refreshTick = 0;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedScale(
-        scale: (_hover || widget.active) ? 1.05 : 1.0,
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              height: 48,
-              width: 48,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                color: widget.active
-                    ? Colors.white.withValues(alpha: 0.18)
-                    : Colors.transparent,
-                boxShadow: widget.active
-                    ? [
-                        BoxShadow(
-                          color: widget.glowColor.withValues(alpha: 0.45),
-                          blurRadius: 18,
-                          spreadRadius: 1.5,
+    final auth = ref.watch(authControllerProvider);
+    if (auth.loading) {
+      return const SafeArea(child: _NotificationsSkeleton());
+    }
+
+    if (auth.token == null || auth.token!.isEmpty) {
+      return const SafeArea(
+        child: Center(
+          child: Text('Connect AniList to view alerts.'),
+        ),
+      );
+    }
+
+    final token = auth.token!;
+    if (_markedForToken != token) {
+      _markedForToken = token;
+      Future<void>(() async {
+        await ref.read(anilistClientProvider).markNotificationsRead(token);
+        if (!mounted) return;
+        ref.invalidate(unreadAlertsProvider);
+      });
+    }
+
+    final client = ref.watch(anilistClientProvider);
+    final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
+
+    return FutureBuilder<List<AniListNotificationItem>>(
+      key: ValueKey('alerts-$_refreshTick'),
+      future: client.notifications(token),
+      builder: (context, snap) {
+        final data = (snap.data ?? const <AniListNotificationItem>[])
+            .where((e) => !_dismissedIds.contains(e.id))
+            .toList();
+
+        return SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+              children: [
+                Text('Notifications',
+                    style: Theme.of(context).textTheme.displaySmall),
+                const SizedBox(height: 4),
+                Text('AniList unread: $unread',
+                    style: const TextStyle(color: Color(0xFFA1A8BC))),
+                const SizedBox(height: 12),
+                if (snap.connectionState == ConnectionState.waiting)
+                  const _NotificationsSkeleton()
+                else if (snap.hasError)
+                  GlassCard(
+                      child: Text('Notification load failed: ${snap.error}'))
+                else if (data.isEmpty)
+                  const GlassCard(child: Text('No notifications.'))
+                else
+                  ...data.map((n) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Dismissible(
+                          key: ValueKey('notif-${n.id}'),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade700,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child:
+                                const Icon(Icons.delete, color: Colors.white),
+                          ),
+                          onDismissed: (_) async {
+                            HapticFeedback.mediumImpact();
+                            setState(() => _dismissedIds.add(n.id));
+                            await ref
+                                .read(anilistClientProvider)
+                                .markNotificationsRead(token);
+                            ref.invalidate(unreadAlertsProvider);
+                          },
+                          child: _NotificationTile(item: n),
                         ),
-                      ]
-                    : const [],
-              ),
-              child: Icon(
-                widget.icon,
-                size: 23,
-                color: widget.active ? Colors.white : Colors.white70,
-              ),
+                      )),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _refreshTick++);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+  }
+}
+
+class _NotificationsSkeleton extends StatelessWidget {
+  const _NotificationsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFF333333),
+      highlightColor: const Color(0xFF555555),
+      child: Column(
+        children: List.generate(
+          6,
+          (index) => Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                        color: Colors.black12,
+                        borderRadius: BorderRadius.circular(10))),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                          height: 14,
+                          decoration: BoxDecoration(
+                              color: Colors.black12,
+                              borderRadius: BorderRadius.circular(8))),
+                      const SizedBox(height: 8),
+                      Container(
+                          height: 12,
+                          width: 140,
+                          decoration: BoxDecoration(
+                              color: Colors.black12,
+                              borderRadius: BorderRadius.circular(8))),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _NotificationTile extends StatelessWidget {
+  final AniListNotificationItem item;
+
+  const _NotificationTile({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = item.media?.cover.best ?? item.userAvatar;
+    final subtitle =
+        '${item.type.toLowerCase()} \u2022 ${_timeAgo(item.createdAt)}';
+
+    return GlassCard(
+      borderRadius: 14,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              width: 68,
+              height: 68,
+              child: imageUrl == null || imageUrl.isEmpty
+                  ? const ColoredBox(
+                      color: Color(0x221E2335),
+                      child: Icon(Icons.notifications_outlined,
+                          color: Color(0xFFA1A8BC)),
+                    )
+                  : KyomiruImageCache.image(imageUrl, fit: BoxFit.cover),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _titleFor(item),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                const SizedBox(height: 4),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xFFA1A8BC))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _timeAgo(int unixSeconds) {
+    if (unixSeconds <= 0) return 'now';
+    final created = DateTime.fromMillisecondsSinceEpoch(unixSeconds * 1000);
+    final diff = DateTime.now().difference(created);
+    if (diff.inMinutes < 1) return 'now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${(diff.inDays / 7).floor()}w ago';
+  }
+
+  String _titleFor(AniListNotificationItem n) {
+    final lower = n.type.toLowerCase();
+    if (lower.contains('airing')) {
+      final mediaTitle = n.media?.title.best ?? 'Episode update';
+      if (n.episode != null) return '$mediaTitle aired episode ${n.episode}';
+      return n.context ?? mediaTitle;
+    }
+    if (lower.contains('activity_like')) {
+      return '${n.userName ?? 'Someone'} liked your activity.';
+    }
+    if (lower.contains('activity_reply_like')) {
+      return '${n.userName ?? 'Someone'} liked your reply.';
+    }
+    if (lower.contains('activity_reply')) {
+      return '${n.userName ?? 'Someone'} replied to your activity.';
+    }
+    if (lower.contains('following')) {
+      return '${n.userName ?? 'Someone'} started following you.';
+    }
+    return n.context ?? n.media?.title.best ?? n.type;
+  }
+}
+
+class _PillBottomBar extends StatelessWidget {
+  final int index;
+
+  final int unread;
+  final ValueChanged<int> onTap;
+  const _PillBottomBar({
+    required this.index,
+    required this.unread,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <({IconData active, IconData inactive})>[
+      (active: CupertinoIcons.book_fill, inactive: CupertinoIcons.book),
+      (active: CupertinoIcons.compass_fill, inactive: CupertinoIcons.compass),
+      (active: CupertinoIcons.list_bullet, inactive: CupertinoIcons.list_bullet),
+      (active: CupertinoIcons.bell_fill, inactive: CupertinoIcons.bell),
+      (
+        active: CupertinoIcons.arrow_down_circle_fill,
+        inactive: CupertinoIcons.arrow_down_circle,
+      ),
+      (active: CupertinoIcons.gear_solid, inactive: CupertinoIcons.gear),
+    ];
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          Expanded(
+            child: InkWell(
+              onTap: () => onTap(i),
+              child: SizedBox(
+                height: double.infinity,
+                child: Center(
+                  child: Badge(
+                    isLabelVisible: i == 3 && unread > 0,
+                    smallSize: 8,
+                    child: Icon(
+                      i == index ? items[i].active : items[i].inactive,
+                      color: i == index ? Colors.white : Colors.white54,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1121,50 +1703,6 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
   String _selected = 'All';
   Future<List<dynamic>>? _libraryFuture;
   String? _libraryFutureToken;
-
-  @override
-  void dispose() {
-    _heroTimer?.cancel();
-    super.dispose();
-  }
-
-  void _startHeroTimer(int count) {
-    _heroTimer?.cancel();
-    if (count <= 1) return;
-    _heroTimer = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (!mounted) return;
-      setState(() => _heroIndex = (_heroIndex + 1) % count);
-    });
-  }
-
-  Future<List<dynamic>> _loadLibraryData(
-    AniListClient client,
-    String token,
-  ) {
-    return client.me(token).then(
-        (u) async => [u, await client.librarySections(token, userId: u.id)]);
-  }
-
-  void _ensureLibraryFuture(AniListClient client, String token) {
-    if (_libraryFuture != null && _libraryFutureToken == token) return;
-    _libraryFutureToken = token;
-    _libraryFuture = _loadLibraryData(client, token);
-  }
-
-  double _phoneHeroHeight(BuildContext context) {
-    final w = MediaQuery.sizeOf(context).width;
-    return (w * 0.62).clamp(235.0, 320.0);
-  }
-
-  double _phoneCardWidth(BuildContext context) {
-    final w = MediaQuery.sizeOf(context).width;
-    return (w * 0.38).clamp(138.0, 172.0);
-  }
-
-  double _phoneCardHeight(BuildContext context) {
-    final cw = _phoneCardWidth(context);
-    return (cw * 1.53).clamp(208.0, 262.0);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1374,635 +1912,111 @@ class _UnifiedLibraryTabState extends ConsumerState<_UnifiedLibraryTab> {
       },
     );
   }
+
+  @override
+  void dispose() {
+    _heroTimer?.cancel();
+    super.dispose();
+  }
+
+  void _ensureLibraryFuture(AniListClient client, String token) {
+    if (_libraryFuture != null && _libraryFutureToken == token) return;
+    _libraryFutureToken = token;
+    _libraryFuture = _loadLibraryData(client, token);
+  }
+
+  Future<List<dynamic>> _loadLibraryData(
+    AniListClient client,
+    String token,
+  ) {
+    return client.me(token).then(
+        (u) async => [u, await client.librarySections(token, userId: u.id)]);
+  }
+
+  double _phoneCardHeight(BuildContext context) {
+    final cw = _phoneCardWidth(context);
+    return (cw * 1.53).clamp(208.0, 262.0);
+  }
+
+  double _phoneCardWidth(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return (w * 0.38).clamp(138.0, 172.0);
+  }
+
+  double _phoneHeroHeight(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    return (w * 0.62).clamp(235.0, 320.0);
+  }
+
+  void _startHeroTimer(int count) {
+    _heroTimer?.cancel();
+    if (count <= 1) return;
+    _heroTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted) return;
+      setState(() => _heroIndex = (_heroIndex + 1) % count);
+    });
+  }
 }
 
-class _LibraryHero extends StatelessWidget {
-  const _LibraryHero({
-    required this.media,
-    required this.height,
+class _WideRailItem extends StatefulWidget {
+  final IconData icon;
+
+  final bool active;
+  final VoidCallback onTap;
+  final Color glowColor;
+  const _WideRailItem({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+    required this.glowColor,
   });
 
-  final AniListMedia? media;
-  final double height;
-
   @override
-  Widget build(BuildContext context) {
-    final image = media?.bannerImage ?? media?.cover.best;
-    return SizedBox(
-      height: height,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (image != null)
-              KyomiruImageCache.image(image, fit: BoxFit.cover)
-            else
-              const ColoredBox(color: Color(0x22111111)),
-            const Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Color(0x22090B13),
-                      Color(0x8A090B13),
-                      Color(0xFF090B13),
-                    ],
-                    stops: [0.42, 0.68, 0.86, 1.0],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 20,
-              right: 20,
-              bottom: 22,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Library',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 6),
-                  if (media != null)
-                    Text(
-                      media!.title.best,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w700),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  State<_WideRailItem> createState() => _WideRailItemState();
 }
 
-class _LibraryWideHero extends StatelessWidget {
-  const _LibraryWideHero({required this.media, required this.topInset});
-
-  final AniListMedia? media;
-  final double topInset;
+class _WideRailItemState extends State<_WideRailItem> {
+  bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
-    final image = media?.bannerImage ?? media?.cover.best;
-    return SizedBox(
-      height: 470,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (image != null)
-            KyomiruImageCache.image(image, fit: BoxFit.cover)
-          else
-            const ColoredBox(color: Color(0x22111111)),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0x22000000),
-                  Color(0x77090B13),
-                  Color(0xDD090B13),
-                  Color(0xFF090B13),
-                ],
-                stops: [0.0, 0.56, 0.82, 1.0],
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(20, topInset + 20, 24, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Library',
-                        style: TextStyle(
-                          fontSize: 52,
-                          fontWeight: FontWeight.w800,
-                          height: 0.95,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        scale: (_hover || widget.active) ? 1.05 : 1.0,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: widget.active
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : Colors.transparent,
+                boxShadow: widget.active
+                    ? [
+                        BoxShadow(
+                          color: widget.glowColor.withValues(alpha: 0.45),
+                          blurRadius: 18,
+                          spreadRadius: 1.5,
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        media?.title.best ?? 'Your AniList library',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LibraryPosterCard extends StatelessWidget {
-  const _LibraryPosterCard({
-    required this.media,
-    required this.width,
-  });
-
-  final AniListMedia media;
-  final double width;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: GestureDetector(
-        onTap: () => Navigator.of(context).push(
-          PageRouteBuilder<void>(
-            pageBuilder: (_, __, ___) => DetailsScreen(mediaId: media.id),
-            transitionDuration: Duration.zero,
-            reverseTransitionDuration: Duration.zero,
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (media.cover.best != null)
-                KyomiruImageCache.image(media.cover.best!, fit: BoxFit.cover)
-              else
-                const ColoredBox(color: Color(0x22111111)),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0xE6000000)],
-                    stops: [0.54, 1],
-                  ),
-                ),
+                      ]
+                    : const [],
               ),
-              Positioned(
-                left: 8,
-                right: 8,
-                bottom: 8,
-                child: Text(
-                  media.title.best,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
+              child: Icon(
+                widget.icon,
+                size: 23,
+                color: widget.active ? Colors.white : Colors.white70,
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LibraryContinueWatchingShelf extends ConsumerWidget {
-  const _LibraryContinueWatchingShelf();
-
-  String _formatTimeLeft(int remainingMs) {
-    if (remainingMs <= 0) return 'Done';
-    final totalMinutes = (remainingMs / 60000).ceil();
-    if (totalMinutes < 1) return '<1 min left';
-    if (totalMinutes < 60) return '$totalMinutes min left';
-    final hours = totalMinutes ~/ 60;
-    final mins = totalMinutes % 60;
-    if (mins == 0) return '${hours}h left';
-    return '${hours}h ${mins}m left';
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!Hive.isBoxOpen('watch_history')) return const SizedBox.shrink();
-    final box = Hive.box('watch_history');
-    return ValueListenableBuilder(
-      valueListenable: box.listenable(),
-      builder: (context, Box<dynamic> _, __) {
-        final entries = ref.read(watchHistoryStoreProvider).allEntries();
-        if (entries.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Continue Watching',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 152,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: entries.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  final entry = entries[index];
-                  final cover = (entry.coverImageUrl ?? '').trim();
-                  final remainingMs =
-                      (entry.totalDurationMs - entry.lastPositionMs)
-                          .clamp(0, entry.totalDurationMs);
-                  return Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () {
-                        hapticTap();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => PlayerScreen(
-                              mediaId: entry.mediaId,
-                              episodeNumber: entry.episodeNumber,
-                              episodeTitle: entry.episodeTitle,
-                              sourceUrl: entry.sourceUrl,
-                              mediaTitle: entry.mediaTitle,
-                              headers: entry.headers,
-                              isLocal: entry.isDownloaded,
-                              backgroundImageUrl: entry.coverImageUrl,
-                              resumePositionMs: entry.lastPositionMs,
-                            ),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        width: 252,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFA1E1E1E),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.08),
-                          ),
-                        ),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final progress = entry.progress.clamp(0.0, 1.0);
-                            final progressWidth =
-                                (constraints.maxWidth * progress)
-                                    .clamp(0.0, constraints.maxWidth);
-                            return Stack(
-                              children: [
-                                Row(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius:
-                                          const BorderRadius.horizontal(
-                                        left: Radius.circular(16),
-                                      ),
-                                      child: SizedBox(
-                                        width: 92,
-                                        height: double.infinity,
-                                        child: cover.isNotEmpty
-                                            ? KyomiruImageCache.image(
-                                                cover,
-                                                fit: BoxFit.cover,
-                                                error: const ColoredBox(
-                                                    color: Color(0x22111111)),
-                                              )
-                                            : const ColoredBox(
-                                                color: Color(0x22111111),
-                                              ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            10, 10, 10, 10),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              entry.mediaTitle,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 13,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Episode ${entry.episodeNumber}',
-                                              style: const TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                            const Spacer(),
-                                            Text(
-                                              _formatTimeLeft(remainingMs),
-                                              style: const TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 11,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                      height: 4, color: Colors.white24),
-                                ),
-                                Positioned(
-                                  left: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    height: 4,
-                                    width: progressWidth,
-                                    color: const Color(0xFF60A5FA),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class NotificationsScreen extends ConsumerStatefulWidget {
-  const NotificationsScreen({super.key});
-
-  @override
-  ConsumerState<NotificationsScreen> createState() =>
-      _NotificationsScreenState();
-}
-
-class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
-  String? _markedForToken;
-  final Set<int> _dismissedIds = <int>{};
-  int _refreshTick = 0;
-
-  Future<void> _refresh() async {
-    setState(() => _refreshTick++);
-    await Future<void>.delayed(const Duration(milliseconds: 120));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final auth = ref.watch(authControllerProvider);
-    if (auth.loading) {
-      return const SafeArea(child: _NotificationsSkeleton());
-    }
-
-    if (auth.token == null || auth.token!.isEmpty) {
-      return const SafeArea(
-        child: Center(
-          child: Text('Connect AniList to view alerts.'),
-        ),
-      );
-    }
-
-    final token = auth.token!;
-    if (_markedForToken != token) {
-      _markedForToken = token;
-      Future<void>(() async {
-        await ref.read(anilistClientProvider).markNotificationsRead(token);
-        if (!mounted) return;
-        ref.invalidate(unreadAlertsProvider);
-      });
-    }
-
-    final client = ref.watch(anilistClientProvider);
-    final unread = ref.watch(unreadAlertsProvider).valueOrNull ?? 0;
-
-    return FutureBuilder<List<AniListNotificationItem>>(
-      key: ValueKey('alerts-$_refreshTick'),
-      future: client.notifications(token),
-      builder: (context, snap) {
-        final data = (snap.data ?? const <AniListNotificationItem>[])
-            .where((e) => !_dismissedIds.contains(e.id))
-            .toList();
-
-        return SafeArea(
-          child: RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-              children: [
-                Text('Notifications',
-                    style: Theme.of(context).textTheme.displaySmall),
-                const SizedBox(height: 4),
-                Text('AniList unread: $unread',
-                    style: const TextStyle(color: Color(0xFFA1A8BC))),
-                const SizedBox(height: 12),
-                if (snap.connectionState == ConnectionState.waiting)
-                  const _NotificationsSkeleton()
-                else if (snap.hasError)
-                  GlassCard(
-                      child: Text('Notification load failed: ${snap.error}'))
-                else if (data.isEmpty)
-                  const GlassCard(child: Text('No notifications.'))
-                else
-                  ...data.map((n) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Dismissible(
-                          key: ValueKey('notif-${n.id}'),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade700,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child:
-                                const Icon(Icons.delete, color: Colors.white),
-                          ),
-                          onDismissed: (_) async {
-                            HapticFeedback.mediumImpact();
-                            setState(() => _dismissedIds.add(n.id));
-                            await ref
-                                .read(anilistClientProvider)
-                                .markNotificationsRead(token);
-                            ref.invalidate(unreadAlertsProvider);
-                          },
-                          child: _NotificationTile(item: n),
-                        ),
-                      )),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _NotificationTile extends StatelessWidget {
-  const _NotificationTile({required this.item});
-
-  final AniListNotificationItem item;
-
-  String _timeAgo(int unixSeconds) {
-    if (unixSeconds <= 0) return 'now';
-    final created = DateTime.fromMillisecondsSinceEpoch(unixSeconds * 1000);
-    final diff = DateTime.now().difference(created);
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${(diff.inDays / 7).floor()}w ago';
-  }
-
-  String _titleFor(AniListNotificationItem n) {
-    final lower = n.type.toLowerCase();
-    if (lower.contains('airing')) {
-      final mediaTitle = n.media?.title.best ?? 'Episode update';
-      if (n.episode != null) return '$mediaTitle aired episode ${n.episode}';
-      return n.context ?? mediaTitle;
-    }
-    if (lower.contains('activity_like')) {
-      return '${n.userName ?? 'Someone'} liked your activity.';
-    }
-    if (lower.contains('activity_reply_like')) {
-      return '${n.userName ?? 'Someone'} liked your reply.';
-    }
-    if (lower.contains('activity_reply')) {
-      return '${n.userName ?? 'Someone'} replied to your activity.';
-    }
-    if (lower.contains('following')) {
-      return '${n.userName ?? 'Someone'} started following you.';
-    }
-    return n.context ?? n.media?.title.best ?? n.type;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final imageUrl = item.media?.cover.best ?? item.userAvatar;
-    final subtitle =
-        '${item.type.toLowerCase()} \u2022 ${_timeAgo(item.createdAt)}';
-
-    return GlassCard(
-      borderRadius: 14,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 68,
-              height: 68,
-              child: imageUrl == null || imageUrl.isEmpty
-                  ? const ColoredBox(
-                      color: Color(0x221E2335),
-                      child: Icon(Icons.notifications_outlined,
-                          color: Color(0xFFA1A8BC)),
-                    )
-                  : KyomiruImageCache.image(imageUrl, fit: BoxFit.cover),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _titleFor(item),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 15),
-                ),
-                const SizedBox(height: 4),
-                Text(subtitle,
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFFA1A8BC))),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NotificationsSkeleton extends StatelessWidget {
-  const _NotificationsSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Shimmer.fromColors(
-      baseColor: const Color(0xFF333333),
-      highlightColor: const Color(0xFF555555),
-      child: Column(
-        children: List.generate(
-          6,
-          (index) => Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                Container(
-                    width: 68,
-                    height: 68,
-                    decoration: BoxDecoration(
-                        color: Colors.black12,
-                        borderRadius: BorderRadius.circular(10))),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                          height: 14,
-                          decoration: BoxDecoration(
-                              color: Colors.black12,
-                              borderRadius: BorderRadius.circular(8))),
-                      const SizedBox(height: 8),
-                      Container(
-                          height: 12,
-                          width: 140,
-                          decoration: BoxDecoration(
-                              color: Colors.black12,
-                              borderRadius: BorderRadius.circular(8))),
-                    ],
-                  ),
-                ),
-              ],
             ),
           ),
         ),
