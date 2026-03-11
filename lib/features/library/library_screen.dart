@@ -5,14 +5,12 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../../core/glass_widgets.dart';
 import '../../core/haptics.dart';
 import '../../core/image_cache.dart';
-import '../../core/liquid_glass_preset.dart';
 import '../../features/auth/anilist_login_webview_screen.dart';
 import '../../features/details/details_screen.dart';
 import '../../features/discovery/discovery_screen.dart';
@@ -20,7 +18,6 @@ import '../../features/player/player_screen.dart';
 import '../../models/anilist_models.dart';
 import '../../services/download_manager.dart';
 import '../../services/local_library_store.dart';
-import '../../services/progress_store.dart';
 import '../../services/watch_history_store.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
@@ -52,6 +49,62 @@ Route<void> _detailsRoute(int mediaId) {
     transitionDuration: Duration.zero,
     reverseTransitionDuration: Duration.zero,
   );
+}
+
+class _LibraryTopBar extends StatelessWidget {
+  const _LibraryTopBar({
+    required this.title,
+    this.subtitle,
+    this.user,
+    this.onTapAvatar,
+  });
+
+  final String title;
+  final String? subtitle;
+  final AniListUser? user;
+  final VoidCallback? onTapAvatar;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatar = (user?.avatar ?? '').trim();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.displaySmall),
+              if (subtitle != null && subtitle!.trim().isNotEmpty)
+                Text(
+                  subtitle!,
+                  style: const TextStyle(color: Color(0xFFA1A8BC)),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTapAvatar,
+          child: ClipOval(
+            child: SizedBox(
+              width: 38,
+              height: 38,
+              child: avatar.isNotEmpty
+                  ? KyomiruImageCache.image(avatar, fit: BoxFit.cover)
+                  : Container(
+                      color: Colors.white10,
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.person_rounded, size: 20),
+                    ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _ContinueWatchingNotifierMeta {
@@ -230,9 +283,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
           children: [
-            Text('Library', style: Theme.of(context).textTheme.displaySmall),
-            const Text('All your AniList collections',
-                style: TextStyle(color: Color(0xFFA1A8BC))),
+            _LibraryTopBar(
+              title: 'Library',
+              subtitle: 'All your AniList collections',
+              onTapAvatar: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AniListLoginWebViewScreen(),
+                ),
+              ),
+            ),
             const SizedBox(height: 12),
             const GlassCard(
               child: Text(
@@ -356,7 +415,6 @@ class _LibraryDataView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final client = ref.watch(anilistClientProvider);
-    final settings = ref.watch(appSettingsProvider);
     final prefs = ref.watch(libraryPreferencesProvider);
     final prefsNotifier = ref.read(libraryPreferencesProvider.notifier);
     ref.watch(librarySyncBumpProvider);
@@ -446,10 +504,22 @@ class _LibraryDataView extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 120),
             children: [
-              _LibraryAnimatedHero(
-                items: heroItems,
+              _LibraryTopBar(
                 title: 'Library',
                 subtitle: 'Currently watching and synced lists',
+                user: user,
+                onTapAvatar: user == null
+                    ? () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const AniListLoginWebViewScreen(),
+                          ),
+                        )
+                    : null,
+              ),
+              _LibraryAnimatedHero(
+                items: heroItems,
+                title: '',
+                subtitle: '',
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -1884,8 +1954,6 @@ class _LocalLibrarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWatchingSection = title.toLowerCase() == 'watching';
-
     Widget buildCard(AnimeEntry entry) {
       final media = AniListMedia(
         id: entry.mediaId,
@@ -2131,12 +2199,16 @@ class _LibraryAnimatedHeroState extends ConsumerState<_LibraryAnimatedHero> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(widget.title,
-                        style: const TextStyle(
-                            fontSize: 28, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 4),
-                    Text(widget.subtitle,
-                        style: const TextStyle(color: Color(0xFFA1A8BC))),
+                    if (widget.title.trim().isNotEmpty)
+                      Text(widget.title,
+                          style: const TextStyle(
+                              fontSize: 28, fontWeight: FontWeight.w800)),
+                    if (widget.title.trim().isNotEmpty &&
+                        widget.subtitle.trim().isNotEmpty)
+                      const SizedBox(height: 4),
+                    if (widget.subtitle.trim().isNotEmpty)
+                      Text(widget.subtitle,
+                          style: const TextStyle(color: Color(0xFFA1A8BC))),
                     if (media != null) ...[
                       const SizedBox(height: 8),
                       Text(
