@@ -11,6 +11,7 @@ import '../../services/cache_service.dart';
 import '../../services/sora_extension_loader.dart';
 import '../../state/app_settings_state.dart';
 import '../../state/auth_state.dart';
+import '../../state/episode_state.dart';
 import '../../state/library_source_state.dart';
 import 'account_data_settings_screen.dart';
 import 'appearance_settings_screen.dart';
@@ -248,6 +249,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         if (ok != true) return;
                         await ref.read(cacheServiceProvider).clearAll(
                               anilistClient: ref.read(anilistClientProvider),
+                              soraRuntime: ref.read(soraRuntimeProvider),
                             );
                         ref.invalidate(cacheStatsProvider);
                         if (context.mounted) {
