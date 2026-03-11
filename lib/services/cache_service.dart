@@ -56,6 +56,24 @@ class CacheService {
       AppLogger.w('Cache', 'Failed to clear network image cache', error: e, stackTrace: st);
     }
 
+    // Clear cached image files stored in temporary cache directories
+    try {
+      final temp = await getTemporaryDirectory();
+      if (await temp.exists()) {
+        await for (final entity in temp.list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          final path = entity.path.toLowerCase();
+          if (path.contains('libcachedimagedata') || path.contains('cache')) {
+            try {
+              await entity.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e, st) {
+      AppLogger.w('Cache', 'Failed to clear temp image cache', error: e, stackTrace: st);
+    }
+
     // Clear temporary HLS and other streaming files
     try {
       final temp = await getTemporaryDirectory();
